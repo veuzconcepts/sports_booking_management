@@ -1,0 +1,3 @@
+# Admin panel — private application. Block all search-engine crawling/indexing.
+User-agent: *
+Disallow: /

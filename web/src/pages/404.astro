@@ -1,0 +1,64 @@
+---
+import BaseLayout from '../layouts/BaseLayout.astro';
+import Header from '../components/Header.astro';
+import { getBranding } from '../lib/api.js';
+
+const branding = await getBranding();
+const logo = branding?.logo_dark || branding?.logo_light || '/logo.svg';
+---
+<BaseLayout seo={{ meta_title: 'Page not found', robots: 'noindex, follow' }}>
+  <Header />
+
+  <section class="nf">
+    <div class="nf__sparkles" aria-hidden="true"></div>
+    <div class="nf__inner">
+      <img class="nf__logo" src={logo} alt={branding?.name || 'Club Booking'} />
+      <span class="nf__code">404</span>
+      <h1>This page took a wrong turn</h1>
+      <p>The page you're looking for doesn't exist or may have moved. Let's get you back on the road.</p>
+      <div class="nf__actions">
+        <a href="/" class="nf__btn nf__btn--primary">Back to home</a>
+        <a href="/#services" class="nf__btn nf__btn--ghost">Browse services</a>
+      </div>
+    </div>
+  </section>
+</BaseLayout>
+
+<style>
+  .nf {
+    position: relative; overflow: hidden; background: var(--bg-soft);
+    min-height: calc(100vh - 76px);
+    display: flex; align-items: center; justify-content: center;
+    text-align: center; padding: 60px 24px;
+  }
+  .nf__sparkles {
+    position: absolute; inset: 0; pointer-events: none; opacity: 0.6;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='120' height='120' viewBox='0 0 120 120'%3E%3Cpath d='M60 30c2 18 10 26 28 30-18 4-26 12-28 30-2-18-10-26-28-30 18-4 26-12 28-30z' fill='%23ebe5f7'/%3E%3C/svg%3E");
+    background-size: 240px 240px;
+  }
+  .nf__inner { position: relative; z-index: 2; max-width: 560px; }
+  .nf__logo {
+    height: 52px; width: auto; margin: 0 auto 26px;
+    filter: drop-shadow(0 4px 14px rgba(33, 27, 78, 0.16));
+  }
+  .nf__code {
+    display: block; font-weight: 800; line-height: 1;
+    font-size: clamp(5rem, 16vw, 9rem); letter-spacing: -0.03em;
+    background: linear-gradient(135deg, var(--navy-700), var(--indigo), var(--amber-600));
+    -webkit-background-clip: text; background-clip: text; color: transparent;
+  }
+  .nf h1 { font-size: clamp(1.5rem, 3.4vw, 2.2rem); margin: 8px 0 10px; }
+  .nf p { color: var(--muted); font-size: 1.05rem; max-width: 440px; margin: 0 auto 28px; }
+  .nf__actions { display: flex; gap: 14px; justify-content: center; flex-wrap: wrap; }
+  .nf__btn {
+    display: inline-flex; align-items: center; gap: 8px;
+    padding: 14px 30px; border-radius: 999px; font-weight: 600; font-size: 0.95rem;
+    border: 1.5px solid transparent; transition: transform .15s ease, box-shadow .15s ease, background .15s;
+  }
+  .nf__btn:hover { transform: translateY(-2px); }
+  .nf__btn--primary {
+    color: #fff; background: linear-gradient(135deg, var(--navy-700), var(--indigo));
+    box-shadow: 0 14px 30px rgba(33, 27, 78, 0.26);
+  }
+  .nf__btn--ghost { color: var(--ink); background: var(--surface); border-color: var(--line); }
+</style>

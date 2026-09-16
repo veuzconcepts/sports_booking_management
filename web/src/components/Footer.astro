@@ -1,0 +1,76 @@
+---
+import { getBranding } from '../lib/api.js';
+
+const { footer = {}, site = {} } = Astro.props;
+const branding = await getBranding();
+const name = branding?.name || site?.name || 'Club Booking';
+// The footer mark sits on a white chip, so the light-background logo fits best.
+const footerLogo = branding?.logo_light || branding?.logo_dark || '/logo.svg';
+const columns = footer?.link_columns || [];
+const bottom = footer?.bottom_links || [];
+const social = site?.social || {};
+const socialLinks = Object.entries(social).filter(([, v]) => v);
+const year = new Date().getFullYear();
+---
+<footer id="footer" class="footer">
+  <div class="container">
+    <div class="footer__top">
+      <div class="footer__brand">
+        <img src={footerLogo} alt={name} height="40" />
+        <p class="muted">{footer?.about_text || 'Club and facility booking made simple.'}</p>
+        {socialLinks.length > 0 && (
+          <div class="footer__social">
+            {socialLinks.map(([k, v]) => <a href={v} aria-label={k} rel="noopener" target="_blank">{k[0].toUpperCase()}</a>)}
+          </div>
+        )}
+      </div>
+
+      {columns.map((col) => (
+        <div class="footer__col">
+          <h4>{col.title}</h4>
+          <ul>
+            {(col.links || []).map((l) => <li><a href={l.url}>{l.label}</a></li>)}
+          </ul>
+        </div>
+      ))}
+
+      <div class="footer__col footer__contact">
+        <h4>Contact</h4>
+        {site?.phone && <p>{site.phone}</p>}
+        {site?.email && <p>{site.email}</p>}
+        {site?.address && <p class="muted">{site.address}{site.city ? `, ${site.city}` : ''}</p>}
+      </div>
+    </div>
+
+    <div class="footer__bottom">
+      <span class="muted">{footer?.copyright_text || `© ${year} Club Booking. All rights reserved.`}</span>
+      <div class="footer__links">
+        {bottom.map((l) => <a href={l.url}>{l.label}</a>)}
+      </div>
+    </div>
+  </div>
+</footer>
+
+<style>
+  .footer { background: var(--navy); color: #cfcce4; padding: 64px 0 28px; }
+  .footer__top {
+    display: grid; grid-template-columns: 1.6fr 1fr 1fr 1fr; gap: 32px;
+    padding-bottom: 32px; border-bottom: 1px solid rgba(255, 255, 255, 0.12);
+  }
+  .footer__brand img { height: 72px; width: auto; max-width: 280px; object-fit: contain; background: #fff; padding: 8px 14px; border-radius: 10px; margin-bottom: 14px; }
+  .footer h4 { color: #fff; font-size: 0.95rem; margin-bottom: 14px; }
+  .footer ul { list-style: none; padding: 0; margin: 0; display: grid; gap: 8px; }
+  .footer a:hover { color: var(--amber); }
+  .footer__social { display: flex; gap: 10px; margin-top: 14px; }
+  .footer__social a {
+    width: 34px; height: 34px; border-radius: 50%; display: grid; place-items: center;
+    background: rgba(255, 255, 255, 0.1); font-weight: 700;
+  }
+  .footer__bottom {
+    display: flex; justify-content: space-between; align-items: center; gap: 16px;
+    padding-top: 22px; flex-wrap: wrap; font-size: 0.9rem;
+  }
+  .footer__links { display: flex; gap: 18px; }
+  @media (max-width: 900px) { .footer__top { grid-template-columns: 1fr 1fr; } }
+  @media (max-width: 560px) { .footer__top { grid-template-columns: 1fr; } }
+</style>

@@ -1,0 +1,452 @@
+---
+import BaseLayout from '../layouts/BaseLayout.astro';
+import Header from '../components/Header.astro';
+import Hero from '../components/Hero.astro';
+import Footer from '../components/Footer.astro';
+import { getHome, getCatalogue } from '../lib/api.js';
+
+const [home, catalogue] = await Promise.all([getHome(), getCatalogue()]);
+
+const sections = home?.sections || {};
+const sec = (k) => sections[k] || {};
+const site = home?.organization || {};
+
+const banners = home?.banners || [];
+const steps = home?.process_steps || [];
+const categories = catalogue?.categories || [];
+const why = home?.why_choose_us || [];
+const stats = home?.stats || [];
+const testimonials = home?.testimonials || [];
+const brands = home?.brands || [];
+const faqs = home?.faqs || [];
+const cta = sec('cta_band');
+---
+<BaseLayout seo={home?.seo} site={site}>
+  <Header />
+
+  <!-- Hero (rotating CMS banners) -->
+  <Hero banners={banners} site={site} />
+
+  <!-- How it works -->
+  {steps.length > 0 && (
+    <section class="section section--flush-top" id="how">
+      <div class="container">
+        <div class="section-head">
+          <span class="eyebrow">{sec('how_it_works').eyebrow || 'Our Process'}</span>
+          <h2>{sec('how_it_works').title || 'How it works'}</h2>
+        </div>
+        <div class="grid cols-4">
+          {steps.map((s) => (
+            <div class="step">
+              <span class="step__no">{s.step_no || '-'}</span>
+              <h3>{s.title}</h3>
+              <p class="muted">{s.description}</p>
+            </div>
+          ))}
+        </div>
+      </div>
+    </section>
+  )}
+
+  <!-- Service categories (live from Operations → Services & Pricing) -->
+  {categories.length > 0 && (
+    <section class="section section--soft" id="services">
+      <div class="container">
+        <div class="section-head section-head--center">
+          <span class="eyebrow">{sec('facilities').eyebrow || 'Our Facilities'}</span>
+          <h2>{sec('facilities').title || 'What would you like to book?'}</h2>
+        </div>
+        <div class="cat-wrap">
+          <button class="cat-nav cat-nav--prev" data-cat-prev type="button" aria-label="Previous">
+            <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M15 18l-6-6 6-6"/></svg>
+          </button>
+          <div class="cat-scroller" data-cat-scroller>
+            {categories.map((c) => (
+              <a class="cat-card" href="/book" aria-label={c.name}>
+                {c.icon
+                  ? <img src={c.icon} alt={c.name} loading="lazy" />
+                  : <span class="cat-card__ph" aria-hidden="true"></span>}
+                <span class="cat-card__overlay" aria-hidden="true"></span>
+                <span class="cat-card__label">{c.name}</span>
+
+                <div class="cat-card__hover">
+                  {c.badge && (
+                    <span class="cat-card__badge">
+                      <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M20.59 13.41l-7.17 7.17a2 2 0 0 1-2.83 0L2 12V2h10l8.59 8.59a2 2 0 0 1 0 2.82z"/><line x1="7" y1="7" x2="7" y2="7"/></svg>
+                      {c.badge}
+                    </span>
+                  )}
+                  <h3 class="cat-card__htitle">{c.name}</h3>
+                  {c.description && <div class="cat-card__desc bw__rte" set:html={c.description}></div>}
+                  <div class="cat-card__meta">
+                    <span class="cat-card__meta-item">
+                      <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="1" y="6" width="13" height="10" rx="1.5"/><path d="M14 9h4l3 3v4h-7z"/><circle cx="5.5" cy="18" r="1.6"/><circle cx="17.5" cy="18" r="1.6"/></svg>
+                      {c.delivery_mode_display}
+                    </span>
+                  </div>
+                  <span class="cat-card__btn">
+                    Book Now
+                    <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14M13 6l6 6-6 6"/></svg>
+                  </span>
+                </div>
+              </a>
+            ))}
+          </div>
+          <button class="cat-nav cat-nav--next" data-cat-next type="button" aria-label="Next">
+            <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M9 6l6 6-6 6"/></svg>
+          </button>
+        </div>
+      </div>
+    </section>
+  )}
+
+  <!-- Why choose us -->
+  {why.length > 0 && (
+    <section class="section" id="why">
+      <div class="container">
+        <div class="section-head">
+          <span class="eyebrow">{sec('why_choose_us').eyebrow || 'Why Choose Us'}</span>
+          <h2>{sec('why_choose_us').title || 'Your club, always within reach'}</h2>
+          {sec('why_choose_us').description && <p class="muted">{sec('why_choose_us').description}</p>}
+        </div>
+        <div class="grid cols-3">
+          {why.map((w) => (
+            <div class="why">
+              <span class="why__dot" aria-hidden="true">◆</span>
+              <div>
+                <h3>{w.title}</h3>
+                <p class="muted">{w.description}</p>
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+    </section>
+  )}
+
+  <!-- Stats -->
+  {stats.length > 0 && (
+    <section class="stats">
+      <div class="container grid cols-4">
+        {stats.map((s) => (
+          <div class="stat">
+            <span class="stat__value">{s.value}</span>
+            <span class="stat__label">{s.label}</span>
+          </div>
+        ))}
+      </div>
+    </section>
+  )}
+
+  <!-- Testimonials -->
+  {testimonials.length > 0 && (
+    <section class="section" id="reviews">
+      <div class="container">
+        <div class="section-head section-head--center">
+          <span class="eyebrow">{sec('testimonials').eyebrow || 'Our Customers Say'}</span>
+          <h2>{sec('testimonials').title || 'Trusted reviews'}</h2>
+        </div>
+        <div class="grid cols-3">
+          {testimonials.map((t) => (
+            <blockquote class="card review">
+              <p>“{t.quote}”</p>
+              <footer>
+                <strong>{t.author_name}</strong>
+                {t.author_role && <span class="muted"> · {t.author_role}</span>}
+                <div class="review__stars" aria-label={`${t.rating} out of 5`}>
+                  {Array.from({ length: 5 }).map((_, i) => <span class={i < t.rating ? 'on' : ''}>★</span>)}
+                </div>
+              </footer>
+            </blockquote>
+          ))}
+        </div>
+      </div>
+    </section>
+  )}
+
+  <!-- Brands -->
+  {brands.length > 0 && (
+    <section class="section section--soft" id="brands">
+      <div class="container">
+        <div class="section-head section-head--center">
+          <span class="eyebrow">{sec('brands').eyebrow || 'Trusted By'}</span>
+          <h2>{sec('brands').title || 'Trusted brands'}</h2>
+        </div>
+        <div class="brands">
+          {brands.map((b) => (
+            <div class={`brand-logo${b.logo_detail?.url ? '' : ' brand-logo--text'}`}>
+              {b.logo_detail?.url ? <img src={b.logo_detail.url} alt={b.name} loading="lazy" /> : <span>{b.name}</span>}
+            </div>
+          ))}
+        </div>
+      </div>
+    </section>
+  )}
+
+  <!-- FAQ (native, no-JS accordion) -->
+  {faqs.length > 0 && (
+    <section class="section" id="faq">
+      <div class="container faq">
+        <div class="faq__head">
+          <span class="eyebrow">{sec('faq').eyebrow || 'FAQ'}</span>
+          <h2>{sec('faq').title || 'Frequently Asked Questions'}</h2>
+        </div>
+        <div class="faq__panel">
+          {faqs.map((f, i) => (
+            <details class="faq__item" open={i === 0}>
+              <summary>
+                <span class="faq__num">{String(i + 1).padStart(2, '0')}</span>
+                <span class="faq__q">{f.question}</span>
+                <span class="faq__icon" aria-hidden="true"></span>
+              </summary>
+              <div class="faq__a"><p>{f.answer}</p></div>
+            </details>
+          ))}
+        </div>
+      </div>
+    </section>
+  )}
+
+  <!-- CTA band -->
+  <section class="cta" id="book">
+    <div class="container cta__inner">
+      <div>
+        <h2>{cta.title || "Ready to play? Let's get you booked."}</h2>
+        {cta.subtitle && <p>{cta.subtitle}</p>}
+      </div>
+      <a href={site?.phone ? `tel:${site.phone}` : '#footer'} class="btn btn-amber">
+        {cta.primary_button_label || 'Call Us Now'}
+      </a>
+    </div>
+  </section>
+
+  <Footer footer={home?.footer} site={site} />
+</BaseLayout>
+
+<script>
+  // Service-category scroller: prev/next controls + show them only when the row
+  // actually overflows (i.e. more than three cards).
+  document.querySelectorAll('[data-cat-scroller]').forEach((scroller) => {
+    const wrap = scroller.closest('.cat-wrap');
+    if (!wrap) return;
+    const step = () => {
+      const card = scroller.querySelector('.cat-card');
+      return card ? card.getBoundingClientRect().width + 24 : 320;
+    };
+    wrap.querySelector('[data-cat-prev]')?.addEventListener('click',
+      () => scroller.scrollBy({ left: -step(), behavior: 'smooth' }));
+    wrap.querySelector('[data-cat-next]')?.addEventListener('click',
+      () => scroller.scrollBy({ left: step(), behavior: 'smooth' }));
+    const sync = () => wrap.classList.toggle('has-overflow', scroller.scrollWidth > scroller.clientWidth + 4);
+    sync();
+    window.addEventListener('resize', sync);
+  });
+</script>
+
+<style>
+  /* Steps */
+  .step__no { font-size: 1.6rem; font-weight: 800; color: var(--amber-600); }
+  .step h3 { margin-top: 6px; font-size: 1.1rem; }
+
+  /* Service categories - image cards in a smooth horizontal scroller */
+  .cat-wrap { position: relative; }
+  .cat-scroller {
+    display: flex; gap: 24px; overflow-x: auto; scroll-snap-type: x mandatory;
+    scroll-behavior: smooth; padding: 6px 2px 14px; scrollbar-width: none;
+  }
+  .cat-scroller::-webkit-scrollbar { display: none; }
+  .cat-card {
+    flex: 0 0 80%; scroll-snap-align: start;   /* mobile-first: ~1.25 cards, swipeable */
+    position: relative; aspect-ratio: 4 / 5; border-radius: 22px; overflow: hidden;
+    box-shadow: 0 14px 32px rgba(33, 27, 78, 0.12); isolation: isolate;
+    background: linear-gradient(160deg, var(--navy-700), var(--indigo-600));
+    transform: translateZ(0);   /* stabilises the rounded clip for the scaled image */
+  }
+  /* Image overfills by 1px on every side so it always reaches the rounded edges
+     (no hairline gap) and covers from the start - not only on hover. */
+  .cat-card img, .cat-card__ph {
+    position: absolute; inset: -1px; width: calc(100% + 2px); height: calc(100% + 2px);
+    max-width: none; display: block; object-fit: cover; object-position: center;
+    transition: transform .55s ease;
+  }
+  .cat-card__ph { background: radial-gradient(130% 130% at 70% 20%, var(--indigo), var(--navy) 75%); }
+  .cat-card:hover img { transform: scale(1.06); }
+  .cat-card__overlay {
+    position: absolute; inset: 0;
+    background: linear-gradient(180deg, rgba(20, 18, 43, 0.05) 30%, rgba(20, 18, 43, 0.55));
+  }
+  .cat-card__label {
+    position: absolute; inset: 0; display: flex; align-items: center; justify-content: center;
+    text-align: center; padding: 0 16px;
+    font-style: italic; font-weight: 800; letter-spacing: .4px;
+    font-size: clamp(1.4rem, 2.2vw, 2.1rem); color: #fff;
+    text-shadow: 0 3px 18px rgba(0, 0, 0, 0.55);
+    transition: opacity .35s ease, transform .45s ease; z-index: 2;
+  }
+  .cat-card:hover .cat-card__label { opacity: 0; transform: translateY(-14px); }
+  .cat-card:hover .cat-card__overlay {
+    background: linear-gradient(180deg, rgba(20, 18, 43, 0.25) 10%, rgba(20, 18, 43, 0.88));
+  }
+
+  /* Hover reveal - details slide up with a gentle stagger */
+  .cat-card__hover {
+    position: absolute; left: 0; right: 0; top: 0; bottom: 0; z-index: 3;
+    padding: 24px; text-align: left; color: #fff;
+    display: flex; flex-direction: column; align-items: flex-start; justify-content: flex-end;
+    opacity: 0; pointer-events: none; transition: opacity .4s ease;
+  }
+  .cat-card:hover .cat-card__hover { opacity: 1; }
+  .cat-card__hover > * {
+    flex-shrink: 0;
+    opacity: 0; transform: translateY(16px);
+    transition: opacity .4s ease, transform .45s cubic-bezier(.22, 1, .36, 1);
+  }
+  .cat-card:hover .cat-card__hover > * { opacity: 1; transform: translateY(0); }
+  .cat-card:hover .cat-card__hover > *:nth-child(1) { transition-delay: .04s; }
+  .cat-card:hover .cat-card__hover > *:nth-child(2) { transition-delay: .09s; }
+  .cat-card:hover .cat-card__hover > *:nth-child(3) { transition-delay: .14s; }
+  .cat-card:hover .cat-card__hover > *:nth-child(4) { transition-delay: .19s; }
+  .cat-card:hover .cat-card__hover > *:nth-child(5) { transition-delay: .24s; }
+
+  .cat-card__badge {
+    display: inline-flex; align-items: center; gap: 6px; margin-bottom: 12px;
+    background: var(--amber); color: var(--on-accent); font-weight: 700; font-size: .68rem;
+    letter-spacing: .04em; text-transform: uppercase; padding: 5px 11px; border-radius: 999px;
+  }
+  .cat-card__htitle {
+    margin: 0 0 8px; color: #fff; font-style: italic; font-weight: 800;
+    font-size: clamp(1.3rem, 1.9vw, 1.7rem); text-shadow: 0 2px 12px rgba(0, 0, 0, .5);
+  }
+  /* Fill the box; only trim (soft fade) when the text overflows. max-height
+     clamps reliably with block <p>/<ul> children (line-clamp does not). */
+  .cat-card__desc {
+    margin: 0 0 12px; font-size: .9rem; line-height: 1.5; color: rgba(255, 255, 255, .9);
+    flex: 0 1 auto; min-height: 0; overflow: hidden;
+    -webkit-mask-image: linear-gradient(180deg, #000 82%, transparent);
+    mask-image: linear-gradient(180deg, #000 82%, transparent);
+  }
+  .cat-card__desc :is(p, ul, ol) { margin: 0 0 6px; }
+  .cat-card__desc :is(p, ul, ol):last-child { margin-bottom: 0; }
+  .cat-card__desc ul, .cat-card__desc ol { padding-left: 18px; }
+  .cat-card__meta { display: flex; flex-wrap: wrap; gap: 14px; margin-bottom: 16px; }
+  .cat-card__meta-item {
+    display: inline-flex; align-items: center; gap: 7px; font-size: .82rem;
+    color: rgba(255, 255, 255, .9);
+  }
+  .cat-card__meta-item svg { color: var(--amber); flex-shrink: 0; }
+  .cat-card__btn {
+    display: inline-flex; align-items: center; gap: 8px;
+    background: #fff; color: var(--on-accent); font-weight: 600; font-size: .9rem;
+    padding: 11px 20px; border-radius: 999px; transition: background .18s, color .18s, gap .18s;
+  }
+  .cat-card__btn:hover { background: var(--amber); }
+  .cat-card:hover .cat-card__btn svg { transition: transform .2s; }
+  .cat-card__btn:hover svg { transform: translateX(3px); }
+
+  /* Touch devices: show the details (no hover) */
+  @media (hover: none) {
+    .cat-card__label { opacity: 0; }
+    .cat-card__hover { opacity: 1; pointer-events: auto; }
+    .cat-card__hover > * { opacity: 1; transform: none; }
+    .cat-card__overlay { background: linear-gradient(180deg, rgba(20, 18, 43, 0.25) 10%, rgba(20, 18, 43, 0.88)); }
+  }
+  /* Prev / next controls - only shown when the row overflows */
+  .cat-nav {
+    position: absolute; top: 50%; transform: translateY(-50%); z-index: 3;
+    width: 48px; height: 48px; border-radius: 50%; border: 0; cursor: pointer;
+    background: var(--surface); color: var(--ink); box-shadow: 0 10px 26px rgba(33, 27, 78, 0.2);
+    display: none; place-items: center; transition: background .15s, color .15s;
+  }
+  .cat-nav:hover { background: var(--indigo-600); color: #fff; }
+  .cat-nav--prev { left: -16px; }
+  .cat-nav--next { right: -16px; }
+  /* Mobile-first: 1.25 cards (swipe) → tablet 2 → desktop 3 with arrows. */
+  @media (min-width: 640px) { .cat-card { flex-basis: calc((100% - 24px) / 2); } }
+  @media (min-width: 980px) {
+    .cat-card { flex-basis: calc((100% - 48px) / 3); }
+    .cat-wrap.has-overflow .cat-nav { display: grid; }
+  }
+
+  /* Why */
+  .why { display: flex; gap: 14px; }
+  .why__dot { color: var(--amber); font-size: 1.1rem; line-height: 1.6; }
+  .why h3 { font-size: 1.05rem; margin-bottom: 4px; }
+
+  /* Stats */
+  .stats { background: linear-gradient(135deg, var(--navy) 0%, var(--indigo) 100%); color: #fff; padding: 48px 0; }
+  .stat { text-align: center; }
+  .stat__value { display: block; font-size: clamp(1.8rem, 4vw, 2.8rem); font-weight: 800; }
+  .stat__label { color: #cfcce4; font-size: 0.95rem; }
+
+  /* Reviews */
+  .review { display: flex; flex-direction: column; gap: 14px; }
+  .review p { font-size: 1.02rem; }
+  .review__stars { color: var(--line); }
+  .review__stars .on { color: var(--amber); }
+  /* Empty stars need a touch more presence on dark (light is unchanged). */
+  :global([data-theme="dark"]) .review__stars { color: var(--disabled); }
+
+  /* Brands */
+  .brands { display: flex; flex-wrap: wrap; gap: 18px; justify-content: center; }
+  .brand-logo {
+    min-width: 150px; height: 80px; display: grid; place-items: center;
+    background: var(--logo-plate); border: 1px solid var(--line); border-radius: var(--radius-sm); padding: 12px;
+    color: var(--muted); font-weight: 600;
+    backdrop-filter: blur(6px);
+    transition: transform .28s cubic-bezier(.22,1,.36,1), border-color .28s ease, box-shadow .28s ease;
+  }
+  .brand-logo img {
+    max-height: 48px; width: auto; object-fit: contain;
+    filter: var(--logo-filter); opacity: var(--logo-op);
+    transition: filter .28s ease, opacity .28s ease;
+  }
+  /* Premium monochrome → reveal + gold float is a DARK-mode touch; light keeps the
+     finalized full-colour white plate with no hover treatment. */
+  /* Premium resting look in dark - a soft glass card with depth (no hover needed). */
+  :global([data-theme="dark"]) .brand-logo { box-shadow: 0 10px 28px rgba(0, 0, 0, 0.30); }
+  :global([data-theme="dark"]) .brand-logo:hover { transform: translateY(-3px); border-color: var(--hover-border); box-shadow: var(--hover-glow); }
+  :global([data-theme="dark"]) .brand-logo:hover img { filter: var(--logo-filter-hover); opacity: 1; }
+  /* No-image fallback: brand name in gold on a dark plate (dark mode only). */
+  :global([data-theme="dark"]) .brand-logo--text { background: var(--surface); border-color: var(--line); color: var(--amber); font-weight: 700; }
+
+  /* FAQ - two columns: title (left) + numbered accordion card (right) */
+  .faq { display: grid; grid-template-columns: 0.85fr 1.6fr; gap: clamp(28px, 5vw, 72px); align-items: start; }
+  .faq__panel {
+    background: var(--surface); border: 1px solid var(--line); border-radius: 26px;
+    padding: 8px clamp(16px, 2.4vw, 30px); box-shadow: 0 18px 50px rgba(33, 27, 78, 0.07);
+  }
+  .faq__item { border-bottom: 1px solid var(--line); }
+  .faq__item:last-child { border-bottom: 0; }
+  .faq__item summary {
+    list-style: none; cursor: pointer; display: flex; align-items: center; gap: 20px;
+    padding: 22px 8px; color: var(--ink); font-weight: 600; font-size: 1.02rem;
+  }
+  .faq__item summary::-webkit-details-marker { display: none; }
+  .faq__num { color: var(--muted); font-weight: 700; min-width: 26px; }
+  .faq__q { flex: 1; }
+  /* +/× toggle */
+  .faq__icon { position: relative; width: 20px; height: 20px; flex-shrink: 0; color: var(--muted); transition: transform .28s ease, color .2s; }
+  .faq__icon::before, .faq__icon::after { content: ''; position: absolute; background: currentColor; border-radius: 2px; }
+  .faq__icon::before { left: 0; right: 0; top: 50%; height: 2px; transform: translateY(-50%); }
+  .faq__icon::after { top: 0; bottom: 0; left: 50%; width: 2px; transform: translateX(-50%); }
+  .faq__item[open] .faq__icon { transform: rotate(45deg); color: var(--indigo-600); }
+  /* Highlighted open row */
+  .faq__item[open] {
+    background: var(--faq-open-bg); border-radius: 18px; border-bottom-color: transparent;
+    margin: 6px calc(-1 * clamp(16px, 2.4vw, 30px));
+    padding: 0 clamp(16px, 2.4vw, 30px);
+  }
+  .faq__item[open] summary { color: var(--indigo-600); }
+  .faq__item[open] .faq__num { color: var(--indigo-600); }
+  .faq__a { padding: 0 8px 22px 66px; }
+  .faq__a p { margin: 0; color: var(--muted); line-height: 1.65; }
+  @media (max-width: 820px) {
+    .faq { grid-template-columns: 1fr; gap: 22px; }
+    .faq__a { padding-left: 8px; }
+  }
+
+  /* CTA */
+  .cta { background: linear-gradient(135deg, var(--navy-700), var(--indigo)); color: #fff; }
+  .cta__inner { display: flex; align-items: center; justify-content: space-between; gap: 24px; padding: clamp(36px, 6vw, 64px) 24px; flex-wrap: wrap; }
+  .cta h2 { color: #fff; margin: 0; }
+</style>

@@ -1,0 +1,34 @@
+---
+import BaseLayout from '../layouts/BaseLayout.astro';
+import Header from '../components/Header.astro';
+import BookingWizard from '../components/BookingWizard.jsx';
+import { getHome, getCatalogue, getClubs } from '../lib/api.js';
+import '../styles/booking.css';
+
+const [home, catalogue, clubData] = await Promise.all([getHome(), getCatalogue(), getClubs()]);
+const categories = catalogue?.categories || [];
+const facilityTypes = catalogue?.facility_types || [];
+const clubs = clubData?.clubs || [];
+const currency = catalogue?.currency || '';
+const city = home?.organization?.city || '';
+const country = home?.organization?.country || '';
+// Logo used as the placeholder when a facility type / category has no image.
+const placeholderLogo = home?.branding?.logo_dark || home?.branding?.logo_light || '';
+---
+<BaseLayout seo={{ meta_title: 'Book a facility', robots: 'noindex, follow' }} site={home?.organization || {}}>
+  <Header hideCta />
+  <section class="section section--flush-top">
+    <div class="container">
+      <BookingWizard
+        client:load
+        categories={categories}
+        facilityTypes={facilityTypes}
+        clubs={clubs}
+        currency={currency}
+        city={city}
+        country={country}
+        placeholderLogo={placeholderLogo}
+      />
+    </div>
+  </section>
+</BaseLayout>

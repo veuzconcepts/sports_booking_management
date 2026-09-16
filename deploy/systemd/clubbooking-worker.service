@@ -1,0 +1,29 @@
+# Celery worker (async notifications, PDF, membership/transfer jobs).
+# Requires USE_CELERY=True in backend/.env and a running Redis broker.
+#   sudo systemctl enable --now clubbooking-worker
+[Unit]
+Description=Club Booking Celery worker
+After=network.target redis-server.service postgresql.service
+Requires=redis-server.service
+
+[Service]
+Type=simple
+User=clubbooking
+Group=clubbooking
+WorkingDirectory=/opt/clubbooking/backend
+Environment=CELERY_CONCURRENCY=4
+ExecStart=/opt/clubbooking/venv/bin/celery -A config worker -l info --concurrency=${CELERY_CONCURRENCY}
+Restart=always
+RestartSec=5
+# Give in-flight tasks time to finish on stop (acks_late requeues if killed).
+TimeoutStopSec=90
+KillMode=mixed
+
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full
+ProtectHome=true
+ReadWritePaths=/opt/clubbooking/backend/media
+
+[Install]
+WantedBy=multi-user.target

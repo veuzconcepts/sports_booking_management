@@ -1,0 +1,21 @@
+{
+  "name": "club-booking-web",
+  "type": "module",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "dev": "astro dev",
+    "build": "astro build",
+    "preview": "node ./dist/server/entry.mjs",
+    "astro": "astro"
+  },
+  "dependencies": {
+    "@astrojs/node": "^8.3.4",
+    "@astrojs/react": "^3.6.2",
+    "astro": "^4.16.18",
+    "libphonenumber-js": "^1.13.7",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "react-international-phone": "^4.8.0"
+  }
+}

@@ -1,0 +1,404 @@
+/* Compact weekly scheduler, shared by the Organization, Club and Facility
+   screens. The layout goal: seven days legible without scrolling, with detail
+   revealed one day at a time rather than all at once. */
+
+/* ============================================================ time picker == */
+.tp { position: relative; display: inline-flex; align-items: center; }
+.tp-input {
+  width: 108px;
+  padding: 6px 26px 6px 9px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  background: var(--color-surface);
+  color: var(--color-text);
+  font: inherit;
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+}
+.tp-input:focus {
+  outline: none;
+  border-color: var(--color-primary-500);
+  box-shadow: 0 0 0 3px var(--color-primary-50);
+}
+.tp-input:disabled { background: var(--color-border-soft); color: var(--color-text-muted); }
+.tp--invalid .tp-input { border-color: var(--color-danger-600); }
+.tp-btn {
+  position: absolute;
+  right: 4px;
+  display: grid;
+  place-items: center;
+  width: 20px;
+  height: 20px;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: none;
+  color: var(--color-text-muted);
+  cursor: pointer;
+}
+.tp-btn:hover { color: var(--color-primary-600); }
+.tp-list {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  z-index: 40;
+  max-height: 210px;
+  width: 128px;
+  margin: 0;
+  padding: 4px;
+  overflow-y: auto;
+  list-style: none;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-surface);
+  box-shadow: var(--shadow-lg);
+}
+.tp-opt {
+  width: 100%;
+  padding: 5px 8px;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: none;
+  color: var(--color-text);
+  font: inherit;
+  font-size: 12.5px;
+  text-align: left;
+  cursor: pointer;
+}
+.tp-opt:hover { background: var(--color-border-soft); }
+.tp-opt.is-on { background: var(--color-primary-50); color: var(--color-primary-700); font-weight: 600; }
+
+/* ================================================================ header == */
+.sch { display: grid; gap: 14px; }
+
+.sch-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px 14px;
+  padding: 12px 14px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  background: var(--color-surface);
+}
+.sch-bar__group { display: inline-flex; align-items: center; gap: 7px; }
+.sch-bar__label {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--color-text-muted);
+  white-space: nowrap;
+}
+.sch-bar__spacer { flex: 1 1 auto; }
+.sch-num {
+  width: 70px;
+  padding: 6px 8px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  font: inherit;
+  font-size: 13px;
+}
+.sch-select {
+  padding: 6px 8px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  background: var(--color-surface);
+  font: inherit;
+  font-size: 13px;
+}
+
+/* Inheritance switch: Use parent schedule / Customize. */
+.sch-source {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  padding: 11px 14px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  background: var(--color-primary-50);
+}
+.sch-source__text { font-size: 13px; color: var(--color-text); }
+.sch-source__text strong { font-weight: 650; }
+.sch-source--custom { background: var(--color-surface); }
+
+/* ============================================================== day rows == */
+.sch-week {
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  background: var(--color-surface);
+  overflow: hidden;
+}
+.sch-head,
+.sch-row {
+  display: grid;
+  grid-template-columns: 104px 78px minmax(210px, 1fr) 96px 104px 36px;
+  align-items: center;
+  gap: 10px;
+  padding: 0 12px;
+}
+.sch-head {
+  height: 34px;
+  border-bottom: 1px solid var(--color-border);
+  background: var(--color-bg);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: .04em;
+  text-transform: uppercase;
+  color: var(--color-text-muted);
+}
+.sch-row {
+  min-height: 48px;
+  border-top: 1px solid var(--color-border-soft);
+}
+.sch-row:first-of-type { border-top: 0; }
+.sch-row--open-detail { background: var(--color-primary-50); }
+.sch-row--closed .sch-row__hours { color: var(--color-text-muted); }
+.sch-row--invalid { background: var(--color-danger-50); }
+
+.sch-row__day { font-size: 13.5px; font-weight: 600; }
+.sch-row__hours {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+}
+.sch-row__sep { color: var(--color-text-muted); }
+.sch-row__extra {
+  padding: 1px 6px;
+  border-radius: 999px;
+  background: var(--color-border-soft);
+  font-size: 11px;
+  color: var(--color-text-muted);
+}
+.sch-row__err {
+  grid-column: 1 / -1;
+  padding: 0 0 8px;
+  font-size: 12px;
+  color: var(--color-danger-600);
+}
+
+/* Open / Closed toggle, small enough to sit in a 48px row. */
+.sch-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12.5px;
+  cursor: pointer;
+  user-select: none;
+}
+.sch-toggle input { margin: 0; }
+.sch-toggle--off { color: var(--color-text-muted); }
+
+.sch-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 650;
+  white-space: nowrap;
+}
+.sch-badge--inherited { background: var(--color-border-soft); color: var(--color-text-muted); }
+.sch-badge--custom { background: var(--color-primary-100); color: var(--color-primary-700); }
+.sch-badge--closed { background: var(--color-danger-50); color: var(--color-danger-600); }
+.sch-badge--break { background: var(--color-warning-50); color: var(--color-warning-600); }
+.sch-badge--overnight { background: var(--color-info-50); color: var(--color-info-600); }
+
+/* ------------------------------------------------- expanded day editor --- */
+.sch-detail {
+  padding: 4px 12px 14px 114px;
+  border-top: 1px dashed var(--color-border-soft);
+  background: var(--color-primary-50);
+}
+.sch-detail__section { margin-top: 10px; }
+.sch-detail__title {
+  margin-bottom: 6px;
+  font-size: 11.5px;
+  font-weight: 700;
+  letter-spacing: .04em;
+  text-transform: uppercase;
+  color: var(--color-text-muted);
+}
+.sch-line {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 7px;
+  margin-bottom: 6px;
+}
+.sch-line__name {
+  width: 150px;
+  padding: 6px 9px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  font: inherit;
+  font-size: 13px;
+}
+.sch-add {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 5px 10px;
+  border: 1px dashed var(--color-border);
+  border-radius: var(--radius-sm);
+  background: none;
+  color: var(--color-text-muted);
+  font: inherit;
+  font-size: 12.5px;
+  cursor: pointer;
+}
+.sch-add:hover { border-color: var(--color-primary-500); color: var(--color-primary-600); }
+
+/* ---------------------------------------------------------- menus ------- */
+.sch-menu { position: relative; }
+.sch-menu__pop {
+  position: absolute;
+  top: calc(100% + 4px);
+  right: 0;
+  z-index: 30;
+  min-width: 216px;
+  padding: 5px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-surface);
+  box-shadow: var(--shadow-lg);
+}
+.sch-menu__group {
+  padding: 6px 9px 3px;
+  font-size: 10.5px;
+  font-weight: 700;
+  letter-spacing: .04em;
+  text-transform: uppercase;
+  color: var(--color-text-muted);
+}
+.sch-menu__item {
+  display: block;
+  width: 100%;
+  padding: 6px 9px;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: none;
+  color: var(--color-text);
+  font: inherit;
+  font-size: 13px;
+  text-align: left;
+  cursor: pointer;
+}
+.sch-menu__item:hover { background: var(--color-border-soft); }
+.sch-menu__item--danger { color: var(--color-danger-600); }
+.sch-menu__sep { margin: 4px 0; border: 0; border-top: 1px solid var(--color-border-soft); }
+
+/* ========================================================= timeline view == */
+.sch-timeline {
+  padding: 12px 14px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  background: var(--color-surface);
+}
+.sch-tl-row {
+  display: grid;
+  grid-template-columns: 78px 1fr;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 6px;
+  font-size: 12px;
+}
+.sch-tl-track {
+  position: relative;
+  height: 18px;
+  border-radius: var(--radius-sm);
+  background: var(--color-border-soft);
+  overflow: hidden;
+}
+.sch-tl-open {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  background: var(--color-primary-400);
+}
+.sch-tl-break {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  background: repeating-linear-gradient(
+    135deg, var(--color-warning-600), var(--color-warning-600) 3px,
+    transparent 3px, transparent 6px);
+  opacity: .85;
+}
+.sch-tl-scale {
+  display: grid;
+  grid-template-columns: 78px 1fr;
+  gap: 10px;
+  margin-top: 2px;
+  font-size: 10.5px;
+  color: var(--color-text-muted);
+}
+.sch-tl-scale__marks { display: flex; justify-content: space-between; }
+
+/* ======================================================== effective view == */
+.sch-eff {
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  background: var(--color-surface);
+  overflow: hidden;
+}
+.sch-eff__row {
+  display: grid;
+  grid-template-columns: 104px minmax(180px, 1fr) auto;
+  align-items: center;
+  gap: 10px;
+  padding: 9px 12px;
+  border-top: 1px solid var(--color-border-soft);
+  font-size: 13px;
+}
+.sch-eff__row:first-child { border-top: 0; }
+
+/* =============================================== bookings-affected notice = */
+.sch-impact {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 13px;
+  border: 1px solid var(--color-warning-600);
+  border-radius: var(--radius-md);
+  background: var(--color-warning-50);
+  font-size: 13px;
+  color: var(--color-warning-600);
+}
+.sch-impact strong { color: var(--color-text); }
+.sch-impact__list {
+  width: 100%;
+  margin: 4px 0 0;
+  padding-left: 18px;
+  color: var(--color-text);
+  font-size: 12.5px;
+}
+
+/* ============================================================= responsive = */
+@media (max-width: 900px) {
+  .sch-head { display: none; }
+  .sch-row {
+    grid-template-columns: 1fr auto;
+    grid-template-areas:
+      "day    menu"
+      "status status"
+      "hours  hours"
+      "meta   meta";
+    gap: 6px;
+    padding: 12px;
+  }
+  .sch-row__day { grid-area: day; }
+  .sch-row__status { grid-area: status; }
+  .sch-row__hours { grid-area: hours; }
+  .sch-row__meta { grid-area: meta; display: flex; gap: 6px; }
+  .sch-row__menu { grid-area: menu; }
+  .sch-detail { padding: 4px 12px 14px; }
+  .sch-eff__row { grid-template-columns: 90px 1fr; row-gap: 4px; }
+}
+
+@media (max-width: 560px) {
+  .tp-input { width: 96px; }
+  .sch-line__name { width: 100%; }
+}

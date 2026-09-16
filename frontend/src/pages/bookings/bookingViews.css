@@ -1,0 +1,470 @@
+/* Card and calendar views for the bookings page. The list view uses the shared
+   DataTable and needs nothing here. */
+
+/* ---------------------------------------------------------------- palette --
+   One colour per booking status, used by BOTH views. `--bk-a` is the strong
+   accent (left bar, event border, legend dot), `--bk-bg` the tint behind an
+   event, `--bk-fg` text that stays readable on that tint. */
+.bk-st--booked      { --bk-a: #d97706; --bk-bg: #fffbeb; --bk-fg: #92400e; }
+.bk-st--confirmed   { --bk-a: #059669; --bk-bg: #ecfdf5; --bk-fg: #065f46; }
+.bk-st--assigned    { --bk-a: #4f46b5; --bk-bg: #eef0fb; --bk-fg: #3730a3; }
+.bk-st--arrived     { --bk-a: #0284c7; --bk-bg: #f0f9ff; --bk-fg: #075985; }
+.bk-st--in_progress { --bk-a: #7c3aed; --bk-bg: #f5f3ff; --bk-fg: #5b21b6; }
+.bk-st--completed   { --bk-a: #0d9488; --bk-bg: #f0fdfa; --bk-fg: #115e59; }
+.bk-st--closed      { --bk-a: #64748b; --bk-bg: #f8fafc; --bk-fg: #334155; }
+.bk-st--cancelled   { --bk-a: #dc2626; --bk-bg: #fef2f2; --bk-fg: #991b1b; }
+.bk-st--no_show     { --bk-a: #e11d48; --bk-bg: #fff1f2; --bk-fg: #9f1239; }
+.bk-st--unknown     { --bk-a: #94a3b8; --bk-bg: #f8fafc; --bk-fg: #475569; }
+
+/* ------------------------------------------------------------ view switch -- */
+.bk-views {
+  display: inline-flex;
+  padding: 3px;
+  gap: 2px;
+  background: var(--color-border-soft);
+  border-radius: var(--radius-md);
+}
+.bk-views button {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 7px 13px;
+  border: 0;
+  border-radius: calc(var(--radius-md) - 3px);
+  background: transparent;
+  color: var(--color-text-muted);
+  font: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background .15s, color .15s;
+}
+.bk-views button:hover { color: var(--color-text); }
+.bk-views button.is-on {
+  background: var(--color-surface);
+  color: var(--color-primary-700);
+  box-shadow: var(--shadow-xs);
+}
+
+/* ================================================================= CARDS == */
+.bk-cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(290px, 1fr));
+  gap: 14px;
+}
+
+.bk-card {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  padding: 14px 16px 12px 18px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  background: var(--color-surface);
+  box-shadow: var(--shadow-xs);
+  cursor: pointer;
+  transition: box-shadow .16s, transform .16s, border-color .16s;
+}
+.bk-card:hover {
+  transform: translateY(-2px);
+  border-color: var(--bk-a, var(--color-border));
+  box-shadow: var(--shadow-md);
+}
+.bk-card:focus-visible {
+  outline: 2px solid var(--color-primary-500);
+  outline-offset: 2px;
+}
+/* The status colour as a spine down the left edge - the fastest read on a wall
+   of cards, and it survives being scanned at a glance. */
+.bk-card::before {
+  content: "";
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: 4px;
+  border-radius: var(--radius-lg) 0 0 var(--radius-lg);
+  background: var(--bk-a);
+}
+.bk-card--inactive { opacity: .72; }
+.bk-card--inactive .bk-card__type { text-decoration: line-through; }
+
+.bk-card__top {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+.bk-card__ref {
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: 11.5px;
+  font-weight: 600;
+  letter-spacing: .02em;
+  color: var(--color-text-muted);
+}
+.bk-card__chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 3px 9px;
+  border-radius: 999px;
+  background: var(--bk-bg);
+  color: var(--bk-fg);
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: capitalize;
+  white-space: nowrap;
+}
+.bk-card__chip::before {
+  content: "";
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--bk-a);
+}
+
+.bk-card__type {
+  margin: 0 0 2px;
+  font-size: 15.5px;
+  font-weight: 650;
+  line-height: 1.25;
+  color: var(--color-text);
+  overflow-wrap: anywhere;
+}
+.bk-card__customer {
+  margin-bottom: 10px;
+  font-size: 12.5px;
+  color: var(--color-text-muted);
+  overflow-wrap: anywhere;
+}
+
+.bk-card__meta {
+  display: grid;
+  gap: 6px;
+  padding-top: 10px;
+  border-top: 1px dashed var(--color-border-soft);
+  font-size: 12.5px;
+  color: var(--color-text);
+}
+.bk-card__row {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  min-width: 0;
+}
+.bk-card__row svg { flex: none; color: var(--color-text-muted); }
+.bk-card__row span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.bk-card__foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-top: 11px;
+  padding-top: 10px;
+  border-top: 1px solid var(--color-border-soft);
+}
+.bk-card__who {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  min-width: 0;
+  font-size: 12px;
+  color: var(--color-text-muted);
+}
+/* Initials stand in for the avatars in a project board - no photo to load. */
+.bk-card__avatar {
+  display: grid;
+  place-items: center;
+  flex: none;
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  background: var(--color-primary-100);
+  color: var(--color-primary-700);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: .02em;
+}
+.bk-card__avatar--none { background: var(--color-border-soft); color: var(--color-text-muted); }
+.bk-card__total { font-size: 13.5px; font-weight: 700; white-space: nowrap; }
+
+/* Actions surface on hover, and stay put for keyboard users. */
+.bk-card__actions {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  display: flex;
+  gap: 2px;
+  padding: 2px;
+  border-radius: var(--radius-sm);
+  background: var(--color-surface);
+  box-shadow: var(--shadow-sm);
+  opacity: 0;
+  transition: opacity .14s;
+}
+.bk-card:hover .bk-card__actions,
+.bk-card__actions:focus-within { opacity: 1; }
+@media (hover: none) { .bk-card__actions { opacity: 1; } }
+
+.bk-cards__more { display: flex; justify-content: center; margin-top: 16px; }
+
+/* ============================================================== CALENDAR == */
+.bk-cal { display: flex; flex-direction: column; gap: 12px; }
+
+.bk-cal__bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+}
+.bk-cal__title {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 650;
+  color: var(--color-text);
+}
+.bk-cal__nav { display: inline-flex; align-items: center; gap: 4px; }
+
+.bk-cal__grid {
+  position: relative;
+  overflow: auto;
+  max-height: 68vh;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  background: var(--color-surface);
+}
+
+/* Head row sticks so the day you are looking at is always labelled. */
+.bk-cal__head {
+  position: sticky;
+  top: 0;
+  z-index: 3;
+  display: grid;
+  border-bottom: 1px solid var(--color-border);
+  background: var(--color-surface);
+}
+.bk-cal__gutter-head { border-right: 1px solid var(--color-border-soft); }
+.bk-cal__day {
+  padding: 9px 8px;
+  text-align: center;
+  border-left: 1px solid var(--color-border-soft);
+}
+.bk-cal__day-name {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: .05em;
+  text-transform: uppercase;
+  color: var(--color-text-muted);
+}
+.bk-cal__day-num {
+  margin-top: 2px;
+  font-size: 17px;
+  font-weight: 650;
+  color: var(--color-text);
+}
+.bk-cal__day--today .bk-cal__day-name { color: var(--color-primary-600); }
+.bk-cal__day--today .bk-cal__day-num {
+  display: inline-grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  background: var(--color-primary-600);
+  color: #fff;
+}
+
+.bk-cal__body { position: relative; display: grid; }
+
+.bk-cal__gutter { border-right: 1px solid var(--color-border-soft); }
+.bk-cal__hour {
+  position: relative;
+  padding-right: 8px;
+  text-align: right;
+  font-size: 11px;
+  color: var(--color-text-muted);
+}
+/* The label sits ON the hour line rather than inside the band below it. */
+.bk-cal__hour span { position: relative; top: -6px; }
+
+.bk-cal__col {
+  position: relative;
+  border-left: 1px solid var(--color-border-soft);
+}
+.bk-cal__col--today { background: var(--color-primary-50); }
+.bk-cal__col--weekend { background: var(--color-bg); }
+.bk-cal__line {
+  position: absolute;
+  left: 0;
+  right: 0;
+  border-top: 1px solid var(--color-border-soft);
+  pointer-events: none;
+}
+.bk-cal__line--half { border-top-style: dotted; }
+
+/* Now-line, as in the reference. */
+.bk-cal__now {
+  position: absolute;
+  left: 0;
+  right: 0;
+  z-index: 2;
+  border-top: 2px solid var(--color-danger-600);
+  pointer-events: none;
+}
+.bk-cal__now::before {
+  content: "";
+  position: absolute;
+  top: -5px;
+  left: -4px;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--color-danger-600);
+}
+
+.bk-cal__event {
+  position: absolute;
+  z-index: 1;
+  overflow: hidden;
+  padding: 4px 7px;
+  border: 1px solid var(--bk-a);
+  border-left: 3px solid var(--bk-a);
+  border-radius: var(--radius-sm);
+  background: var(--bk-bg);
+  color: var(--bk-fg);
+  text-align: left;
+  font: inherit;
+  cursor: pointer;
+  transition: box-shadow .14s, transform .14s;
+}
+.bk-cal__event:hover {
+  z-index: 4;
+  transform: scale(1.015);
+  box-shadow: var(--shadow-md);
+}
+.bk-cal__event:focus-visible {
+  outline: 2px solid var(--color-primary-600);
+  outline-offset: 1px;
+}
+.bk-cal__event--inactive {
+  background: repeating-linear-gradient(
+    135deg, var(--bk-bg), var(--bk-bg) 5px, transparent 5px, transparent 10px);
+  opacity: .8;
+}
+.bk-cal__event--inactive .bk-cal__event-title { text-decoration: line-through; }
+.bk-cal__event-title {
+  font-size: 11.5px;
+  font-weight: 700;
+  line-height: 1.25;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.bk-cal__event-sub {
+  font-size: 10.5px;
+  line-height: 1.3;
+  opacity: .85;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+/* Below roughly 40 minutes there is only room for one line. */
+.bk-cal__event--tiny { padding: 1px 6px; }
+.bk-cal__event--tiny .bk-cal__event-sub { display: none; }
+.bk-cal__event--tiny .bk-cal__event-title { font-size: 10.5px; }
+
+/* --------------------------------------------------------- month layout -- */
+.bk-cal__month { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); }
+.bk-cal__mcell {
+  min-height: 116px;
+  padding: 6px;
+  border-top: 1px solid var(--color-border-soft);
+  border-left: 1px solid var(--color-border-soft);
+}
+.bk-cal__mcell--out { background: var(--color-bg); }
+.bk-cal__mcell--today { background: var(--color-primary-50); }
+.bk-cal__mnum {
+  margin-bottom: 4px;
+  font-size: 12px;
+  font-weight: 650;
+  color: var(--color-text-muted);
+}
+.bk-cal__mcell--today .bk-cal__mnum {
+  display: inline-grid;
+  place-items: center;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  background: var(--color-primary-600);
+  color: #fff;
+}
+.bk-cal__chip {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  width: 100%;
+  margin-bottom: 3px;
+  padding: 2px 6px;
+  border: 0;
+  border-left: 3px solid var(--bk-a);
+  border-radius: var(--radius-sm);
+  background: var(--bk-bg);
+  color: var(--bk-fg);
+  font: inherit;
+  font-size: 11px;
+  text-align: left;
+  cursor: pointer;
+}
+.bk-cal__chip:hover { filter: brightness(.97); }
+.bk-cal__chip span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.bk-cal__chip time { flex: none; font-weight: 700; font-size: 10px; }
+.bk-cal__chip--inactive { text-decoration: line-through; opacity: .75; }
+.bk-cal__mmore {
+  padding: 1px 6px;
+  border: 0;
+  background: none;
+  color: var(--color-text-muted);
+  font: inherit;
+  font-size: 10.5px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.bk-cal__mmore:hover { color: var(--color-primary-600); text-decoration: underline; }
+
+/* ------------------------------------------------------------- legend ---- */
+.bk-cal__legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 14px;
+  font-size: 11.5px;
+  color: var(--color-text-muted);
+}
+.bk-cal__legend-item { display: inline-flex; align-items: center; gap: 6px; }
+.bk-cal__legend-item::before {
+  content: "";
+  width: 9px;
+  height: 9px;
+  border-radius: 3px;
+  background: var(--bk-a);
+}
+
+.bk-cal__empty {
+  padding: 40px 16px;
+  text-align: center;
+  color: var(--color-text-muted);
+  font-size: 13px;
+}
+
+@media (max-width: 720px) {
+  .bk-cards { grid-template-columns: 1fr; }
+  .bk-cal__grid { max-height: none; }
+  .bk-cal__mcell { min-height: 84px; }
+}

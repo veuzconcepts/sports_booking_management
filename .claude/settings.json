@@ -1,0 +1,9 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(USE_SQLITE=True DJANGO_SECRET_KEY=test PYTHONIOENCODING=utf-8 ./.venv/Scripts/python.exe manage.py migrate)",
+      "Bash(USE_SQLITE=True DJANGO_SECRET_KEY=test PYTHONIOENCODING=utf-8 ./.venv/Scripts/python.exe manage.py makemigrations --check --dry-run)",
+      "Bash(USE_SQLITE=True DJANGO_SECRET_KEY=test PYTHONIOENCODING=utf-8 ./.venv/Scripts/python.exe manage.py seed_demo)"
+    ]
+  }
+}

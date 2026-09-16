@@ -1,0 +1,77 @@
+---
+import '../styles/theme.css';
+import { getBranding } from '../lib/api.js';
+
+const { seo = {}, site = {} } = Astro.props;
+const branding = await getBranding();
+// SEO falls back: per-page CMS SEO → org SEO defaults → built-in copy.
+const title = seo?.meta_title || branding?.meta_title
+  || 'Club & Facility Booking';
+const description = seo?.meta_description || branding?.meta_description
+  || 'Book courts, pitches, lanes, halls and meeting spaces at our clubs. Live availability and instant confirmation.';
+// Use the configured site URL for the canonical when available; otherwise fall
+// back to the current request URL (avoids "Invalid URL" when `site` is unset).
+let canonical = seo?.canonical_url || Astro.url.href;
+if (!seo?.canonical_url && Astro.site) {
+  try { canonical = new URL(Astro.url.pathname, Astro.site).toString(); } catch { /* keep fallback */ }
+}
+const ogImage = seo?.og_image_detail?.url || branding?.og_image || null;
+const favicon = branding?.favicon || '/logo.svg';
+const robots = seo?.robots || 'index,follow';
+
+// JSON-LD: local business (lets search engines understand the brand).
+const jsonLd = {
+  '@context': 'https://schema.org',
+  '@type': 'LocalBusiness',
+  name: site?.name || 'Club Booking',
+  description,
+  email: site?.email || undefined,
+  telephone: site?.phone || undefined,
+  address: site?.address || undefined,
+  url: canonical,
+  ...(seo?.structured_data && Object.keys(seo.structured_data).length ? seo.structured_data : {}),
+};
+---
+<!doctype html>
+<html lang="en" data-theme="dark">
+  <head>
+    <!-- Apply the saved theme before paint so there's no flash. Dark is the default. -->
+    <script is:inline>
+      (function () {
+        try {
+          var t = localStorage.getItem('cb-theme');
+          if (t !== 'light' && t !== 'dark') t = 'dark';
+          document.documentElement.setAttribute('data-theme', t);
+          document.documentElement.style.colorScheme = t;
+        } catch (e) {
+          document.documentElement.setAttribute('data-theme', 'dark');
+        }
+      })();
+    </script>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="generator" content={Astro.generator} />
+    <title>{title}</title>
+    <meta name="description" content={description} />
+    <meta name="robots" content={robots} />
+    <link rel="canonical" href={canonical} />
+    <link rel="icon" href={favicon} />
+
+    <!-- Open Graph / social -->
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content={title} />
+    <meta property="og:description" content={description} />
+    <meta property="og:url" content={canonical} />
+    {ogImage && <meta property="og:image" content={ogImage} />}
+    <meta name="twitter:card" content={ogImage ? 'summary_large_image' : 'summary'} />
+
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
+
+    <script type="application/ld+json" set:html={JSON.stringify(jsonLd)} />
+  </head>
+  <body>
+    <slot />
+  </body>
+</html>

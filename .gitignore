@@ -1,0 +1,219 @@
+# =========================
+# ENVIRONMENT / SECRETS
+# =========================
+.env
+.env.*
+!.env.example
+
+# Local secret/config overrides
+*.local
+*.secret
+secrets/
+credentials/
+
+# =========================
+# PYTHON / DJANGO
+# =========================
+__pycache__/
+*.py[cod]
+*$py.class
+
+*.so
+.Python
+
+venv/
+.venv/
+env/
+ENV/
+
+pip-wheel-metadata/
+pip-log.txt
+
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+.coverage.*
+htmlcov/
+
+# Django generated/static
+staticfiles/
+collected_static/
+
+# Local database files if ever used
+*.sqlite3
+db.sqlite3
+
+# =========================
+# DJANGO MEDIA / USER UPLOADS
+# =========================
+media/
+uploads/
+
+# If you need selected placeholder folders tracked:
+!media/.gitkeep
+!uploads/.gitkeep
+
+# =========================
+# NODE / REACT
+# =========================
+node_modules/
+
+dist/
+build/
+out/
+
+.cache/
+.parcel-cache/
+.vite/
+
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# =========================
+# FRONTEND ENV FILES
+# =========================
+frontend/.env
+frontend/.env.*
+!frontend/.env.example
+
+# =========================
+# LOGS
+# =========================
+*.log
+logs/
+
+# =========================
+# TEMP / GENERATED FILES
+# =========================
+tmp/
+temp/
+.cache/
+
+*.tmp
+*.temp
+*.bak
+*.swp
+*.swo
+
+# Generated reports
+generated_reports/
+reports/generated/
+exports/
+downloads/
+
+# Temporary Excel/PDF exports
+*.generated.xlsx
+*.generated.pdf
+
+# =========================
+# AI / REPORT TEMP FILES
+# =========================
+ai_cache/
+ai_temp/
+ai_reports/
+report_cache/
+
+# Uploaded AI reference files if stored locally
+ai_uploads/
+reference_uploads/
+
+# =========================
+# IDE / EDITORS
+# =========================
+.vscode/
+.idea/
+
+*.code-workspace
+
+# Visual Studio
+.vs/
+
+# =========================
+# OS FILES
+# =========================
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# =========================
+# WINDOWS
+# =========================
+ehthumbs.db
+$RECYCLE.BIN/
+
+# =========================
+# MAC
+# =========================
+.AppleDouble
+.LSOverride
+
+# =========================
+# TEST / COVERAGE OUTPUT
+# =========================
+coverage/
+test-results/
+playwright-report/
+blob-report/
+
+# =========================
+# CELERY / BACKGROUND JOBS
+# =========================
+celerybeat-schedule
+celerybeat.pid
+
+# =========================
+# REDIS / LOCAL DEV FILES
+# =========================
+dump.rdb
+
+# =========================
+# DOCKER LOCAL OVERRIDES
+# =========================
+docker-compose.override.yml
+
+# =========================
+# LOCAL BACKUPS
+# =========================
+backup/
+backups/
+*.dump
+*.sql
+*.sql.gz
+
+# =========================
+# CERTIFICATES / KEYS
+# =========================
+*.pem
+*.key
+*.crt
+*.p12
+*.pfx
+
+# =========================
+# PACKAGE MANAGER CACHE
+# =========================
+.npm/
+.pnpm-store/
+.yarn/cache/
+
+# =========================
+# BUILD / COMPILED FILES
+# =========================
+*.egg-info/
+.eggs/
+wheels/
+
+# =========================
+# LOCAL SETTINGS
+# =========================
+settings.local.py
+local_settings.py
+
+# =========================
+# MISC
+# =========================
+*.orig
+*.rej

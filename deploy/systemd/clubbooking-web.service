@@ -1,0 +1,33 @@
+# Django API (gunicorn). Copy to /etc/systemd/system/ and edit paths/user if
+# your layout differs from /opt/clubbooking + a `clubbooking` service user.
+#   sudo systemctl daemon-reload && sudo systemctl enable --now clubbooking-web
+[Unit]
+Description=Club Booking Django API (gunicorn)
+After=network.target postgresql.service redis-server.service
+Wants=redis-server.service
+
+[Service]
+Type=simple
+User=clubbooking
+Group=clubbooking
+WorkingDirectory=/opt/clubbooking/backend
+# Django reads its settings from backend/.env via python-decouple (CWD-relative),
+# so no EnvironmentFile is needed here. These only size gunicorn.
+Environment=GUNICORN_BIND=127.0.0.1:8000
+# Environment=GUNICORN_WORKERS=5        # default = 2*CPU+1; pin it on small boxes
+ExecStart=/opt/clubbooking/venv/bin/gunicorn -c /opt/clubbooking/deploy/gunicorn.conf.py config.wsgi:application
+ExecReload=/bin/kill -s HUP $MAINPID
+Restart=always
+RestartSec=5
+TimeoutStopSec=30
+KillMode=mixed
+
+# --- hardening ---
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full
+ProtectHome=true
+ReadWritePaths=/opt/clubbooking/backend/media /opt/clubbooking/backend/staticfiles
+
+[Install]
+WantedBy=multi-user.target

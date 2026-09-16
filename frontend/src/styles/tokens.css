@@ -1,0 +1,80 @@
+/* Design tokens - single source of truth for the whole UI.
+   Theme: brand purple + deep navy indigo + gold accent. */
+:root {
+  /* Brand - purple */
+  --color-primary-50:  #f5f1fa;
+  --color-primary-100: #ece2f6;
+  --color-primary-200: #d9c7ec;
+  --color-primary-300: #bfa2dd;
+  --color-primary-400: #a07fca;
+  --color-primary-500: #8460b4;
+  --color-primary-600: #6f4a9e;
+  --color-primary-700: #593c80;
+  --color-primary-800: #45315f;
+
+  /* Brand navy/indigo (the "D" / "DEEP") - header, dark surfaces */
+  --color-navy:    #201b50;
+  --color-navy-600:#2a2360;
+  --color-navy-700:#1b1746;
+
+  /* Brand gold (the sparkle stars) - premium accent */
+  --color-gold-50:  #fbf4dd;
+  --color-gold-500: #e0b43a;
+  --color-gold-600: #c79a27;
+
+  /* Buttons - brand purple primary action */
+  --btn-primary-bg:       #6f4a9e;
+  --btn-primary-bg-hover: #593c80;
+
+  /* Neutral / slate */
+  --color-bg:          #f6f6fb;
+  --color-surface:     #ffffff;
+  --color-sidebar:     #201b50;
+  --color-sidebar-2:   #2a2360;
+  --color-text:        #1c1a36;
+  --color-text-muted:  #6b6a85;
+  --color-border:      #e4e2ee;
+  --color-border-soft: #efeef6;
+
+  /* Semantic */
+  --color-success-50:  #ecfdf5;
+  --color-success-600: #059669;
+  --color-warning-50:  #fffbeb;
+  --color-warning-600: #d97706;
+  --color-danger-50:   #fef2f2;
+  --color-danger-600:  #dc2626;
+  --color-info-50:     #eef0fb;
+  --color-info-600:    #4f46b5;
+
+  /* Typography */
+  --font-sans: "Inter", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+
+  /* Radius */
+  --radius-sm: 6px;
+  --radius-md: 10px;
+  --radius-lg: 14px;
+  --radius-xl: 20px;
+
+  /* Shadow */
+  --shadow-xs: 0 1px 2px rgba(32, 27, 80, 0.04);
+  --shadow-sm: 0 1px 2px rgba(32, 27, 80, 0.06), 0 1px 3px rgba(32, 27, 80, 0.04);
+  --shadow-md: 0 4px 6px -1px rgba(32, 27, 80, 0.08), 0 2px 4px -2px rgba(32, 27, 80, 0.04);
+  --shadow-lg: 0 10px 15px -3px rgba(32, 27, 80, 0.08), 0 4px 6px -4px rgba(32, 27, 80, 0.04);
+
+  /* Spacing scale */
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 20px;
+  --space-6: 24px;
+  --space-7: 32px;
+  --space-8: 40px;
+  --space-10: 64px;
+
+  /* Layout */
+  --sidebar-rail-width: 86px;
+  --sidebar-panel-width: 240px;
+  --sidebar-width: 326px;   /* rail + panel */
+  --topbar-height: 64px;
+}
