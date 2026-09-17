@@ -1,0 +1,33 @@
+# Public marketing website - Astro SSR (Node standalone server).
+# Serves www.example.com; its /api/* server routes proxy to Django internally,
+# so the browser never calls the API host directly.
+#   sudo systemctl enable --now clubbooking-website
+[Unit]
+Description=Club Booking public website (Astro SSR)
+After=network.target clubbooking-web.service
+
+[Service]
+Type=simple
+User=clubbooking
+Group=clubbooking
+WorkingDirectory=/opt/clubbooking/web
+# Bind to localhost; nginx fronts it (see deploy/nginx.conf).
+Environment=HOST=127.0.0.1
+Environment=PORT=4321
+# Server-side base URL used by the Astro /api/* proxy routes to reach Django.
+Environment=API_BASE_URL=http://127.0.0.1:8000/api/v1
+# Public site URL for canonical / OG / sitemap.
+Environment=SITE_URL=https://www.example.com
+# Or keep these in a file the operator creates (web/.env is gitignored):
+# EnvironmentFile=/opt/clubbooking/web/.env.production
+ExecStart=/usr/bin/node /opt/clubbooking/web/dist/server/entry.mjs
+Restart=always
+RestartSec=5
+
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full
+ProtectHome=true
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,27 @@
+# Celery beat scheduler (daily membership-expiry + due-transfer backstops).
+# Run EXACTLY ONE beat instance across the whole fleet.
+#   sudo systemctl enable --now clubbooking-beat
+[Unit]
+Description=Club Booking Celery beat scheduler
+After=network.target redis-server.service postgresql.service
+Requires=redis-server.service
+
+[Service]
+Type=simple
+User=clubbooking
+Group=clubbooking
+WorkingDirectory=/opt/clubbooking/backend
+# --schedule writes a small state file; keep it on a writable path.
+ExecStart=/opt/clubbooking/venv/bin/celery -A config beat -l info \
+  --schedule /opt/clubbooking/backend/celerybeat-schedule
+Restart=always
+RestartSec=5
+
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full
+ProtectHome=true
+ReadWritePaths=/opt/clubbooking/backend
+
+[Install]
+WantedBy=multi-user.target

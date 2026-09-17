@@ -1,0 +1,20 @@
+Django==5.0.6
+djangorestframework==3.15.1
+djangorestframework-simplejwt==5.3.1
+django-cors-headers==4.4.0
+django-filter==24.2
+drf-spectacular==0.27.2
+psycopg2-binary==2.9.10
+python-decouple==3.8
+Pillow==10.4.0
+celery==5.4.0
+redis==5.0.7
+channels==4.1.0
+daphne==4.1.2
+gunicorn==22.0.0            # production WSGI server (HTTP-only; see deploy/)
+openpyxl==3.1.5
+reportlab==4.2.2
+pyotp==2.9.0
+qrcode==8.2
+user-agents==2.2.0
+bleach==6.4.0
