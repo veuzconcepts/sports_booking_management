@@ -1,16 +1,18 @@
 import { useEffect, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 
 import { Modal } from './Modal.jsx';
 import { Money, CurrencySymbol, currencyDecimals } from '../services/currency.jsx';
 
 // Refund destinations offered in the dialog.
-const REFUND_METHODS = [
-  { value: 'cash', label: 'Cash' },
-  { value: 'card', label: 'Card' },
-  { value: 'wallet', label: 'Wallet (store credit)' },
-  { value: 'bank_transfer', label: 'Bank transfer' },
+const refundMethods = (t) => [
+  { value: 'cash', label: t('cash') },
+  { value: 'card', label: t('card') },
+  { value: 'wallet', label: t('walletStoreCredit') },
+  { value: 'bank_transfer', label: t('bankTransfer') },
 ];
-const ALLOWED = REFUND_METHODS.map((m) => m.value);
+// Values only, so the list does not need the translator.
+const ALLOWED = ['cash', 'card', 'wallet', 'bank_transfer'];
 
 /**
  * Refund (credit note) dialog. The amount defaults to the full remaining
@@ -20,6 +22,7 @@ const ALLOWED = REFUND_METHODS.map((m) => m.value);
  * memo are editable; the currency follows the invoice (the org default).
  */
 export function RefundModal({ open, invoice, busy = false, onClose, onConfirm }) {
+  const { t } = useTranslation('payments');
   const currency = invoice?.currency;
   const decimals = currencyDecimals(currency);
   const max = Number(invoice?.refundable_amount ?? invoice?.total ?? 0);
@@ -65,19 +68,19 @@ export function RefundModal({ open, invoice, busy = false, onClose, onConfirm })
 
   return (
     <Modal
-      open={open} onClose={onClose} title="Refund" size="md"
+      open={open} onClose={onClose} title={t('refund')} size="md"
       footer={(
         <>
-          <button className="btn btn-secondary" type="button" disabled={busy} onClick={onClose}>Discard</button>
+          <button className="btn btn-secondary" type="button" disabled={busy} onClick={onClose}>{t('discard')}</button>
           <button className="btn btn-primary" type="button" disabled={busy || invalid} onClick={submit}>
-            Create refund
+            {t('createRefund')}
           </button>
         </>
       )}
     >
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0 28px' }}>
-        <Field label="Invoice"><div>{invoice.number}</div></Field>
-        <Field label="Amount">
+      <div className="form-grid form-grid--2" style={{ gap: '0 28px' }}>
+        <Field label={t('invoice')}><div>{invoice.number}</div></Field>
+        <Field label={t('common:labels.amount')}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
             <span className="muted"><CurrencySymbol code={currency} /></span>
             <input
@@ -89,18 +92,18 @@ export function RefundModal({ open, invoice, busy = false, onClose, onConfirm })
           <div className={tooHigh ? '' : 'muted'} style={{ fontSize: 12, marginTop: 4, color: tooHigh ? 'var(--color-danger,#dc2626)' : undefined }}>
             {tooHigh
               ? 'Cannot exceed the remaining balance.'
-              : <>Max refundable: <Money amount={max} code={currency} /></>}
+              : <>{t('maxRefundable')} <Money amount={max} code={currency} /></>}
           </div>
         </Field>
 
-        <Field label="Refund to (payment mode)">
+        <Field label={t('refundPaymentMode')}>
           <select className="form-input" value={method} onChange={(e) => setMethod(e.target.value)}>
-            {REFUND_METHODS.map((m) => <option key={m.value} value={m.value}>{m.label}</option>)}
+            {refundMethods(t).map((m) => <option key={m.value} value={m.value}>{m.label}</option>)}
           </select>
         </Field>
-        <Field label="Memo">
+        <Field label={t('memo')}>
           <input className="form-input" value={memo} onChange={(e) => setMemo(e.target.value)}
-            placeholder="Reference / note" />
+            placeholder={t('referenceNote')} />
         </Field>
       </div>
     </Modal>

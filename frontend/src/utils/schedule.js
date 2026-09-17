@@ -148,18 +148,21 @@ export function setEveryDay(week, cfg) {
   return DAY_KEYS.reduce((acc, d) => ({ ...acc, [d]: { ...cfg } }), { ...(week || {}) });
 }
 
-/** Ready-made weeks. Applying one is a starting point, still fully editable. */
+/**
+ * Ready-made weeks. Applying one is a starting point, still fully editable.
+ * The copy lives in the `schedule` bundle, so only the keys are held here.
+ */
 export const TEMPLATES = [
   {
     key: 'same-every-day',
-    label: 'Same hours every day',
-    detail: '08:00 - 22:00, seven days',
+    labelKey: 'presets.sameEveryDay',
+    detailKey: 'presets.sameEveryDayDetail',
     build: () => setEveryDay({}, openDay('08:00', '22:00')),
   },
   {
     key: 'standard-week',
-    label: 'Standard week',
-    detail: 'Weekdays 08:00 - 22:00, weekend 09:00 - 23:00',
+    labelKey: 'presets.standardWeek',
+    detailKey: 'presets.standardWeekDetail',
     build: () => {
       const week = {};
       WEEKDAYS.forEach((d) => { week[d] = openDay('08:00', '22:00'); });
@@ -169,8 +172,8 @@ export const TEMPLATES = [
   },
   {
     key: 'weekdays-only',
-    label: 'Weekdays only',
-    detail: 'Closed Saturday and Sunday',
+    labelKey: 'presets.weekdaysOnly',
+    detailKey: 'presets.weekdaysOnlyDetail',
     build: () => {
       const week = {};
       WEEKDAYS.forEach((d) => { week[d] = openDay('08:00', '22:00'); });
@@ -180,23 +183,23 @@ export const TEMPLATES = [
   },
   {
     key: 'always-open',
-    label: 'Open 24/7',
-    detail: 'No closing time on any day',
+    labelKey: 'presets.alwaysOpen',
+    detailKey: 'presets.alwaysOpenDetail',
     build: () => setEveryDay({}, openDay('00:00', '00:00')),
   },
   {
     key: 'closed',
-    label: 'Closed all week',
-    detail: 'Nothing bookable until you set hours',
+    labelKey: 'presets.closedAllWeek',
+    detailKey: 'presets.closedAllWeekDetail',
     build: () => setEveryDay({}, { ...CLOSED_DAY }),
   },
 ];
 
-/** How a day's source reads on a badge. */
-export function sourceLabel(source, parentLabel) {
-  if (source === 'facility') return 'Custom';
-  if (source === 'club') return parentLabel === 'club' ? 'Custom' : 'Club';
-  return parentLabel === 'organization' ? 'Custom' : 'Organization';
+/** How a day's source reads on a badge. Returns a translation key. */
+export function sourceLabelKey(source, parentLabel) {
+  if (source === 'facility') return 'source.custom';
+  if (source === 'club') return parentLabel === 'club' ? 'source.custom' : 'source.club';
+  return parentLabel === 'organization' ? 'source.custom' : 'source.organization';
 }
 
 export { displayTime, fromMinutes, toMinutes };

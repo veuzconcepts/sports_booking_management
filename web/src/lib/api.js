@@ -69,6 +69,24 @@ export const verifyContact = (payload) => postJSON('/website/public/contact-veri
 /** Live price quote (subtotal, VAT, coupon) for the Confirm & Pay step. */
 export const getQuote = (payload) => postJSON('/website/public/quote/', payload);
 
+/**
+ * Campaigns this visitor may be shown on a page.
+ *
+ * Eligibility is settled by the backend: publication, the configured window in
+ * the organization's timezone, placement, scope and audience. The site only
+ * decides how often to show what it is given.
+ */
+export const getCampaigns = ({ placement = 'home', club, signedIn = false } = {}) => {
+  const qs = new URLSearchParams({ placement });
+  if (club) qs.set('club', String(club));
+  if (signedIn) qs.set('signed_in', 'true');
+  return getJSON(`/website/public/campaigns/?${qs.toString()}`);
+};
+
+/** Count an impression, dismissal or CTA click. Anonymous, and never awaited. */
+export const recordCampaignEvent = (payload) =>
+  postJSON('/website/public/campaign-event/', payload);
+
 /** Format a money amount with the catalogue currency code. */
 export function money(amount, currency) {
   if (amount === null || amount === undefined) return '';

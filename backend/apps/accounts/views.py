@@ -14,7 +14,6 @@ from rest_framework.decorators import action
 from rest_framework.exceptions import (
     AuthenticationFailed, NotFound, PermissionDenied, ValidationError,
 )
-from rest_framework.pagination import PageNumberPagination
 from rest_framework.response import Response
 from rest_framework.throttling import ScopedRateThrottle
 from rest_framework.views import APIView
@@ -48,6 +47,8 @@ from .security import (
 # One uniform credential error for wrong password / locked / unknown email so a
 # caller cannot tell which case occurred (no account enumeration).
 GENERIC_LOGIN_ERROR = "Invalid email or password."
+from config.listing import GroupedListMixin
+
 from .serializers import (
     AdminSetPasswordSerializer,
     AdminUserSerializer,
@@ -638,14 +639,7 @@ class MfaDisableView(APIView):
 SENIOR_ROLES = {Role.SUPER_ADMIN, Role.ADMIN}
 
 
-class UserPagination(PageNumberPagination):
-    """User-list pagination: lets the admin UI choose a page size."""
-
-    page_size_query_param = "page_size"
-    max_page_size = 100
-
-
-class UserViewSet(viewsets.ModelViewSet):
+class UserViewSet(GroupedListMixin, viewsets.ModelViewSet):
     """Admin-only user management — create staff/customers, edit, reset password.
 
     Privilege rules (defence against escalation / lockout):
@@ -662,10 +656,15 @@ class UserViewSet(viewsets.ModelViewSet):
 
     queryset = User.all_objects.all()   # include soft-deleted so admins can see/filter them
     permission_classes = [UserAccessPermission]
-    pagination_class = UserPagination
     filterset_class = UserFilter   # adds `locked` (matches is_locked) + the base fields
     search_fields = ["email", "first_name", "last_name", "phone"]
-    ordering_fields = ["created_at", "email", "role", "last_login", "last_activity_at"]
+    ordering_fields = ["created_at", "email", "role", "last_login",
+                       "last_activity_at", "first_name", "is_active", "date_joined"]
+    group_by_fields = {
+        "role": {"field": "role"},
+        "is_active": {"field": "is_active", "true_label": "Active",
+                      "empty_label": "Inactive"},
+    }
 
     def get_queryset(self):
         # Annotate active-session count as ONE aggregate over the whole list

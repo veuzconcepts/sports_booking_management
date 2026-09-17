@@ -7,6 +7,8 @@ Two surfaces:
 """
 
 from django.utils import timezone
+from drf_spectacular.types import OpenApiTypes
+from drf_spectacular.utils import extend_schema
 from rest_framework import status, viewsets
 from rest_framework.decorators import action
 from rest_framework.permissions import AllowAny
@@ -26,8 +28,10 @@ from .models import (
     SiteSection,
     StatItem,
     Testimonial,
+    WebsiteCampaign,
     WhyChooseUsPoint,
 )
+from . import campaigns as campaign_rules
 from .permissions import WebsiteCMSPermission
 from .serializers import (
     BannerSerializer,
@@ -39,7 +43,9 @@ from .serializers import (
     SEOSettingSerializer,
     SiteSectionSerializer,
     StatItemSerializer,
+    PublicCampaignSerializer,
     TestimonialSerializer,
+    WebsiteCampaignSerializer,
     WhyChooseUsPointSerializer,
 )
 
@@ -217,8 +223,10 @@ def branding_payload(request):
     """Org branding for the public website: absolute URLs for each logo variant +
     favicon + default OG image, plus the SEO fallback title/description. Absolute
     so the separate-origin marketing website can load them."""
+    from apps.settings_app import theme as theme_cfg
     from apps.settings_app.models import Organization
     org = Organization.get_solo()
+    theme = theme_cfg.resolve(org.theme)
 
     def url(field):
         try:
@@ -236,6 +244,13 @@ def branding_payload(request):
         "meta_title": org.meta_title,
         "meta_description": org.meta_description,
         "name": org.name,
+        # Brand colours only. The website's own surfaces are tuned for its
+        # light and dark modes and are not driven from the admin theme.
+        "brand": {
+            "primary": theme["primary"],
+            "secondary": theme["secondary"],
+            "accent": theme["accent"],
+        },
     }
 
 
@@ -573,3 +588,126 @@ class PublicQuoteView(APIView):
             "summary": booking_checkout_summary(booking, addons=addon_objs, tax_rate=tax_rate),
             "coupon": coupon,
         })
+
+
+# --------------------------------------------------------------------------- #
+# Website campaigns
+# --------------------------------------------------------------------------- #
+class WebsiteCampaignViewSet(PublishMixin, CMSViewSet):
+    """Promotional campaigns shown on the customer website.
+
+    Ordinary CMS content as far as permissions and publishing go, with one
+    addition: every write drops the public eligibility cache, so a campaign
+    switched off stops appearing at once rather than lingering for the life of a
+    cache entry.
+    """
+
+    queryset = WebsiteCampaign.objects.select_related(
+        "image", "mobile_image", "promo_code", "schedule_exception",
+    ).prefetch_related("clubs", "facilities")
+    serializer_class = WebsiteCampaignSerializer
+    audit_label = "campaign"
+    filterset_fields = ["campaign_type", "placement", "is_enabled", "is_published",
+                        "is_archived", "priority", "audience", "frequency"]
+    search_fields = ["name", "title", "subtitle", "internal_notes"]
+    ordering_fields = ["starts_at", "ends_at", "priority", "name", "created_at"]
+
+    def get_queryset(self):
+        """Archived campaigns are kept but hidden, unless asked for by name.
+
+        They hold the engagement figures for campaigns that have run, so
+        deleting them would quietly destroy the only record of what worked.
+        """
+        qs = super().get_queryset()
+        wanted = self.request.query_params.get("is_archived")
+        if wanted is None:
+            qs = qs.filter(is_archived=False)
+        return qs
+
+    # The list is small and the admin wants to see the whole schedule at once.
+    @extend_schema(responses=OpenApiTypes.OBJECT)
+    @action(detail=False, methods=["get"], url_path="live")
+    def live(self, request):
+        """What is on the website right now, for the dashboard."""
+        rows = campaign_rules.eligible(
+            placement=WebsiteCampaign.Placement.ALL, signed_in=False)
+        return Response({
+            "count": len(rows),
+            "campaigns": self.get_serializer(rows, many=True).data,
+        })
+
+    def perform_create(self, serializer):
+        super().perform_create(serializer)
+        campaign_rules.invalidate()
+
+    def perform_update(self, serializer):
+        super().perform_update(serializer)
+        campaign_rules.invalidate()
+
+    def perform_destroy(self, instance):
+        super().perform_destroy(instance)
+        campaign_rules.invalidate()
+
+    @action(detail=True, methods=["post"], url_path="set-published")
+    def set_published(self, request, pk=None):
+        response = super().set_published(request, pk=pk)
+        campaign_rules.invalidate()
+        return response
+
+
+class PublicCampaignsView(APIView):
+    """`?placement=home&club=<id>` -> the campaigns this visitor may be shown.
+
+    Read-only and unauthenticated. Eligibility (published, enabled, inside its
+    window in the organization's timezone, placement, scope, audience) is
+    settled here; the browser only decides how often to show what it is given,
+    because that depends on what this person has already dismissed.
+
+    Internal notes, draft rows, engagement figures and scope never appear in the
+    response: `PublicCampaignSerializer` lists what may go out rather than
+    trying to strip what may not.
+    """
+
+    authentication_classes = []
+    permission_classes = [AllowAny]
+
+    @extend_schema(responses=OpenApiTypes.OBJECT)
+    def get(self, request):
+        placement = request.query_params.get("placement") or WebsiteCampaign.Placement.HOME
+        if placement not in WebsiteCampaign.Placement.values:
+            placement = WebsiteCampaign.Placement.HOME
+
+        club_id = request.query_params.get("club")
+        # `signed_in` is a hint from the site about the visitor, never a
+        # permission: the worst a wrong value can do is offer a greeting meant
+        # for guests, and nothing private is gated on it.
+        signed_in = str(request.query_params.get("signed_in", "")).lower() in ("1", "true", "yes")
+
+        rows = campaign_rules.eligible(
+            placement=placement, club_id=club_id, signed_in=signed_in)
+        return Response({
+            "campaigns": PublicCampaignSerializer(
+                rows, many=True, context={"request": request}).data,
+        })
+
+
+class PublicCampaignEventView(APIView):
+    """`POST {id, event}` -> counts an impression, dismissal or CTA click.
+
+    Deliberately tiny and deliberately anonymous: it increments a counter on the
+    campaign and stores nothing about the visitor. The site sends it without
+    waiting for the reply, so a slow or failed call never delays a popup.
+    """
+
+    authentication_classes = []
+    permission_classes = [AllowAny]
+    throttle_scope = "public_booking"
+
+    @extend_schema(request=OpenApiTypes.OBJECT, responses=OpenApiTypes.OBJECT)
+    def post(self, request):
+        try:
+            campaign_id = int(request.data.get("id"))
+        except (TypeError, ValueError):
+            return Response({"ok": False}, status=status.HTTP_400_BAD_REQUEST)
+        event = str(request.data.get("event") or "")
+        return Response({"ok": campaign_rules.record(campaign_id, event)})

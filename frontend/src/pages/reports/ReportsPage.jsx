@@ -1,11 +1,15 @@
 import { useCallback, useEffect, useState } from 'react';
-import { Download, FileSpreadsheet, FileText } from 'lucide-react';
+import { Download, FileSpreadsheet, FileText, Sparkles, X } from 'lucide-react';
+import { useTranslation } from 'react-i18next';
 import toast from 'react-hot-toast';
 import {
   ResponsiveContainer, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip,
 } from 'recharts';
 
 import { PageHeader } from '../../components/PageHeader.jsx';
+import { AiInsightsPanel } from './AiInsightsPanel.jsx';
+import { InsightWidgets } from './InsightWidgets.jsx';
+import './insights.css';
 import { MetricCard } from '../../components/MetricCard.jsx';
 import { DataTable } from '../../components/DataTable.jsx';
 import { Select2 } from '../../components/Select2.jsx';
@@ -25,11 +29,15 @@ function downloadBlob(blob, filename) {
 }
 
 export default function ReportsPage() {
+  const { t } = useTranslation('reports');
   const [revenue, setRevenue] = useState(null);
   const [bookings, setBookings] = useState(null);
   const [topServices, setTopServices] = useState([]);
   const [performance, setPerformance] = useState([]);
   const [memberships, setMemberships] = useState(null);
+  // AI Insights: the panel, and the report it has opened into the page.
+  const [aiOpen, setAiOpen] = useState(false);
+  const [fullReport, setFullReport] = useState(null);
   const [loading, setLoading] = useState(true);
   const [dateFrom, setDateFrom] = useState('');
   const [dateTo, setDateTo] = useState('');
@@ -51,10 +59,10 @@ export default function ReportsPage() {
       reportsApi.memberships(params),
     ])
       .then(([r, b, s, p, m]) => { setRevenue(r); setBookings(b); setTopServices(s); setPerformance(p); setMemberships(m); })
-      .catch((e) => toast.error(apiErrorMessage(e, 'Unable to load the reports. Please try again.')))
+      .catch((e) => toast.error(apiErrorMessage(e, t('unableLoadReportsPleaseTry'))))
       .finally(() => setLoading(false));
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [dateFrom, dateTo, club]);
+  }, [dateFrom, dateTo, club, t]);
 
   useEffect(load, [load]);
 
@@ -62,21 +70,20 @@ export default function ReportsPage() {
     try {
       const blob = await reportsApi.export(report, fmt, params);
       downloadBlob(blob, `${report}-report.${fmt}`);
-      toast.success(`Exported ${fmt.toUpperCase()}`);
-    } catch (e) { toast.error(apiErrorMessage(e, 'Unable to export the report. Please try again.')); }
+      toast.success(t('exported', { format: fmt.toUpperCase() }));
+    } catch (e) { toast.error(apiErrorMessage(e, t('unableExportReportPleaseTry'))); }
   }
 
   const exportButtons = (report) => (
     <div style={{ display: 'flex', gap: 6 }}>
-      <button className="btn btn-ghost btn-sm" onClick={() => doExport(report, 'xlsx')}><FileSpreadsheet size={14} /> Excel</button>
+      <button className="btn btn-ghost btn-sm" onClick={() => doExport(report, 'xlsx')}><FileSpreadsheet size={14} /> {t('excel')}</button>
       <button className="btn btn-ghost btn-sm" onClick={() => doExport(report, 'pdf')}><FileText size={14} /> PDF</button>
     </div>
   );
 
   const revenueChart = (revenue?.series || []).map((p) => ({ day: shortDate(p.date), net: Number(p.net) }));
-  const statusChart = bookings
-    ? Object.entries(bookings.by_status).map(([k, v]) => ({ status: k.replace('_', ' '), count: v }))
-    : [];
+  const statusChart = Object.entries(bookings?.by_status || {})
+    .map(([k, v]) => ({ status: k.replace('_', ' '), count: v }));
 
   // Merge revenue + booking club splits into one "by club" table.
   const clubRows = (() => {
@@ -92,35 +99,68 @@ export default function ReportsPage() {
   return (
     <>
       <PageHeader
-        title="Reports"
-        subtitle="Revenue, bookings, and staff performance."
+        title={t('reports')}
+        subtitle={t('revenueBookingsStaffPerformance')}
         actions={
-          <div style={{ display: 'flex', gap: 8 }}>
-            <button className="btn btn-secondary" onClick={() => doExport('revenue', 'xlsx')}><FileSpreadsheet size={15} /> Excel</button>
+          <div className="action-row">
+            <button
+              type="button"
+              className={`ai-trigger${aiOpen ? ' is-open' : ''}`}
+              aria-expanded={aiOpen}
+              title={t('insights.title')}
+              onClick={() => setAiOpen((open) => !open)}
+            >
+              <Sparkles size={15} className="ai-trigger__spark" />
+              {t('insights.title')}
+            </button>
+            <button className="btn btn-secondary" onClick={() => doExport('revenue', 'xlsx')}><FileSpreadsheet size={15} /> {t('excel')}</button>
             <button className="btn btn-secondary" onClick={() => doExport('revenue', 'pdf')}><FileText size={15} /> PDF</button>
           </div>
         }
       />
 
+      {/* A report the assistant produced, opened into the page's own
+          workspace where a chart has room to be read. */}
+      {fullReport && (
+        <div className="card ai-report">
+          <div className="card-body">
+            <div className="ai-report__head">
+              <div>
+                <h3 className="ai-report__question">{fullReport.question}</h3>
+                {fullReport.answer && <p className="ai-report__answer">{fullReport.answer}</p>}
+                <div className="ai-report__meta">
+                  {fullReport.cached ? t('insights.reused') : t('insights.freshlyGenerated')}
+                </div>
+              </div>
+              <button type="button" className="icon-btn" title={t('common:actions.close')}
+                onClick={() => setFullReport(null)}>
+                <X size={18} />
+              </button>
+            </div>
+            <InsightWidgets widgets={fullReport.widgets} />
+          </div>
+        </div>
+      )}
+
       <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10, alignItems: 'flex-end', marginBottom: 14 }}>
         <div>
-          <div className="muted" style={{ fontSize: 11.5, marginBottom: 4 }}>From</div>
+          <div className="muted" style={{ fontSize: 11.5, marginBottom: 4 }}>{t('from')}</div>
           <input className="form-input" type="date" value={dateFrom} onChange={(e) => setDateFrom(e.target.value)} />
         </div>
         <div>
           <div className="muted" style={{ fontSize: 11.5, marginBottom: 4 }}>To</div>
           <input className="form-input" type="date" value={dateTo} onChange={(e) => setDateTo(e.target.value)} />
         </div>
-        <div style={{ width: 220 }}>
-          <div className="muted" style={{ fontSize: 11.5, marginBottom: 4 }}>Club</div>
+        <div style={{ flex: '1 1 180px', minWidth: 0, maxWidth: 260 }}>
+          <div className="muted" style={{ fontSize: 11.5, marginBottom: 4 }}>{t('common:labels.club')}</div>
           <Select2
             options={clubs.rows.map((s) => ({ value: s.id, label: s.name }))}
-            value={club} onChange={(v) => setClub(v || '')} placeholder="All clubs" clearable
+            value={club} onChange={(v) => setClub(v || '')} placeholder={t('allClubs')} clearable
           />
         </div>
         {(dateFrom || dateTo || club) && (
           <button className="btn btn-ghost" onClick={() => { setDateFrom(''); setDateTo(''); setClub(''); }}>
-            Clear
+            {t('common:actions.clear')}
           </button>
         )}
       </div>
@@ -130,15 +170,15 @@ export default function ReportsPage() {
       ) : (
         <>
           <div className="metric-grid">
-            <MetricCard label="Gross revenue" value={<Money amount={revenue?.gross_revenue} />} icon={Download} tint="blue" />
-            <MetricCard label="Refunded" value={<Money amount={revenue?.refunded} />} icon={Download} tint="rose" />
-            <MetricCard label="Net revenue" value={<Money amount={revenue?.net_revenue} />} icon={Download} tint="green" />
-            <MetricCard label="Bookings" value={String(bookings?.total ?? 0)} icon={Download} tint="purple" />
+            <MetricCard label={t('grossRevenue')} value={<Money amount={revenue?.gross_revenue} />} icon={Download} tint="blue" />
+            <MetricCard label={t('refunded')} value={<Money amount={revenue?.refunded} />} icon={Download} tint="rose" />
+            <MetricCard label={t('netRevenue')} value={<Money amount={revenue?.net_revenue} />} icon={Download} tint="green" />
+            <MetricCard label={t('bookings')} value={String(bookings?.total ?? 0)} icon={Download} tint="purple" />
           </div>
 
           <div className="chart-row">
             <div className="card">
-              <div className="card-header"><h3 className="card-title">Net revenue by day</h3></div>
+              <div className="card-header"><h3 className="card-title">{t('netRevenueDay')}</h3></div>
               <div className="card-body" style={{ height: 280 }}>
                 <ResponsiveContainer width="100%" height="100%">
                   <BarChart data={revenueChart} margin={{ top: 6, right: 12, left: -10, bottom: 0 }}>
@@ -153,7 +193,7 @@ export default function ReportsPage() {
             </div>
 
             <div className="card">
-              <div className="card-header"><h3 className="card-title">Bookings by status</h3></div>
+              <div className="card-header"><h3 className="card-title">{t('bookingsStatus')}</h3></div>
               <div className="card-body" style={{ height: 280 }}>
                 <ResponsiveContainer width="100%" height="100%">
                   <BarChart data={statusChart} margin={{ top: 6, right: 12, left: -10, bottom: 0 }}>
@@ -173,34 +213,34 @@ export default function ReportsPage() {
           <div className="chart-row">
             <div className="card">
               <div className="card-header">
-                <h3 className="card-title">By club</h3>
+                <h3 className="card-title">{t('club')}</h3>
                 {exportButtons('club')}
               </div>
               <DataTable
                 rows={clubRows}
-                emptyTitle="No club data"
-                emptyHint="Bookings/payments tied to a club appear here."
+                emptyTitle={t('noClubData')}
+                emptyHint={t('bookingsPaymentsTiedClubAppear')}
                 columns={[
-                  { key: 'name', header: 'Club', render: (r) => <span style={{ fontWeight: 600 }}>{r.name}</span> },
-                  { key: 'count', header: 'Bookings', render: (r) => r.count },
-                  { key: 'net', header: 'Net revenue', render: (r) => <Money amount={r.net} /> },
+                  { key: 'name', header: t('common:labels.club'), render: (r) => <span style={{ fontWeight: 600 }}>{r.name}</span> },
+                  { key: 'count', header: t('bookings'), render: (r) => r.count },
+                  { key: 'net', header: t('netRevenue'), render: (r) => <Money amount={r.net} /> },
                 ]}
               />
             </div>
 
             <div className="card">
               <div className="card-header">
-                <h3 className="card-title">Top services</h3>
+                <h3 className="card-title">{t('topServices')}</h3>
                 {exportButtons('services')}
               </div>
               <DataTable
                 rows={topServices}
-                emptyTitle="No service data"
-                emptyHint="Bookings with a service appear here."
+                emptyTitle={t('noServiceData')}
+                emptyHint={t('bookingsServiceAppearHere')}
                 columns={[
-                  { key: 'name', header: 'Service', render: (r) => <span style={{ fontWeight: 600 }}>{r.name}</span> },
-                  { key: 'bookings', header: 'Bookings', render: (r) => r.bookings },
-                  { key: 'net', header: 'Net revenue', render: (r) => <Money amount={r.net} /> },
+                  { key: 'name', header: t('service'), render: (r) => <span style={{ fontWeight: 600 }}>{r.name}</span> },
+                  { key: 'bookings', header: t('bookings'), render: (r) => r.bookings },
+                  { key: 'net', header: t('netRevenue'), render: (r) => <Money amount={r.net} /> },
                 ]}
               />
             </div>
@@ -209,44 +249,44 @@ export default function ReportsPage() {
           <div style={{ height: 24 }} />
 
           <div className="card">
-            <div className="card-header"><h3 className="card-title">Staff performance</h3></div>
+            <div className="card-header"><h3 className="card-title">{t('staffPerformance')}</h3></div>
             <DataTable
               rows={performance}
-              emptyTitle="No staff yet"
-              emptyHint="Add staff to see performance."
+              emptyTitle={t('noStaffYet')}
+              emptyHint={t('addStaffSeePerformance')}
               columns={[
-                { key: 'name', header: 'Staff', render: (r) => (
+                { key: 'name', header: t('staff'), render: (r) => (
                   <div><div style={{ fontWeight: 600 }}>{r.name}</div>
                     <div className="muted" style={{ fontSize: 12 }}>{r.employee_id} · {r.role}</div></div>
                 ) },
-                { key: 'jobs', header: 'Bookings completed', render: (r) => r.jobs_completed },
-                { key: 'rating', header: 'Rating', render: (r) => Number(r.rating).toFixed(1) },
+                { key: 'jobs', header: t('bookingsCompleted'), render: (r) => r.jobs_completed },
+                { key: 'rating', header: t('rating'), render: (r) => Number(r.rating).toFixed(1) },
               ]}
             />
           </div>
 
           <div style={{ height: 24 }} />
 
-          <h3 style={{ margin: '0 0 10px', fontSize: 15 }}>Memberships</h3>
+          <h3 style={{ margin: '0 0 10px', fontSize: 15 }}>{t('memberships')}</h3>
           <div className="metric-grid">
-            <MetricCard label="Active" value={String(memberships?.active ?? 0)} icon={Download} tint="green" />
-            <MetricCard label="Expiring (30d)" value={String(memberships?.expiring_soon ?? 0)} icon={Download} tint="amber" />
-            <MetricCard label="Expired" value={String(memberships?.expired ?? 0)} icon={Download} tint="rose" />
-            <MetricCard label="Revenue" value={<Money amount={memberships?.revenue} code={memberships?.currency} />} icon={Download} tint="blue" />
-            <MetricCard label="Sessions used" value={String(memberships?.units_consumed ?? 0)} icon={Download} tint="purple" />
+            <MetricCard label={t('common:state.active')} value={String(memberships?.active ?? 0)} icon={Download} tint="green" />
+            <MetricCard label={t('expiring30d')} value={String(memberships?.expiring_soon ?? 0)} icon={Download} tint="amber" />
+            <MetricCard label={t('expired')} value={String(memberships?.expired ?? 0)} icon={Download} tint="rose" />
+            <MetricCard label={t('revenue')} value={<Money amount={memberships?.revenue} code={memberships?.currency} />} icon={Download} tint="blue" />
+            <MetricCard label={t('sessionsUsed')} value={String(memberships?.units_consumed ?? 0)} icon={Download} tint="purple" />
           </div>
 
           <div style={{ height: 12 }} />
 
           <div className="card">
-            <div className="card-header"><h3 className="card-title">Active by plan</h3></div>
+            <div className="card-header"><h3 className="card-title">{t('activePlan')}</h3></div>
             <DataTable
               rows={memberships?.by_plan || []}
-              emptyTitle="No active memberships"
-              emptyHint="Issue memberships to see plan uptake."
+              emptyTitle={t('noActiveMemberships')}
+              emptyHint={t('issueMembershipsSeePlanUptake')}
               columns={[
-                { key: 'plan', header: 'Plan', render: (r) => r.plan },
-                { key: 'active', header: 'Active', render: (r) => r.active },
+                { key: 'plan', header: t('plan'), render: (r) => r.plan },
+                { key: 'active', header: t('common:state.active'), render: (r) => r.active },
               ]}
             />
           </div>
@@ -255,14 +295,14 @@ export default function ReportsPage() {
             <>
               <div style={{ height: 12 }} />
               <div className="card">
-                <div className="card-header"><h3 className="card-title">Expiring soon</h3></div>
+                <div className="card-header"><h3 className="card-title">{t('expiringSoon')}</h3></div>
                 <DataTable
                   rows={memberships.expiring_list}
                   columns={[
-                    { key: 'number', header: 'Membership', render: (r) => r.number },
-                    { key: 'customer', header: 'Customer', render: (r) => r.customer },
-                    { key: 'plan', header: 'Plan', render: (r) => r.plan },
-                    { key: 'end_date', header: 'Expires', render: (r) => new Date(r.end_date).toLocaleDateString() },
+                    { key: 'number', header: t('membership'), render: (r) => r.number },
+                    { key: 'customer', header: t('common:labels.customer'), render: (r) => r.customer },
+                    { key: 'plan', header: t('plan'), render: (r) => r.plan },
+                    { key: 'end_date', header: t('expires'), render: (r) => new Date(r.end_date).toLocaleDateString() },
                   ]}
                 />
               </div>
@@ -270,6 +310,12 @@ export default function ReportsPage() {
           )}
         </>
       )}
+
+      <AiInsightsPanel
+        open={aiOpen}
+        onClose={() => setAiOpen(false)}
+        onOpenFullReport={(turn) => { setFullReport(turn); setAiOpen(false); }}
+      />
     </>
   );
 }

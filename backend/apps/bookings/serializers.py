@@ -215,11 +215,19 @@ class BookingSerializer(serializers.ModelSerializer):
         avail = coverage_for_booking(obj, ignore_opt_out=True, for_consumption=True)
         return "eligible" if (avail and avail["covered_lines"]) else "chargeable"
 
+    # The money-collected figures aggregate this booking's payments and invoices,
+    # which is a query per booking. Only the detail page reads them, so they
+    # follow the same detail-only gate as the coverage fields rather than
+    # costing every row of a 100-row listing page.
     def get_amount_paid(self, obj) -> str:
+        if not self.context.get("with_coverage"):
+            return None
         from apps.bookings.services import booking_amount_paid
         return str(booking_amount_paid(obj))
 
     def get_outstanding(self, obj) -> str:
+        if not self.context.get("with_coverage"):
+            return None
         from apps.bookings.services import booking_outstanding
         return str(booking_outstanding(obj))
 
@@ -249,7 +257,13 @@ class BookingSerializer(serializers.ModelSerializer):
         return obj.walk_in_name or "Walk-in"
 
     def get_cancellation(self, obj) -> dict:
-        """When the customer's own cancellation window closes. Staff ignore it."""
+        """When the customer's own cancellation window closes. Staff ignore it.
+
+        Resolving the policy is a query per booking, and only the detail page
+        shows this, so it is gated like the other per-booking lookups.
+        """
+        if not self.context.get("with_coverage"):
+            return None
         from apps.bookings.services import cancellation_state
         return cancellation_state(obj)
 
@@ -276,7 +290,14 @@ class BookingSerializer(serializers.ModelSerializer):
             return False
         if obj.payment_status in PAID_PAYMENT_STATUSES:
             return False
-        return not (obj.payments.exists() or obj.invoices.exists())
+        # The listing queryset annotates both, so a page of rows needs no extra
+        # queries. Fall back for a serializer used outside that queryset (a
+        # freshly created booking, for instance).
+        has_payments = getattr(obj, "_has_payments", None)
+        has_invoices = getattr(obj, "_has_invoices", None)
+        if has_payments is None or has_invoices is None:
+            return not (obj.payments.exists() or obj.invoices.exists())
+        return not (has_payments or has_invoices)
 
 
 class BookingCreateSerializer(serializers.ModelSerializer):

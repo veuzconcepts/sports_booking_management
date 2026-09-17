@@ -760,3 +760,56 @@ a.bw__store:hover { transform: translateY(-2px); background: #000; }
   [data-theme="dark"] .bw__fac:hover, [data-theme="dark"] .bw__addon:hover,
   [data-theme="dark"] .bw__branch:hover, [data-theme="dark"] .bw__pm-opt:hover { transform: none; }
 }
+
+/* ===================================== add-ons and facility browsing steps ==
+   Add-ons moved from a modal to a step, and the category chooser became a
+   filter above the facility list. Both reuse the existing card styling; only
+   the containers are new. */
+.bw__addon-step {
+  display: grid;
+  gap: 18px;
+  max-width: 900px;
+  margin: 0 auto;
+}
+.bw__addon-foot {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 10px;
+  padding-top: 6px;
+}
+
+.bw__browse { display: grid; gap: 18px; }
+.bw__filters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.bw__filter {
+  padding: 8px 16px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--surface);
+  color: var(--text);
+  font: inherit;
+  font-size: 0.9rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background .15s ease, border-color .15s ease, color .15s ease;
+}
+.bw__filter:hover { border-color: var(--hover-border); color: var(--ink); }
+.bw__filter.is-on {
+  background: var(--brand-deep);
+  border-color: var(--brand-deep);
+  color: var(--on-brand);
+}
+
+@media (max-width: 640px) {
+  .bw__addon-foot { justify-content: stretch; }
+  .bw__addon-foot > * { flex: 1; justify-content: center; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .bw__filter { transition: none; }
+}

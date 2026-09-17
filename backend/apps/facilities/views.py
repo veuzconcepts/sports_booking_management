@@ -18,6 +18,7 @@ from .models import (
     PricingRule,
 )
 from .pricing import adjustment_label, apply_adjustment
+from config.listing import GroupedListMixin
 from .serializers import (
     AddOnSerializer,
     FacilityCategorySerializer,
@@ -33,13 +34,18 @@ class InUse(APIException):
     default_detail = "This record is still in use."
 
 
-class FacilityCategoryViewSet(viewsets.ModelViewSet):
+class FacilityCategoryViewSet(GroupedListMixin, viewsets.ModelViewSet):
     queryset = FacilityCategory.objects.prefetch_related("available_clubs").all()
     serializer_class = FacilityCategorySerializer
     permission_classes = [FacilityCatalogPermission]
     filterset_fields = ["kind", "is_active"]
     search_fields = ["name", "description", "slug"]
-    ordering_fields = ["display_order", "name", "base_price"]
+    ordering_fields = ["display_order", "name", "base_price", "kind", "is_active"]
+    group_by_fields = {
+        "kind": {"field": "kind"},
+        "is_active": {"field": "is_active", "true_label": "Active",
+                      "empty_label": "Inactive"},
+    }
 
     def destroy(self, request, *args, **kwargs):
         """Only allow deletion when no other records reference this category."""
@@ -64,7 +70,7 @@ class FacilityCategoryViewSet(viewsets.ModelViewSet):
         return super().destroy(request, *args, **kwargs)
 
 
-class FacilityTypeViewSet(viewsets.ModelViewSet):
+class FacilityTypeViewSet(GroupedListMixin, viewsets.ModelViewSet):
     queryset = (
         FacilityType.objects
         .prefetch_related("categories", "add_ons", "available_clubs")
@@ -74,7 +80,15 @@ class FacilityTypeViewSet(viewsets.ModelViewSet):
     permission_classes = [FacilityCatalogPermission]
     filterset_fields = ["categories", "is_active", "online_booking_enabled"]
     search_fields = ["name", "description", "categories__name"]
-    ordering_fields = ["name", "duration_minutes", "price", "created_at"]
+    ordering_fields = ["name", "duration_minutes", "price", "created_at",
+                       "is_active", "online_booking_enabled"]
+    group_by_fields = {
+        "is_active": {"field": "is_active", "true_label": "Active",
+                      "empty_label": "Inactive"},
+        "online_booking_enabled": {"field": "online_booking_enabled",
+                                   "true_label": "Bookable",
+                                   "empty_label": "Off"},
+    }
 
 
 class FacilityViewSet(viewsets.ModelViewSet):
@@ -105,7 +119,7 @@ class FacilityViewSet(viewsets.ModelViewSet):
         instance.delete()
 
 
-class PricingRuleViewSet(viewsets.ModelViewSet):
+class PricingRuleViewSet(GroupedListMixin, viewsets.ModelViewSet):
     queryset = (
         PricingRule.objects
         .prefetch_related("categories", "facility_types", "addons", "clubs", "membership_plans")
@@ -115,7 +129,13 @@ class PricingRuleViewSet(viewsets.ModelViewSet):
     permission_classes = [FacilityCatalogPermission]
     filterset_fields = ["is_active", "rule_type", "adjustment_type"]
     search_fields = ["name", "code", "description"]
-    ordering_fields = ["priority", "display_order", "name", "valid_from", "created_at"]
+    ordering_fields = ["priority", "display_order", "name", "valid_from",
+                       "created_at", "rule_type", "is_active"]
+    group_by_fields = {
+        "rule_type": {"field": "rule_type"},
+        "is_active": {"field": "is_active", "true_label": "Active",
+                      "empty_label": "Inactive"},
+    }
 
     @action(detail=False, methods=["post"])
     def preview(self, request):
@@ -141,7 +161,7 @@ class PricingRuleViewSet(viewsets.ModelViewSet):
         })
 
 
-class AddOnViewSet(viewsets.ModelViewSet):
+class AddOnViewSet(GroupedListMixin, viewsets.ModelViewSet):
     queryset = (
         AddOn.objects
         .prefetch_related("categories", "available_clubs")
@@ -151,7 +171,11 @@ class AddOnViewSet(viewsets.ModelViewSet):
     permission_classes = [FacilityCatalogPermission]
     filterset_fields = ["is_active", "is_featured", "categories", "available_all_clubs"]
     search_fields = ["name", "code", "description", "categories__name"]
-    ordering_fields = ["display_order", "name", "price"]
+    ordering_fields = ["display_order", "name", "price", "is_active"]
+    group_by_fields = {
+        "is_active": {"field": "is_active", "true_label": "Active",
+                      "empty_label": "Inactive"},
+    }
 
 
 class MaintenanceBlockViewSet(viewsets.ModelViewSet):

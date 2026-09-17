@@ -10,6 +10,12 @@ from apps.bookings.models import Booking, BookingPolicy, BookingStatus
 from apps.bookings.services import resolve_policy
 from apps.facilities.models import Facility
 
+def today():
+    """The service works in the configured timezone, so the tests must too:
+    the machine's local date differs from it between the two midnights."""
+    return timezone.localdate()
+
+
 
 @pytest.fixture
 def court(db, club, facility_type):
@@ -26,7 +32,7 @@ def policy(db):
 def _payload(customer, club, facility_type, days_ahead=3, at="10:00"):
     return {
         "customer": customer.id, "club": club.id, "facility_type": facility_type.id,
-        "scheduled_date": (date.today() + timedelta(days=days_ahead)).isoformat(),
+        "scheduled_date": (today() + timedelta(days=days_ahead)).isoformat(),
         "scheduled_time": at,
     }
 
@@ -101,7 +107,7 @@ def test_booking_window_endpoint_reports_the_bounds(auth_api, club, policy):
     body = auth_api.get(f"/api/v1/bookings/booking-window/?club={club.id}").json()
     assert body["max_advance_days"] == 10
     assert body["min_lead_minutes"] == 30
-    assert body["latest_date"] == (date.today() + timedelta(days=10)).isoformat()
+    assert body["latest_date"] == (today() + timedelta(days=10)).isoformat()
 
 
 # --------------------------------------------------------------------------- #
@@ -165,7 +171,7 @@ def test_a_club_override_beats_the_default_through_the_api(auth_api, customer, c
 def _public(facility_type, club, days_ahead=3, at="10:00", **extra):
     return {
         "facility_type": facility_type.id, "club": club.id,
-        "date": (date.today() + timedelta(days=days_ahead)).isoformat(),
+        "date": (today() + timedelta(days=days_ahead)).isoformat(),
         "time": at, "name": "Layla Ahmed",
         "email": "web@riversideclub.ae", "phone": "+971500000009",
         **extra,
@@ -224,11 +230,11 @@ def test_public_availability_carries_the_booking_window(api, club, court,
                                                         facility_type, policy):
     policy.max_advance_days = 21
     policy.save()
-    on_date = (date.today() + timedelta(days=2)).isoformat()
+    on_date = (today() + timedelta(days=2)).isoformat()
     body = api.get(f"/api/v1/website/public/availability/?club={club.id}"
                    f"&date={on_date}&facility_type={facility_type.id}").json()
     assert body["window"]["max_advance_days"] == 21
-    assert body["window"]["latest_date"] == (date.today() + timedelta(days=21)).isoformat()
+    assert body["window"]["latest_date"] == (today() + timedelta(days=21)).isoformat()
 
 
 # --------------------------------------------------------------------------- #
@@ -252,7 +258,7 @@ def test_a_customer_can_cancel_inside_the_window(customer_client, booking_on,
                                                  court, policy):
     policy.cancellation_cutoff_hours = 12
     policy.save()
-    b = booking_on(on_date=date.today() + timedelta(days=5), at_time=time(10, 0))
+    b = booking_on(on_date=today() + timedelta(days=5), at_time=time(10, 0))
     resp = customer_client.post(f"/api/v1/bookings/{b.id}/cancel/", {}, format="json")
     assert resp.status_code == 200, resp.content
     b.refresh_from_db()
@@ -287,7 +293,7 @@ def test_the_booking_payload_reports_the_cancellation_state(auth_api, booking_on
                                                             court, policy):
     policy.cancellation_cutoff_hours = 24
     policy.save()
-    b = booking_on(on_date=date.today() + timedelta(days=5), at_time=time(10, 0))
+    b = booking_on(on_date=today() + timedelta(days=5), at_time=time(10, 0))
     body = auth_api.get(f"/api/v1/bookings/{b.id}/").json()
     assert body["cancellation"]["cutoff_hours"] == 24
     assert body["cancellation"]["customer_can_cancel"] is True

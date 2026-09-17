@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { useLocation } from 'react-router-dom';
 import toast from 'react-hot-toast';
+import { useTranslation } from 'react-i18next';
 
 import { ConfirmDialog } from './ConfirmDialog.jsx';
 import { useAuth } from '../hooks/useAuth.jsx';
@@ -33,6 +34,7 @@ function readLastActivity(fallback) {
  * One timestamp-based interval; listeners cleaned up; tokens stay HttpOnly.
  */
 export function IdleTimeoutManager() {
+  const { t } = useTranslation('auth');
   const { isAuthenticated, logout } = useAuth();
   const location = useLocation();
 
@@ -65,7 +67,7 @@ export function IdleTimeoutManager() {
     // Best-effort audit (session still valid), then the real logout: revokes the
     // refresh token + clears cookies/stored user -> ProtectedRoute redirects.
     accountApi.logIdleEvent(kind === 'auto' ? 'idle_logout_auto' : 'idle_logout_manual');
-    if (kind === 'auto') toast.error('You have been logged out due to inactivity.');
+    if (kind === 'auto') toast.error(t('youHaveBeenLoggedOut'));
     try { await logout(); } catch { /* logout clears local state regardless */ }
   }
 
@@ -141,17 +143,17 @@ export function IdleTimeoutManager() {
     <ConfirmDialog
       open={warning}
       tone="primary"
-      title="Your session is about to expire"
+      title={t('yourSessionAboutExpire')}
       message={
         <>
-          Your session is about to expire due to inactivity. Do you want to stay logged in?
+          {t('yourSessionAboutExpireDue')}
           <div className="muted" style={{ marginTop: 8 }}>
-            You’ll be logged out automatically in <strong>{remaining}s</strong>.
+            {t('youLlLoggedOutAutomatically')} <strong>{remaining}s</strong>.
           </div>
         </>
       }
-      confirmLabel="Stay Logged In"
-      cancelLabel="Logout"
+      confirmLabel={t('stayLogged')}
+      cancelLabel={t('logout')}
       onConfirm={stayLoggedIn}
       onClose={() => doLogout('manual')}
     />

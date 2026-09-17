@@ -1,0 +1,11 @@
+{
+  "addGoogleMapsKeySearch": "Add a Google Maps key to search & drop a pin on a live map.",
+  "address": "Address",
+  "addressSelection": "Address Selection",
+  "city": "City",
+  "latitude": "Latitude",
+  "liveMapAppearsHereOnce": "Live map appears here once a Google Maps key is configured.",
+  "longitude": "Longitude",
+  "searchAddress": "Search an address…",
+  "searchAddress2": "Search an address"
+}

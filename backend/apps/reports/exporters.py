@@ -7,7 +7,7 @@ with the right content type.
 from io import BytesIO
 
 from openpyxl import Workbook
-from openpyxl.styles import Font
+from openpyxl.styles import Alignment, Font
 from reportlab.lib import colors
 from reportlab.lib.pagesizes import A4
 from reportlab.lib.units import mm
@@ -190,6 +190,229 @@ def revenue_to_pdf(report: dict) -> bytes:
             pdf.setFont("Helvetica", 9)
         pdf.drawString(22 * mm, y, row["date"])
         pdf.drawRightString(118 * mm, y, _money(row["net"]))
+        y -= 6 * mm
+
+    pdf.showPage()
+    pdf.save()
+    return buf.getvalue()
+
+
+# --------------------------------------------------------------------------- #
+# AI Insights reports                                                          #
+# --------------------------------------------------------------------------- #
+# These render the dataset the assistant already produced. They never call the
+# model and never recompute a figure: the file has to contain exactly what the
+# user saw on screen.
+
+_WIDGET_TITLE_FALLBACK = "Report"
+
+
+def _sheet_name(title: str, used: set) -> str:
+    """Excel sheet names are capped at 31 characters and must be unique."""
+    base = (title or _WIDGET_TITLE_FALLBACK)[:31].strip() or _WIDGET_TITLE_FALLBACK
+    name, n = base, 2
+    while name.lower() in used:
+        suffix = " %d" % n
+        name = base[:31 - len(suffix)] + suffix
+        n += 1
+    used.add(name.lower())
+    return name
+
+
+def _as_number(value):
+    """Money and counts arrive as strings; write them as numbers so Excel can
+    total and chart them."""
+    if isinstance(value, (int, float)):
+        return value
+    try:
+        text = str(value)
+        return float(text) if "." in text else int(text)
+    except (TypeError, ValueError):
+        return value
+
+
+def ai_report_sheets(entry: dict) -> list:
+    """Flatten the stored widgets into tabular sheets.
+
+    One sheet per table or chart, plus the KPI blocks. A chart's underlying
+    rows are what belongs in a spreadsheet; the picture is the screen's job.
+    """
+    sheets = []
+    for widget in entry.get("widgets") or []:
+        kind = widget.get("type")
+        title = widget.get("title") or _WIDGET_TITLE_FALLBACK
+
+        if kind == "kpi":
+            sheets.append({
+                "title": title,
+                "headers": ["Metric", "Value"],
+                "rows": [(item.get("label"), _as_number(item.get("value")))
+                         for item in widget.get("items") or []],
+            })
+        elif kind == "table":
+            columns = widget.get("columns") or []
+            sheets.append({
+                "title": title,
+                "headers": [c.get("label") or c.get("key") for c in columns],
+                "rows": [tuple(_as_number(row.get(c.get("key"))) for c in columns)
+                         for row in widget.get("rows") or []],
+            })
+        elif kind in ("line", "bar", "donut"):
+            x, y = widget.get("x"), widget.get("y")
+            sheets.append({
+                "title": title,
+                "headers": [str(x).title(), str(y).title()],
+                "rows": [(row.get(x), _as_number(row.get(y)))
+                         for row in widget.get("rows") or []],
+            })
+    return sheets
+
+
+def _report_subtitle(entry: dict) -> str:
+    """Scope and period, so a file away from the screen still explains itself."""
+    metas = [r.get("meta") or {} for r in entry.get("results") or []]
+    period = ""
+    for meta in metas:
+        if meta.get("date_from") and meta.get("date_to"):
+            period = "%s to %s" % (meta["date_from"], meta["date_to"])
+            break
+    scope = next((m.get("scope") for m in metas if m.get("scope")), "")
+    return " | ".join([p for p in (period, scope) if p])
+
+
+def ai_report_to_xlsx(entry: dict, sheets: list) -> bytes:
+    """A workbook: cover sheet with the question and answer, then the data."""
+    wb = Workbook()
+    cover = wb.active
+    cover.title = "Summary"
+    cover["A1"] = "AI Insights report"
+    cover["A1"].font = Font(bold=True, size=14)
+    for row, (label, value) in enumerate((
+        ("Question", entry.get("question", "")),
+        ("Summary", entry.get("answer", "")),
+        ("Scope", _report_subtitle(entry)),
+        ("Generated", entry.get("stored_at", "")),
+    ), start=3):
+        cover.cell(row=row, column=1, value=label).font = Font(bold=True)
+        cover.cell(row=row, column=2, value=value)
+    cover.column_dimensions["A"].width = 18
+    cover.column_dimensions["B"].width = 96
+    cover["B4"].alignment = Alignment(wrap_text=True, vertical="top")
+
+    used = {"summary"}
+    money_fmt = _xlsx_money_format()
+    for sheet in sheets:
+        ws = wb.create_sheet(_sheet_name(sheet["title"], used))
+        ws["A1"] = sheet["title"]
+        ws["A1"].font = Font(bold=True, size=12)
+        for column, header in enumerate(sheet["headers"], start=1):
+            ws.cell(row=3, column=column, value=header).font = Font(bold=True)
+        for index, row in enumerate(sheet["rows"], start=4):
+            for column, value in enumerate(row, start=1):
+                cell = ws.cell(row=index, column=column, value=value)
+                if isinstance(value, float):
+                    cell.number_format = money_fmt
+        for column in range(1, len(sheet["headers"]) + 1):
+            ws.column_dimensions[chr(64 + column)].width = 22
+        # The header stays put while a long table scrolls.
+        ws.freeze_panes = "A4"
+
+    buf = BytesIO()
+    wb.save(buf)
+    return buf.getvalue()
+
+
+def ai_report_to_pdf(entry: dict, sheets: list) -> bytes:
+    """A management document: title, scope, the summary, then each table."""
+    buf = BytesIO()
+    pdf = canvas.Canvas(buf, pagesize=A4)
+    width, height = A4
+    left, right = 20 * mm, width - 20 * mm
+    y = height - 20 * mm
+
+    def wrapped(text, font, size, max_width):
+        """Break a paragraph to the page width; reportlab does not wrap."""
+        words, line, lines = str(text or "").split(), "", []
+        for word in words:
+            candidate = (line + " " + word).strip()
+            if pdf.stringWidth(candidate, font, size) <= max_width:
+                line = candidate
+            else:
+                lines.append(line)
+                line = word
+        if line:
+            lines.append(line)
+        return lines
+
+    pdf.setFont("Helvetica-Bold", 16)
+    pdf.drawString(left, y, "AI Insights report")
+    y -= 7 * mm
+
+    subtitle = _report_subtitle(entry)
+    if subtitle:
+        pdf.setFont("Helvetica", 9)
+        pdf.setFillColor(colors.grey)
+        pdf.drawString(left, y, subtitle)
+        pdf.setFillColor(colors.black)
+        y -= 6 * mm
+
+    pdf.setFont("Helvetica-Oblique", 9)
+    pdf.setFillColor(colors.grey)
+    pdf.drawString(left, y, "Generated " + str(entry.get("stored_at", "")))
+    pdf.setFillColor(colors.black)
+    y -= 9 * mm
+
+    for label, value in (("Question", entry.get("question")),
+                         ("Summary", entry.get("answer"))):
+        if not value:
+            continue
+        pdf.setFont("Helvetica-Bold", 10)
+        pdf.drawString(left, y, label)
+        y -= 5 * mm
+        pdf.setFont("Helvetica", 10)
+        for line in wrapped(value, "Helvetica", 10, right - left):
+            pdf.drawString(left, y, line)
+            y -= 5 * mm
+        y -= 3 * mm
+
+    for sheet in sheets:
+        if y < 45 * mm:
+            pdf.showPage()
+            y = height - 20 * mm
+
+        pdf.setFont("Helvetica-Bold", 11)
+        pdf.drawString(left, y, sheet["title"])
+        y -= 6 * mm
+
+        headers, rows = sheet["headers"], sheet["rows"]
+        col_width = (right - left) / max(1, len(headers))
+
+        pdf.setFont("Helvetica-Bold", 9)
+        for index, header in enumerate(headers):
+            x = left + index * col_width
+            if index == 0:
+                pdf.drawString(x, y, str(header))
+            else:
+                pdf.drawRightString(x + col_width - 2 * mm, y, str(header))
+        y -= 2 * mm
+        pdf.setStrokeColor(colors.lightgrey)
+        pdf.line(left, y, right, y)
+        y -= 4 * mm
+
+        pdf.setFont("Helvetica", 9)
+        for row in rows:
+            if y < 20 * mm:
+                pdf.showPage()
+                y = height - 20 * mm
+                pdf.setFont("Helvetica", 9)
+            for index, value in enumerate(row):
+                x = left + index * col_width
+                text = _money(value) if isinstance(value, float) else str(value)
+                if index == 0:
+                    pdf.drawString(x, y, text[:48])
+                else:
+                    pdf.drawRightString(x + col_width - 2 * mm, y, text)
+            y -= 5 * mm
         y -= 6 * mm
 
     pdf.showPage()

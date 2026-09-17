@@ -1,0 +1,85 @@
+/* The language switcher. Sized for the longest native name it may hold, since
+   a fixed width that fits "English" will not fit "Bahasa Indonesia". */
+.lang { position: relative; display: inline-flex; }
+
+.lang__trigger {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  height: 34px;
+  padding-inline: 10px;
+  border: 1px solid transparent;
+  border-radius: var(--radius-md);
+  background: none;
+  color: inherit;
+  font: inherit;
+  font-size: 13px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.lang__trigger:hover { background: rgba(255, 255, 255, .1); }
+.lang__trigger:focus-visible {
+  outline: 2px solid var(--color-primary-500);
+  outline-offset: 2px;
+}
+
+/* On a page with a light background (sign in) the control needs a real border. */
+.lang--outline .lang__trigger {
+  border-color: var(--color-border);
+  background: var(--color-surface);
+  color: var(--color-text);
+}
+.lang--outline .lang__trigger:hover { background: var(--color-border-soft); }
+
+.lang__menu {
+  position: absolute;
+  top: calc(100% + 6px);
+  inset-inline-end: 0;
+  z-index: 60;
+  min-width: 180px;
+  /* Never wider than the screen it opens on. */
+  max-width: calc(100vw - 24px);
+  margin: 0;
+  padding: 5px;
+  list-style: none;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-surface);
+  box-shadow: var(--shadow-lg);
+}
+
+.lang__option {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 18px;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 8px 9px;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: none;
+  color: var(--color-text);
+  font: inherit;
+  font-size: 13.5px;
+  text-align: start;
+  cursor: pointer;
+}
+.lang__option:hover { background: var(--color-border-soft); }
+.lang__option.is-on { color: var(--color-primary-700); font-weight: 600; }
+
+.lang__tick { display: inline-grid; place-items: center; color: var(--color-primary-600); }
+.lang__native {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  /* The column follows the menu, not the name: the inner <bdi> is what keeps
+     each name's own script rendering correctly. */
+  text-align: start;
+}
+.lang__native bdi { unicode-bidi: isolate; }
+/* The trigger label is the first thing to go when space is tight; the globe
+   still says what the control is. */
+@media (max-width: 640px) {
+  .lang__label { display: none; }
+  .lang__menu { min-width: 180px; }
+}

@@ -9,6 +9,8 @@ from .views import (
     MediaAssetViewSet,
     ProcessStepViewSet,
     PublicAvailabilityView,
+    PublicCampaignEventView,
+    PublicCampaignsView,
     PublicBookingConfigView,
     PublicBookingCreateView,
     PublicBrandingView,
@@ -22,6 +24,7 @@ from .views import (
     SiteSectionViewSet,
     StatItemViewSet,
     TestimonialViewSet,
+    WebsiteCampaignViewSet,
     WhyChooseUsPointViewSet,
 )
 
@@ -36,6 +39,7 @@ router.register("testimonials", TestimonialViewSet, basename="website-testimonia
 router.register("brands", BrandLogoViewSet, basename="website-brand")
 router.register("faqs", FAQItemViewSet, basename="website-faq")
 router.register("seo", SEOSettingViewSet, basename="website-seo")
+router.register("campaigns", WebsiteCampaignViewSet, basename="website-campaign")
 
 urlpatterns = [
     # Public, unauthenticated marketing-website reads.
@@ -49,6 +53,9 @@ urlpatterns = [
     path("public/contact-precheck/", PublicContactPrecheckView.as_view(), name="website-public-contact-precheck"),
     path("public/contact-verify/", PublicContactVerifyView.as_view(), name="website-public-contact-verify"),
     path("public/quote/", PublicQuoteView.as_view(), name="website-public-quote"),
+    path("public/campaigns/", PublicCampaignsView.as_view(), name="website-public-campaigns"),
+    path("public/campaign-event/", PublicCampaignEventView.as_view(),
+         name="website-public-campaign-event"),
     # Singleton footer config (no list/create — one row).
     path("footer/", FooterConfigViewSet.as_view({"get": "list", "put": "update", "patch": "update"}),
          name="website-footer"),

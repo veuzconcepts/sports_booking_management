@@ -1,0 +1,133 @@
+/* The customer website's design tokens.
+ *
+ * ONE palette, two themes. Light is the default: the site is a warm off-white
+ * page with a deep green, near-black brand and a lime accent, and dark is the
+ * alternative a visitor can switch to.
+ *
+ * NAMING
+ *   The semantic names below (--brand, --accent, --ink, --surface…) are the
+ *   source of truth. The older names (--navy, --indigo, --amber) are kept as
+ *   aliases at the bottom because the booking stylesheet and wizard reference
+ *   them in roughly eighty places; renaming those would be a large, risky sweep
+ *   for no behavioural gain. New code uses the semantic names.
+ *
+ * BRANDING
+ *   An organization's configured brand colours are injected onto <html> by
+ *   BaseLayout and override --brand / --brand-deep / --accent. Every surface
+ *   reads a token, so branding reaches the whole site without a component
+ *   knowing a theme exists (CLAUDE.md section 18).
+ */
+
+:root {
+  /* ---- Brand identity ---------------------------------------------------
+     Deep green through near-black, with a lime accent. These are the shipped
+     defaults; branding replaces them at runtime. */
+  --brand: #15402c;             /* deep green: primary surfaces, buttons */
+  --brand-deep: #0b1f17;        /* near-black green: header, footer, bands */
+  --brand-soft: #1f5a3d;        /* lifted green: hovers, secondary fills */
+  --accent: #cff56a;            /* lime: the one bright colour on the page */
+  --accent-strong: #b6e84a;     /* lime, pressed */
+  --on-accent: #0b1f17;         /* text on lime, and on white pills */
+  --on-brand: #f4f7f2;          /* text on the deep green bands */
+
+  /* ---- Sizing and type (constant across themes) ------------------------- */
+  --radius: 18px;
+  --radius-sm: 12px;
+  --radius-lg: 28px;
+  --container: 1200px;
+  --font: 'Poppins', system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+
+  /* ---- Light theme: the default ----------------------------------------- */
+  color-scheme: light;
+  --bg: #f7f5ef;                /* warm off-white, not a cold grey */
+  --bg-image: none;
+  --bg-soft: #efece2;
+  --surface: #ffffff;
+  --surface-2: #f2efe6;
+  --glass: rgba(255, 255, 255, 0.78);
+  --header-bg: rgba(247, 245, 239, 0.86);
+  --ink: #0b1f17;
+  --text: #3a473f;
+  --muted: #6d7a71;
+  --line: #e3dfd2;
+  --track: #e8e4d8;
+  --soft-accent: #eaf6d8;       /* lime at rest */
+  --soft-active: #dff0c2;       /* lime, selected */
+  --faq-open-bg: #f1f6e8;
+  --placeholder: #9aa39c;
+  --disabled: #c2c8c2;
+  --shadow: 0 20px 56px rgba(11, 31, 23, 0.10);
+  --shadow-sm: 0 6px 22px rgba(11, 31, 23, 0.06);
+  --excl-bg: #fbf5ef;
+  --excl-border: #eddfce;
+  --err-bg: #fdecec;
+  --err-border: #f5c2c2;
+  --err-ink: #b3261e;
+  --price-grad: linear-gradient(135deg, var(--brand-deep), var(--brand-soft));
+  --hover-glow: 0 18px 42px rgba(21, 64, 44, 0.16), 0 10px 26px rgba(11, 31, 23, 0.10);
+  --hover-border: var(--brand-soft);
+  --logo-plate: #ffffff;
+  --logo-filter: none;
+  --logo-filter-hover: none;
+  --logo-op: 1;
+  /* Lime is the accent, but lime text on off-white is unreadable, so the
+     small uppercase labels take the brand green here and the accent at night. */
+  --eyebrow-ink: var(--brand-soft);
+}
+
+/* ---- Dark theme ---------------------------------------------------------
+   The same brand, read at night: a near-black green page rather than an
+   inverted grey one, so the identity survives the switch. */
+[data-theme="dark"] {
+  color-scheme: dark;
+  --bg: #08150f;
+  --bg-image:
+    radial-gradient(1000px 520px at 6% -8%, rgba(207, 245, 106, 0.08), transparent 58%),
+    radial-gradient(900px 680px at 102% -2%, rgba(31, 90, 61, 0.28), transparent 55%);
+  --bg-soft: #0b1f17;
+  --surface: #0f2a1d;
+  --surface-2: #163726;
+  --glass: rgba(15, 42, 29, 0.66);
+  --header-bg: rgba(8, 21, 15, 0.78);
+  --ink: #f1f6ec;
+  --text: #c3d2c6;
+  --muted: #8ea194;
+  --line: rgba(255, 255, 255, 0.10);
+  --track: #1b4130;
+  --soft-accent: rgba(207, 245, 106, 0.14);
+  --soft-active: rgba(207, 245, 106, 0.24);
+  --faq-open-bg: rgba(207, 245, 106, 0.10);
+  --placeholder: #7b8c81;
+  --disabled: #4a5c51;
+  --shadow: 0 18px 50px rgba(0, 0, 0, 0.50);
+  --shadow-sm: 0 6px 22px rgba(0, 0, 0, 0.35);
+  --excl-bg: rgba(214, 120, 80, 0.10);
+  --excl-border: rgba(214, 120, 80, 0.24);
+  --err-bg: rgba(210, 59, 59, 0.14);
+  --err-border: rgba(210, 59, 59, 0.40);
+  --err-ink: #ff8f8f;
+  --price-grad: linear-gradient(135deg, var(--accent), var(--accent-strong));
+  --hover-glow: 0 18px 42px rgba(207, 245, 106, 0.18), 0 10px 26px rgba(0, 0, 0, 0.38);
+  --hover-border: rgba(207, 245, 106, 0.85);
+  --logo-plate: var(--glass);
+  --logo-filter: none;
+  --logo-filter-hover: none;
+  --logo-op: 1;
+  --eyebrow-ink: var(--accent-strong);
+}
+
+/* ---- Legacy aliases -----------------------------------------------------
+   The booking stylesheet and wizard were written against these names. They now
+   resolve to the semantic tokens above, so those files keep working unchanged
+   and there is still only one place a colour is decided. Do not use them in
+   new code. */
+:root,
+[data-theme="dark"] {
+  --navy: var(--brand);
+  --navy-700: var(--brand-deep);
+  --indigo: var(--brand-soft);
+  --indigo-600: var(--brand-soft);
+  --amber: var(--accent);
+  --amber-600: var(--accent-strong);
+  --plate: var(--logo-plate);
+}

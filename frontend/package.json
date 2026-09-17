@@ -10,16 +10,20 @@
     "lint": "eslint src --ext .js,.jsx",
     "check:emdash": "node ../scripts/check-no-emdash.mjs",
     "test": "vitest run",
-    "e2e": "playwright test"
+    "e2e": "playwright test",
+    "test:responsive": "playwright test e2e/responsive.spec.js"
   },
   "dependencies": {
     "axios": "^1.7.2",
+    "i18next": "^26.4.2",
+    "i18next-browser-languagedetector": "^8.2.1",
     "libphonenumber-js": "^1.13.7",
     "lucide-react": "^0.408.0",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
     "react-hook-form": "^7.52.1",
     "react-hot-toast": "^2.4.1",
+    "react-i18next": "^17.0.14",
     "react-international-phone": "^4.8.0",
     "react-router-dom": "^6.24.1",
     "recharts": "^2.12.7"

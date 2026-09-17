@@ -1,5 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
+import { t } from '../i18n/index.js';
+
 vi.mock('./apiClient', () => ({
   default: {
     get: vi.fn(() => Promise.resolve({ data: {} })),
@@ -11,10 +13,10 @@ vi.mock('./apiClient', () => ({
 
 const api = (await import('./apiClient')).default;
 const {
-  BOOKING_STATUSES,
+  bookingStatuses,
   bookingPoliciesApi,
   bookingWindowApi,
-  BOOKING_SOURCES,
+  bookingSources,
   NEXT_STATUSES,
   bookingDuplicateInitial,
   bookingEditInitial,
@@ -27,18 +29,18 @@ beforeEach(() => {
 
 describe('status vocabulary', () => {
   it('has no quality-check stage', () => {
-    expect(BOOKING_STATUSES.map((s) => s.value)).not.toContain('qc');
+    expect(bookingStatuses(t).map((s) => s.value)).not.toContain('qc');
     expect(NEXT_STATUSES).not.toHaveProperty('qc');
   });
 
   it('uses domain-neutral labels', () => {
-    const byValue = Object.fromEntries(BOOKING_STATUSES.map((s) => [s.value, s.label]));
+    const byValue = Object.fromEntries(bookingStatuses(t).map((s) => [s.value, s.label]));
     expect(byValue.arrived).toBe('Checked in');
     expect(byValue.in_progress).toBe('In progress');
   });
 
   it('offers only the sources the platform actually has', () => {
-    expect(BOOKING_SOURCES.map((s) => s.value)).toEqual(
+    expect(bookingSources(t).map((s) => s.value)).toEqual(
       ['admin', 'website', 'phone', 'walk_in', 'other'],
     );
   });

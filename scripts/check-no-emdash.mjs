@@ -22,7 +22,7 @@ import { dirname } from 'node:path';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 const EM_DASH = '—';
-const SCAN_DIRS = ['frontend/src', 'web/src'];
+const SCAN_DIRS = ['frontend/src', 'frontend/e2e', 'web/src'];
 const TEXT_EXT = new Set(['.js', '.jsx', '.ts', '.tsx', '.astro', '.css', '.html']);
 const SKIP_DIR = new Set(['node_modules', 'dist', 'build', '.git', 'coverage', 'assets']);
 

@@ -1,6 +1,7 @@
-import { useCallback, useState } from 'react';
+import { useCallback, useMemo, useState } from 'react';
 import { useParams } from 'react-router-dom';
 import { Plus, Pencil, Trash2, Eye, EyeOff } from 'lucide-react';
+import { useTranslation } from 'react-i18next';
 import toast from 'react-hot-toast';
 
 import { PageHeader } from '../../components/PageHeader.jsx';
@@ -10,12 +11,14 @@ import { ConfirmDialog } from '../../components/ConfirmDialog.jsx';
 import { useApiList } from '../../hooks/useApiList.js';
 import { useAuth } from '../../hooks/useAuth.jsx';
 import { apiErrorMessage } from '../../utils/apiError.js';
-import { CMS_RESOURCES } from './cmsConfig.jsx';
+import { cmsResources } from './cmsConfig.jsx';
 import { CmsFormModal } from './CmsFormModal.jsx';
 
 export default function CmsResourcePage() {
+  const { t } = useTranslation('website');
   const { resource: resourceKey } = useParams();
-  const resource = CMS_RESOURCES[resourceKey];
+  // Rebuilt when the language changes so every label follows it.
+  const resource = useMemo(() => cmsResources(t)[resourceKey], [t, resourceKey]);
   const { hasPerm } = useAuth();
   const canEdit = hasPerm('website.edit');
   const canPublish = hasPerm('website.publish');
@@ -30,15 +33,15 @@ export default function CmsResourcePage() {
   const [deleteRow, setDeleteRow] = useState(null);
   const [busy, setBusy] = useState(false);
 
-  if (!resource) return <div className="muted" style={{ padding: 24 }}>Unknown website section.</div>;
+  if (!resource) return <div className="muted" style={{ padding: 24 }}>{t('unknownWebsiteSection')}</div>;
 
   async function togglePublish(r) {
     try {
       await resource.api.setPublished(r.id, !r.is_published);
-      toast.success(r.is_published ? 'Unpublished' : 'Published - live on the club');
+      toast.success(r.is_published ? t('unpublished') : t('publishedLiveClub'));
       reload();
     } catch (e) {
-      toast.error(apiErrorMessage(e, 'Unable to update the publish state. Please try again.'));
+      toast.error(apiErrorMessage(e, t('unableUpdatePublishStatePlease')));
     }
   }
 
@@ -47,39 +50,39 @@ export default function CmsResourcePage() {
     setBusy(true);
     try {
       await resource.api.remove(deleteRow.id);
-      toast.success(`${resource.singular} deleted`);
+      toast.success(t('cms.deleted', { item: resource.singular }));
       setDeleteRow(null);
       reload();
     } catch (e) {
-      toast.error(apiErrorMessage(e, 'Unable to delete. Please try again.'));
+      toast.error(apiErrorMessage(e, t('unableDeletePleaseTryAgain')));
     } finally { setBusy(false); }
   }
 
   const columns = [
     ...resource.columns,
     ...(resource.hasPublish ? [
-      { key: 'is_enabled', header: 'Enabled',
+      { key: 'is_enabled', header: t('common:state.enabled'),
         render: (r) => <StatusBadge tone={r.is_enabled ? 'success' : 'muted'} label={r.is_enabled ? 'On' : 'Off'} /> },
-      { key: 'is_published', header: 'Status',
-        render: (r) => <StatusBadge tone={r.is_published ? 'success' : 'warning'} label={r.is_published ? 'Published' : 'Draft'} /> },
-      { key: 'display_order', header: 'Order', render: (r) => r.display_order },
+      { key: 'is_published', header: t('common:labels.status'),
+        render: (r) => <StatusBadge tone={r.is_published ? 'success' : 'warning'} label={r.is_published ? t('published') : t('common:state.draft')} /> },
+      { key: 'display_order', header: t('order'), render: (r) => r.display_order },
     ] : []),
     {
       key: 'actions', header: '', sticky: 'right', render: (r) => (
         <div style={{ display: 'flex', gap: 4, justifyContent: 'flex-end' }}>
           {resource.hasPublish && canPublish && (
-            <button className="icon-btn" title={r.is_published ? 'Unpublish' : 'Publish'}
+            <button className="icon-btn" title={r.is_published ? t('unpublish') : t('publish')}
               onClick={(e) => { e.stopPropagation(); togglePublish(r); }}>
               {r.is_published ? <EyeOff size={15} /> : <Eye size={15} />}
             </button>
           )}
           {canEdit && (
-            <button className="icon-btn" title="Edit" onClick={(e) => { e.stopPropagation(); setEditRow(r); }}>
+            <button className="icon-btn" title={t('common:actions.edit')} onClick={(e) => { e.stopPropagation(); setEditRow(r); }}>
               <Pencil size={15} />
             </button>
           )}
           {canEdit && (
-            <button className="icon-btn" title="Delete" style={{ color: 'var(--color-danger,#dc2626)' }}
+            <button className="icon-btn" title={t('common:actions.delete')} style={{ color: 'var(--color-danger,#dc2626)' }}
               onClick={(e) => { e.stopPropagation(); setDeleteRow(r); }}>
               <Trash2 size={15} />
             </button>
@@ -93,10 +96,10 @@ export default function CmsResourcePage() {
     <>
       <PageHeader
         title={resource.title}
-        subtitle="Manage the content shown on the customer website."
+        subtitle={t('manageContentShownCustomerWebsite')}
         actions={canEdit && (
           <button className="btn btn-primary" onClick={() => setEditRow({})}>
-            <Plus size={15} /> New {resource.singular.toLowerCase()}
+            <Plus size={15} /> {t('cms.newItem', { item: resource.singular.toLowerCase() })}
           </button>
         )}
       />
@@ -108,8 +111,10 @@ export default function CmsResourcePage() {
         count={count}
         onPageChange={(p) => setQuery({ ...query, page: p })}
         onRowClick={canEdit ? (r) => setEditRow(r) : undefined}
-        emptyTitle={`No ${resource.title.toLowerCase()} yet`}
-        emptyHint={canEdit ? `Add your first ${resource.singular.toLowerCase()}.` : 'Nothing to show.'}
+        emptyTitle={t('cms.emptyTitle', { items: resource.title.toLowerCase() })}
+        emptyHint={canEdit
+          ? t('cms.emptyHint', { item: resource.singular.toLowerCase() })
+          : t('cms.emptyHintReadOnly')}
         columns={columns}
       />
 
@@ -124,9 +129,9 @@ export default function CmsResourcePage() {
       <ConfirmDialog
         open={Boolean(deleteRow)}
         tone="danger"
-        title={`Delete ${resource.singular.toLowerCase()}?`}
+        title={t('cms.deleteTitle', { item: resource.singular.toLowerCase() })}
         message={deleteRow ? 'This permanently removes the item from the website CMS.' : ''}
-        confirmLabel="Delete"
+        confirmLabel={t('common:actions.delete')}
         busy={busy}
         onConfirm={doDelete}
         onClose={() => { if (!busy) setDeleteRow(null); }}

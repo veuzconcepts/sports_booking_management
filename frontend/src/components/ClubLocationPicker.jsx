@@ -1,5 +1,6 @@
 import { useEffect, useRef } from 'react';
 import { MapPin, Search } from 'lucide-react';
+import { useTranslation } from 'react-i18next';
 
 import { FormField } from './FormField.jsx';
 import { loadGoogleMaps, googleMapsKey, parseAddressComponents } from '../utils/googleMaps.js';
@@ -21,6 +22,7 @@ const round = (n) => Math.round(n * 1e6) / 1e6;
 export function ClubLocationPicker({
   latitude, longitude, address, city, onChange, onAddress, onCity,
 }) {
+  const { t } = useTranslation('clubs');
   const hasKey = Boolean(googleMapsKey());
   const inputRef = useRef(null);
   const mapEl = useRef(null);
@@ -89,38 +91,38 @@ export function ClubLocationPicker({
 
   return (
     <div className="club-loc">
-      <div className="club-loc__head"><MapPin size={18} /> Address Selection</div>
+      <div className="club-loc__head"><MapPin size={18} /> {t('addressSelection')}</div>
       <div className="club-loc__grid">
         <div className="club-loc__form">
           {hasKey && (
             <div className="club-loc__search">
               <Search size={15} />
-              <input ref={inputRef} placeholder="Search an address…" aria-label="Search an address" />
+              <input ref={inputRef} placeholder={t('searchAddress')} aria-label={t('searchAddress2')} />
             </div>
           )}
-          <FormField label="Address">
+          <FormField label={t('address')}>
             <input className="form-input" value={address ?? ''} onChange={(e) => onAddress?.(e.target.value)} />
           </FormField>
-          <FormField label="City">
+          <FormField label={t('city')}>
             <input className="form-input" value={city ?? ''} onChange={(e) => onCity?.(e.target.value)} />
           </FormField>
           <div className="row">
-            <div className="col"><FormField label="Latitude">
+            <div className="col"><FormField label={t('latitude')}>
               <input className="form-input" type="number" step="0.000001" placeholder="25.204800"
                 value={latitude ?? ''} onChange={(e) => onChange({ latitude: e.target.value, longitude })} />
             </FormField></div>
-            <div className="col"><FormField label="Longitude">
+            <div className="col"><FormField label={t('longitude')}>
               <input className="form-input" type="number" step="0.000001" placeholder="55.270800"
                 value={longitude ?? ''} onChange={(e) => onChange({ latitude, longitude: e.target.value })} />
             </FormField></div>
           </div>
           {!hasKey && (
-            <p className="club-loc__note">Add a Google Maps key to search & drop a pin on a live map.</p>
+            <p className="club-loc__note">{t('addGoogleMapsKeySearch')}</p>
           )}
         </div>
         {hasKey
           ? <div className="club-loc__map"><div ref={mapEl} /></div>
-          : <div className="club-loc__manual"><MapPin size={26} /><span>Live map appears here once a Google Maps key is configured.</span></div>}
+          : <div className="club-loc__manual"><MapPin size={26} /><span>{t('liveMapAppearsHereOnce')}</span></div>}
       </div>
     </div>
   );

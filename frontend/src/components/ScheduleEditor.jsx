@@ -1,9 +1,12 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
+import { useTranslation } from 'react-i18next';
 import {
   ChevronDown, ChevronRight, Coffee, Copy, MoreVertical, Plus, RotateCcw, X,
 } from 'lucide-react';
 
 import { TimePicker } from './TimePicker.jsx';
+import { usePopover } from './usePopover.js';
 import { useTimeFormat } from '../services/timeformat.jsx';
 import {
   CLOSED_DAY, DAY_KEYS, DAY_LABELS, DAY_SHORT, SLOT_OPTIONS, TEMPLATES,
@@ -24,27 +27,25 @@ function reopen(cfg) {
 
 /* ------------------------------------------------------------------ menu -- */
 function Menu({ label, icon, children, align = 'right' }) {
-  const [open, setOpen] = useState(false);
-  const wrap = useRef(null);
-
-  useEffect(() => {
-    if (!open) return undefined;
-    const onDoc = (e) => { if (wrap.current && !wrap.current.contains(e.target)) setOpen(false); };
-    document.addEventListener('mousedown', onDoc);
-    return () => document.removeEventListener('mousedown', onDoc);
-  }, [open]);
+  // Portalled: these menus open inside the modal body and the schedule card,
+  // both of which scroll and would otherwise clip them.
+  const { triggerRef, popRef, open, toggle, close, style } = usePopover({
+    width: 216,
+    estimatedHeight: 260,
+    align: align === 'left' ? 'start' : 'end',
+  });
 
   return (
-    <div className="sch-menu" ref={wrap}>
-      <button type="button" className={icon ? 'icon-btn' : 'btn btn-secondary'}
-        aria-label={label} aria-expanded={open} onClick={() => setOpen((o) => !o)}>
+    <div className="sch-menu">
+      <button ref={triggerRef} type="button" className={icon ? 'icon-btn' : 'btn btn-secondary'}
+        aria-label={label} aria-expanded={open} onClick={toggle}>
         {icon || <>{label} <ChevronDown size={14} /></>}
       </button>
-      {open && (
-        <div className="sch-menu__pop" style={align === 'left' ? { left: 0, right: 'auto' } : undefined}
-          onClick={() => setOpen(false)}>
+      {open && style && createPortal(
+        <div ref={popRef} className="sch-menu__pop" style={style} onClick={close}>
           {children}
-        </div>
+        </div>,
+        document.body,
       )}
     </div>
   );
@@ -60,78 +61,79 @@ function HeaderBar({
   slotMinutes, onSlotMinutes, bufferBefore, bufferAfter, onBuffers,
   week, onWeek, canEdit, showTemplates,
 }) {
+  const { t } = useTranslation('schedule');
   const [custom, setCustom] = useState(
     () => slotMinutes != null && !SLOT_OPTIONS.includes(Number(slotMinutes)));
 
   return (
     <div className="sch-bar">
       <div className="sch-bar__group">
-        <span className="sch-bar__label">Slot duration</span>
+        <span className="sch-bar__label">{t('slotDuration')}</span>
         {custom ? (
           <input className="sch-num" type="number" min="1" max="1440" disabled={!canEdit}
-            value={slotMinutes ?? ''} aria-label="Slot duration in minutes"
+            value={slotMinutes ?? ''} aria-label={t('slotDurationCustomAria')}
             onChange={(e) => onSlotMinutes(e.target.value === '' ? null : Number(e.target.value))} />
         ) : (
           <select className="sch-select" disabled={!canEdit} value={slotMinutes ?? ''}
-            aria-label="Slot duration"
+            aria-label={t('slotDurationAria')}
             onChange={(e) => {
               if (e.target.value === 'custom') { setCustom(true); return; }
               onSlotMinutes(e.target.value === '' ? null : Number(e.target.value));
             }}>
-            <option value="">Inherit</option>
-            {SLOT_OPTIONS.map((m) => <option key={m} value={m}>{m} min</option>)}
-            <option value="custom">Custom…</option>
+            <option value="">{t('slotDurationInherit')}</option>
+            {SLOT_OPTIONS.map((m) => <option key={m} value={m}>{t('slotDurationMinutes', { count: m })}</option>)}
+            <option value="custom">{t('slotDurationCustom')}</option>
           </select>
         )}
         {custom && (
-          <button type="button" className="icon-btn" title="Back to the usual durations"
+          <button type="button" className="icon-btn" title={t('backToPresets')}
             onClick={() => setCustom(false)}><X size={14} /></button>
         )}
       </div>
 
       <div className="sch-bar__group">
-        <span className="sch-bar__label" title="Held before each booking, for setup">
-          Buffer before
+        <span className="sch-bar__label" title={t('bufferBeforeHint')}>
+          {t('bufferBefore')}
         </span>
         <input className="sch-num" type="number" min="0" max="240" disabled={!canEdit}
-          value={bufferBefore ?? ''} aria-label="Buffer before a booking, in minutes"
+          value={bufferBefore ?? ''} aria-label={t('bufferBeforeAria')}
           onChange={(e) => onBuffers(e.target.value === '' ? null : Number(e.target.value), bufferAfter)} />
       </div>
       <div className="sch-bar__group">
-        <span className="sch-bar__label" title="Held after each booking, for changeover">
-          Buffer after
+        <span className="sch-bar__label" title={t('bufferAfterHint')}>
+          {t('bufferAfter')}
         </span>
         <input className="sch-num" type="number" min="0" max="240" disabled={!canEdit}
-          value={bufferAfter ?? ''} aria-label="Buffer after a booking, in minutes"
+          value={bufferAfter ?? ''} aria-label={t('bufferAfterAria')}
           onChange={(e) => onBuffers(bufferBefore, e.target.value === '' ? null : Number(e.target.value))} />
       </div>
 
       <div className="sch-bar__spacer" />
 
       {canEdit && showTemplates && (
-        <Menu label="Templates">
-          <div className="sch-menu__group">Start from</div>
-          {TEMPLATES.map((t) => (
-            <Item key={t.key} onClick={() => onWeek(t.build())}>
-              {t.label}
-              <div className="muted" style={{ fontSize: 11.5 }}>{t.detail}</div>
+        <Menu label={t('templates')}>
+          <div className="sch-menu__group">{t('startFrom')}</div>
+          {TEMPLATES.map((template) => (
+            <Item key={template.key} onClick={() => onWeek(template.build())}>
+              {t(template.labelKey)}
+              <div className="muted" style={{ fontSize: 11.5 }}>{t(template.detailKey)}</div>
             </Item>
           ))}
         </Menu>
       )}
 
       {canEdit && (
-        <Menu label="Quick actions">
-          <div className="sch-menu__group">Apply Monday to</div>
-          <Item onClick={() => onWeek(copyDayTo(week, 'mon', DAY_KEYS))}>All days</Item>
-          <Item onClick={() => onWeek(copyDayTo(week, 'mon', WEEKDAYS))}>Weekdays</Item>
-          <Item onClick={() => onWeek(copyDayTo(week, 'mon', WEEKEND))}>Weekend</Item>
+        <Menu label={t('quickActions')}>
+          <div className="sch-menu__group">{t('applyMondayTo')}</div>
+          <Item onClick={() => onWeek(copyDayTo(week, 'mon', DAY_KEYS))}>{t('allDays')}</Item>
+          <Item onClick={() => onWeek(copyDayTo(week, 'mon', WEEKDAYS))}>{t('weekdays')}</Item>
+          <Item onClick={() => onWeek(copyDayTo(week, 'mon', WEEKEND))}>{t('weekend')}</Item>
           <hr className="sch-menu__sep" />
           <Item onClick={() => onWeek(setEveryDay(week, openDay('08:00', '22:00')))}>
-            Set all open
+            {t('setAllOpen')}
           </Item>
           <Item onClick={() => onWeek(setEveryDay(week, { ...CLOSED_DAY }))}>
-            Set all closed
+            {t('setAllClosed')}
           </Item>
         </Menu>
       )}
@@ -144,6 +146,7 @@ function DayRow({
   dayKey, cfg, inherited, source, error, expanded, canEdit,
   onToggle, onExpand, onCopy, onReset, format24, isOverride,
 }) {
+  const { t } = useTranslation('schedule');
   const day = normalizeDay(cfg ?? inherited);
   const breaks = day.breaks || [];
   const overnight = day.shifts.some((s) => spansMidnight(s.open, s.close));
@@ -156,17 +159,17 @@ function DayRow({
         aria-expanded={expanded}
         style={{ display: 'flex', alignItems: 'center', gap: 4, textAlign: 'left' }}>
         {expanded ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
-        {DAY_LABELS[dayKey]}
+        {t(`days.${dayKey}`)}
       </button>
 
       <label className={`sch-toggle sch-row__status${day.closed ? ' sch-toggle--off' : ''}`}>
         <input type="checkbox" checked={!day.closed} disabled={!canEdit}
           onChange={(e) => onToggle(e.target.checked)} />
-        {day.closed ? 'Closed' : 'Open'}
+        {day.closed ? t('closed') : t('open')}
       </label>
 
       <div className="sch-row__hours">
-        {day.closed ? <span>Closed all day</span> : day.shifts.map((s, i) => (
+        {day.closed ? <span>{t('closedAllDay')}</span> : day.shifts.map((s, i) => (
           <span key={i}>
             {displayTime(s.open, format24)}
             <span className="sch-row__sep"> - </span>
@@ -175,40 +178,42 @@ function DayRow({
           </span>
         ))}
         {!day.closed && day.shifts.length === 0 && (
-          <span className="muted">No hours set</span>
+          <span className="muted">{t('noHoursSet')}</span>
         )}
-        {overnight && <span className="sch-badge sch-badge--overnight">Overnight</span>}
+        {overnight && <span className="sch-badge sch-badge--overnight">{t('overnight')}</span>}
       </div>
 
-      <div className="sch-row__meta">
+      <div className="sch-row__meta sch-row__breaks">
         {breaks.length > 0
-          ? <span className="sch-badge sch-badge--break">
-            {breaks.length} break{breaks.length > 1 ? 's' : ''}
-          </span>
-          : <span className="muted" style={{ fontSize: 12 }}>No breaks</span>}
+          ? (
+            <span className="sch-badge sch-badge--break">
+              {t('breaks', { count: breaks.length })}
+            </span>
+          )
+          : <span className="muted" style={{ fontSize: 12 }}>{t('noBreaks')}</span>}
       </div>
 
-      <div className="sch-row__meta">
+      <div className="sch-row__meta sch-row__source">
         <span className={`sch-badge sch-badge--${isOverride ? 'custom' : 'inherited'}`}>
-          {isOverride ? 'Custom' : source}
+          {isOverride ? t('custom') : source}
         </span>
       </div>
 
       <div className="sch-row__menu">
         {canEdit && (
-          <Menu label={`${DAY_LABELS[dayKey]} actions`} icon={<MoreVertical size={15} />}>
-            <div className="sch-menu__group">Copy {DAY_SHORT[dayKey]} to</div>
+          <Menu label={t('dayActions', { day: t(`days.${dayKey}`) })} icon={<MoreVertical size={15} />}>
+            <div className="sch-menu__group">{t('copyTo', { day: t(`days.${dayKey}`) })}</div>
             {DAY_KEYS.filter((d) => d !== dayKey).map((d) => (
-              <Item key={d} onClick={() => onCopy([d])}>{DAY_LABELS[d]}</Item>
+              <Item key={d} onClick={() => onCopy([d])}>{t(`days.${d}`)}</Item>
             ))}
             <hr className="sch-menu__sep" />
-            <Item onClick={() => onCopy(WEEKDAYS)}>Weekdays</Item>
-            <Item onClick={() => onCopy(WEEKEND)}>Weekend</Item>
-            <Item onClick={() => onCopy(DAY_KEYS)}>All days</Item>
+            <Item onClick={() => onCopy(WEEKDAYS)}>{t('weekdays')}</Item>
+            <Item onClick={() => onCopy(WEEKEND)}>{t('weekend')}</Item>
+            <Item onClick={() => onCopy(DAY_KEYS)}>{t('allDays')}</Item>
             {isOverride && onReset && (
               <>
                 <hr className="sch-menu__sep" />
-                <Item danger onClick={onReset}>Reset to {source.toLowerCase()}</Item>
+                <Item danger onClick={onReset}>{t('resetToParent', { parent: source })}</Item>
               </>
             )}
           </Menu>
@@ -222,12 +227,13 @@ function DayRow({
 
 /* ------------------------------------------------------- expanded editor -- */
 function DayDetail({ dayKey, cfg, inherited, canEdit, onChange }) {
+  const { t } = useTranslation('schedule');
   const day = normalizeDay(cfg ?? inherited);
   if (day.closed) {
     return (
       <div className="sch-detail">
         <span className="muted" style={{ fontSize: 13 }}>
-          {DAY_LABELS[dayKey]} is closed. Switch it to Open to set hours.
+          {t('closedHint', { day: t(`days.${dayKey}`) })}
         </span>
       </div>
     );
@@ -240,23 +246,23 @@ function DayDetail({ dayKey, cfg, inherited, canEdit, onChange }) {
   return (
     <div className="sch-detail">
       <div className="sch-detail__section">
-        <div className="sch-detail__title">Operating hours</div>
+        <div className="sch-detail__title">{t('operatingHours')}</div>
         {shifts.map((s, i) => (
           <div className="sch-line" key={i}>
-            <TimePicker value={s.open} disabled={!canEdit} ariaLabel="Opens"
+            <TimePicker value={s.open} disabled={!canEdit} ariaLabel={t('opens')}
               onChange={(v) => set({
                 shifts: shifts.map((x, j) => (j === i ? { ...x, open: v } : x)), breaks,
               })} />
-            <span className="sch-row__sep">to</span>
-            <TimePicker value={s.close} disabled={!canEdit} ariaLabel="Closes"
+            <span className="sch-row__sep">{t('to')}</span>
+            <TimePicker value={s.close} disabled={!canEdit} ariaLabel={t('closes')}
               onChange={(v) => set({
                 shifts: shifts.map((x, j) => (j === i ? { ...x, close: v } : x)), breaks,
               })} />
             {spansMidnight(s.open, s.close) && (
-              <span className="sch-badge sch-badge--overnight">Next day</span>
+              <span className="sch-badge sch-badge--overnight">{t('nextDay')}</span>
             )}
             {canEdit && shifts.length > 1 && (
-              <button type="button" className="icon-btn" title="Remove shift"
+              <button type="button" className="icon-btn" title={t('removeShift')}
                 onClick={() => set({ shifts: shifts.filter((_, j) => j !== i), breaks })}>
                 <X size={14} />
               </button>
@@ -266,36 +272,36 @@ function DayDetail({ dayKey, cfg, inherited, canEdit, onChange }) {
         {canEdit && (
           <button type="button" className="sch-add"
             onClick={() => set({ shifts: [...shifts, { open: '16:00', close: '22:00' }], breaks })}>
-            <Plus size={13} /> Add shift
+            <Plus size={13} /> {t('addShift')}
           </button>
         )}
       </div>
 
       <div className="sch-detail__section">
-        <div className="sch-detail__title">Breaks</div>
+        <div className="sch-detail__title">{t('breaksTitle')}</div>
         {breaks.length === 0 && (
           <div className="muted" style={{ fontSize: 12.5, marginBottom: 6 }}>
-            No breaks. A break blocks bookings inside the operating hours.
+            {t('noBreaksHint')}
           </div>
         )}
         {breaks.map((b, i) => (
           <div className="sch-line" key={i}>
-            <input className="sch-line__name" placeholder="Name, e.g. Maintenance"
-              value={b.name || ''} disabled={!canEdit} aria-label="Break name"
+            <input className="sch-line__name" placeholder={t('breakNamePlaceholder')}
+              value={b.name || ''} disabled={!canEdit} aria-label={t('breakName')}
               onChange={(e) => set({
                 shifts, breaks: breaks.map((x, j) => (j === i ? { ...x, name: e.target.value } : x)),
               })} />
-            <TimePicker value={b.open} disabled={!canEdit} ariaLabel="Break starts"
+            <TimePicker value={b.open} disabled={!canEdit} ariaLabel={t('breakStarts')}
               onChange={(v) => set({
                 shifts, breaks: breaks.map((x, j) => (j === i ? { ...x, open: v } : x)),
               })} />
             <span className="sch-row__sep">to</span>
-            <TimePicker value={b.close} disabled={!canEdit} ariaLabel="Break ends"
+            <TimePicker value={b.close} disabled={!canEdit} ariaLabel={t('breakEnds')}
               onChange={(v) => set({
                 shifts, breaks: breaks.map((x, j) => (j === i ? { ...x, close: v } : x)),
               })} />
             {canEdit && (
-              <button type="button" className="icon-btn" title="Remove break"
+              <button type="button" className="icon-btn" title={t('removeBreak')}
                 onClick={() => set({ shifts, breaks: breaks.filter((_, j) => j !== i) })}>
                 <X size={14} />
               </button>
@@ -308,7 +314,7 @@ function DayDetail({ dayKey, cfg, inherited, canEdit, onChange }) {
               shifts,
               breaks: [...breaks, { name: '', open: '13:00', close: '14:00' }],
             })}>
-            <Coffee size={13} /> Add break
+            <Coffee size={13} /> {t('addBreak')}
           </button>
         )}
       </div>
@@ -318,13 +324,14 @@ function DayDetail({ dayKey, cfg, inherited, canEdit, onChange }) {
 
 /* ---------------------------------------------------------- weekly timeline */
 export function WeeklyTimeline({ week, format24 }) {
+  const { t } = useTranslation('schedule');
   return (
     <div className="sch-timeline">
       {DAY_KEYS.map((key) => {
         const day = normalizeDay(week[key]);
         return (
           <div className="sch-tl-row" key={key}>
-            <span>{DAY_LABELS[key]}</span>
+            <span>{t(`days.${key}`)}</span>
             <div className="sch-tl-track" title={summarizeDay(day, format24)}>
               {!day.closed && day.shifts.map((s, i) => {
                 const start = toMinutes(s.open) ?? 0;
@@ -362,6 +369,7 @@ export function WeeklyTimeline({ week, format24 }) {
 
 /* --------------------------------------------------- effective (read-only) */
 export function EffectiveSchedule({ week, format24 }) {
+  const { t } = useTranslation('schedule');
   return (
     <div className="sch-eff">
       {DAY_KEYS.map((key) => {
@@ -370,7 +378,7 @@ export function EffectiveSchedule({ week, format24 }) {
         const breaks = day.breaks || [];
         return (
           <div className="sch-eff__row" key={key}>
-            <span style={{ fontWeight: 600 }}>{DAY_LABELS[key]}</span>
+            <span style={{ fontWeight: 600 }}>{t(`days.${key}`)}</span>
             <span style={{ fontVariantNumeric: 'tabular-nums' }}>
               {summarizeDay(day, format24)}
               {breaks.length > 0 && (
@@ -380,11 +388,11 @@ export function EffectiveSchedule({ week, format24 }) {
               )}
             </span>
             <span style={{ display: 'flex', gap: 6 }}>
-              {day.closed && <span className="sch-badge sch-badge--closed">Closed</span>}
-              {breaks.length > 0 && <span className="sch-badge sch-badge--break">Break</span>}
+              {day.closed && <span className="sch-badge sch-badge--closed">{t('closed')}</span>}
+              {breaks.length > 0 && <span className="sch-badge sch-badge--break">{t('breaksTitle')}</span>}
               <span className={`sch-badge sch-badge--${cfg.source === 'organization' ? 'inherited' : 'custom'}`}>
                 {cfg.source === 'organization' ? 'Organization'
-                  : cfg.source === 'club' ? 'Club' : 'Custom'}
+                  : cfg.source === 'club' ? t('common:labels.club') : t('slotDurationCustom')}
               </span>
             </span>
           </div>
@@ -421,6 +429,7 @@ export function ScheduleEditor({
   // buffers, so it hides the configuration bar rather than forking the editor.
   showConfig = true,
 }) {
+  const { t } = useTranslation('schedule');
   const { format24 } = useTimeFormat();
   const [expanded, setExpanded] = useState(null);
   const week = value || {};
@@ -461,8 +470,8 @@ export function ScheduleEditor({
 
       <div className="sch-week">
         <div className="sch-head">
-          <span>Day</span><span>Status</span><span>Hours</span>
-          <span>Breaks</span><span>Source</span><span />
+          <span>{t('day')}</span><span>{t('common:labels.status')}</span><span>{t('hours')}</span>
+          <span>{t('breaksTitle')}</span><span>{t('columns.source')}</span><span />
         </div>
 
         {DAY_KEYS.map((key) => {
@@ -503,7 +512,7 @@ export function ScheduleEditor({
       {isChild && canEdit && Object.keys(week).length > 0 && onResetAll && (
         <div>
           <button type="button" className="btn btn-secondary" onClick={onResetAll}>
-            <RotateCcw size={14} /> Reset every day to {parentLabel}
+            <RotateCcw size={14} /> {t('resetEveryDay', { parent: parentLabel })}
           </button>
         </div>
       )}

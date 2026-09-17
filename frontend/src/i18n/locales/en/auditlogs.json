@@ -1,0 +1,25 @@
+{
+  "title": "Audit Logs",
+  "subtitle": "Immutable trail of every mutating request and sensitive domain event.",
+  "searchPlaceholder": "Path, actor email",
+  "emptyTitle": "No audit entries",
+  "emptySearchTitle": "No audit entries for this search",
+  "emptyHint": "Mutating API requests are recorded here automatically.",
+  "columns": {
+    "when": "When",
+    "actor": "Actor",
+    "method": "Method",
+    "path": "Path",
+    "event": "Event",
+    "status": "Status"
+  },
+  "filters": {
+    "method": "Method"
+  },
+  "groups": {
+    "method": "Method",
+    "statusCode": "Status code",
+    "actor": "Actor"
+  },
+  "anonymous": "Anonymous"
+}

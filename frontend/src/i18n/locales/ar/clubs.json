@@ -1,0 +1,11 @@
+{
+  "addGoogleMapsKeySearch": "أضف مفتاح خرائط جوجل للبحث وتحديد الموقع على خريطة مباشرة.",
+  "address": "العنوان",
+  "addressSelection": "اختيار العنوان",
+  "city": "المدينة",
+  "latitude": "خط العرض",
+  "liveMapAppearsHereOnce": "تظهر الخريطة المباشرة هنا بمجرد إعداد مفتاح خرائط جوجل.",
+  "longitude": "خط الطول",
+  "searchAddress": "ابحث عن عنوان…",
+  "searchAddress2": "ابحث عن عنوان"
+}

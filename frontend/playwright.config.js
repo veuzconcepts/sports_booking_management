@@ -1,7 +1,7 @@
 import { defineConfig, devices } from '@playwright/test';
 
 // E2E harness for the admin SPA. Tests run a real Chromium against the Vite dev
-// server with ALL /api/v1 calls mocked (see e2e/support.js) — so they exercise the
+// server with ALL /api/v1 calls mocked (see e2e/support.js) , so they exercise the
 // real page-level flows (routing, modals, actions) without a backend or DB.
 export default defineConfig({
   testDir: './e2e',

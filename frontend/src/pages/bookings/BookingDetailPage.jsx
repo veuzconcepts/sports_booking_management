@@ -4,6 +4,7 @@ import {
   ArrowLeft, Calendar, LayoutGrid, MapPin, User, UserX, RefreshCw, XCircle, Tag, RotateCcw, FileText, Copy, Pencil, Trash2,
 } from 'lucide-react';
 import toast from 'react-hot-toast';
+import { useTranslation } from 'react-i18next';
 
 import { PageHeader } from '../../components/PageHeader.jsx';
 import { StatusBadge } from '../../components/StatusBadge.jsx';
@@ -19,7 +20,7 @@ import { Select2 } from '../../components/Select2.jsx';
 import { useAuth } from '../../hooks/useAuth.jsx';
 
 import {
-  BOOKING_STATUSES,
+  bookingStatuses,
   NEXT_STATUSES,
   bookingsApi,
   bookingDuplicateInitial,
@@ -37,7 +38,7 @@ import { usePrompt } from '../../components/PromptDialog.jsx';
 import { apiErrorMessage } from '../../utils/apiError';
 import { actorLabel } from '../../utils/actor';
 
-const statusLabel = (v) => BOOKING_STATUSES.find((s) => s.value === v)?.label || v;
+const statusLabel = (t, v) => bookingStatuses(t).find((s) => s.value === v)?.label || v;
 const PRIORITY_TONE = { normal: 'muted', urgent: 'warning', vip: 'danger' };
 const PAYMENT_TONE = {
   pending: 'warning', paid: 'success', partially_paid: 'info',
@@ -45,16 +46,17 @@ const PAYMENT_TONE = {
 };
 // Subscription coverage state on a booking (distinguishes a temporary hold from
 // final consumption, so a 0 amount is never ambiguous).
-const COVERAGE_STATE = {
-  consumed:   { tone: 'success', label: 'Subscription consumed' },
-  held:       { tone: 'info',    label: 'Subscription held / reserved (deducted on completion)' },
-  at_risk:    { tone: 'warning', label: 'Held - subscription no longer available; revalidates at completion' },
-  released:   { tone: 'muted',   label: 'Subscription released - charged separately' },
-  eligible:   { tone: 'info',    label: 'Eligible subscription available' },
-  chargeable: { tone: 'muted',   label: 'Chargeable - no subscription applied' },
-};
+const coverageState = (t) => ({
+  consumed:   { tone: 'success', label: t('subscriptionConsumed') },
+  held:       { tone: 'info',    label: t('subscriptionHeldReservedDeductedCompletion') },
+  at_risk:    { tone: 'warning', label: t('heldSubscriptionNoLongerAvailable') },
+  released:   { tone: 'muted',   label: t('subscriptionReleasedChargedSeparately') },
+  eligible:   { tone: 'info',    label: t('eligibleSubscriptionAvailable') },
+  chargeable: { tone: 'muted',   label: t('chargeableNoSubscriptionApplied') },
+});
 
 export default function BookingDetailPage() {
+  const { t } = useTranslation('bookings');
   const { id } = useParams();
   const navigate = useNavigate();
   const { role, hasPerm, user } = useAuth();
@@ -85,9 +87,9 @@ export default function BookingDetailPage() {
     setLoading(true);
     bookingsApi.get(id)
       .then(setBooking)
-      .catch((e) => toast.error(apiErrorMessage(e, 'Unable to load the booking. Please try again.')))
+      .catch((e) => toast.error(apiErrorMessage(e, t('unableLoadBookingPleaseTry'))))
       .finally(() => setLoading(false));
-  }, [id]);
+  }, [id, t]);
 
   const loadFinance = useCallback(async () => {
     if (!hasPerm('invoicing.view') && !hasPerm('payments.view')) return;
@@ -117,10 +119,10 @@ export default function BookingDetailPage() {
     try {
       const updated = await bookingsApi.transition(id, status);
       setBooking(updated);
-      toast.success(`Moved to ${statusLabel(status)}`);
+      toast.success(`Moved to ${statusLabel(t, status)}`);
       loadFinance();   // completion may auto-raise an invoice/receipt → pops the success modal
     } catch (e) {
-      toast.error(apiErrorMessage(e, 'Unable to update the booking status. Please try again.'));
+      toast.error(apiErrorMessage(e, t('unableUpdateBookingStatusPlease')));
     } finally {
       setBusy(false);
     }
@@ -139,30 +141,30 @@ export default function BookingDetailPage() {
   }
 
   async function doCancel() {
-    const note = await prompt({ title: 'Cancel booking', label: 'Reason for cancellation', multiline: true });
+    const note = await prompt({ title: t('cancelBooking'), label: t('reasonCancellation'), multiline: true });
     if (note === null) return;
     setBusy(true);
     try {
       const updated = await bookingsApi.cancel(id, note);
       setBooking(updated);
-      toast.success('Booking cancelled');
+      toast.success(t('bookingCancelled'));
     } catch (e) {
-      toast.error(apiErrorMessage(e, 'Unable to cancel the booking. Please try again.'));
+      toast.error(apiErrorMessage(e, t('unableCancelBookingPleaseTry')));
     } finally {
       setBusy(false);
     }
   }
 
   async function doNoShow() {
-    const note = await prompt({ title: 'Mark no-show', label: 'Note (optional)', multiline: true });
+    const note = await prompt({ title: t('markNoShow'), label: t('noteOptional'), multiline: true });
     if (note === null) return;
     setBusy(true);
     try {
       const updated = await bookingsApi.noShow(id, note);
       setBooking(updated);
-      toast.success('Marked as no-show');
+      toast.success(t('markedAsNoShow'));
     } catch (e) {
-      toast.error(apiErrorMessage(e, 'Unable to mark the booking as no-show. Please try again.'));
+      toast.error(apiErrorMessage(e, t('unableMarkBookingAsNo')));
     } finally {
       setBusy(false);
     }
@@ -173,9 +175,9 @@ export default function BookingDetailPage() {
     try {
       const updated = await bookingsApi.applyPromo(id, promoInput.trim());
       setBooking(updated); setPromoInput('');
-      toast.success('Promo applied');
+      toast.success(t('promoApplied'));
     } catch (e) {
-      toast.error(apiErrorMessage(e, 'Unable to apply the promo code. Please try again.'));
+      toast.error(apiErrorMessage(e, t('unableApplyPromoCodePlease')));
     } finally { setBusy(false); }
   }
 
@@ -184,23 +186,23 @@ export default function BookingDetailPage() {
     try {
       const updated = await bookingsApi.redeemSubscription(id);
       setBooking(updated);
-      toast.success('Subscription redeemed - coverage applied to this booking');
+      toast.success(t('subscriptionRedeemedCoverageAppliedBooking'));
     } catch (e) {
-      toast.error(apiErrorMessage(e, 'Unable to redeem the subscription. Please try again.'));
+      toast.error(apiErrorMessage(e, t('unableRedeemSubscriptionPleaseTry')));
     } finally { setBusy(false); }
   }
 
   async function doUnapplySubscription() {
-    const reason = await prompt({ title: 'Unapply subscription',
-      label: 'Reason (optional)', multiline: true });
+    const reason = await prompt({ title: t('unapplySubscription2'),
+      label: t('reasonOptional'), multiline: true });
     if (reason === null) return;   // dismissed
     setBusy(true);
     try {
       const updated = await bookingsApi.unapplySubscription(id, reason || '');
       setBooking(updated);
-      toast.success('Subscription unapplied - this booking is now chargeable');
+      toast.success(t('subscriptionUnappliedBookingNowChargeable'));
     } catch (e) {
-      toast.error(apiErrorMessage(e, 'Unable to unapply the subscription. Please try again.'));
+      toast.error(apiErrorMessage(e, t('unableUnapplySubscriptionPleaseTry')));
     } finally { setBusy(false); }
   }
 
@@ -220,20 +222,20 @@ export default function BookingDetailPage() {
       const a = document.createElement('a');
       a.href = url; a.download = `${number}.pdf`; a.click();
       URL.revokeObjectURL(url);
-    } catch (e) { toast.error(apiErrorMessage(e, 'Unable to download the document. Please try again.')); }
+    } catch (e) { toast.error(apiErrorMessage(e, t('unableDownloadDocumentPleaseTry'))); }
   }
   const downloadInvoice = (inv) => downloadDoc(() => invoicesApi.download(inv.id), inv.number);
 
   async function doCancelInvoice(inv) {
-    const reason = await prompt({ title: 'Cancel invoice', label: 'Reason (optional)', defaultValue: '' });
+    const reason = await prompt({ title: t('cancelInvoice'), label: t('reasonOptional'), defaultValue: '' });
     if (reason === null) return;            // dialog dismissed
     setBusy(true);
     try {
       await invoicesApi.cancel(inv.id, reason);
-      toast.success('Invoice cancelled');
+      toast.success(t('invoiceCancelled'));
       loadFinance();
     } catch (e) {
-      toast.error(apiErrorMessage(e, 'Unable to cancel the invoice. Please try again.'));
+      toast.error(apiErrorMessage(e, t('unableCancelInvoicePleaseTry')));
     } finally { setBusy(false); }
   }
 
@@ -247,7 +249,7 @@ export default function BookingDetailPage() {
       setRefundFor(null);
       loadFinance();
     } catch (e) {
-      toast.error(apiErrorMessage(e, 'Unable to request the refund. Please try again.'));
+      toast.error(apiErrorMessage(e, t('unableRequestRefundPleaseTry')));
     } finally { setBusy(false); }
   }
 
@@ -256,19 +258,19 @@ export default function BookingDetailPage() {
     try {
       const updated = await bookingsApi.removePromo(id);
       setBooking(updated);
-      toast.success('Promo removed');
+      toast.success(t('promoRemoved'));
     } catch (e) {
-      toast.error(apiErrorMessage(e, 'Unable to remove the promo code. Please try again.'));
+      toast.error(apiErrorMessage(e, t('unableRemovePromoCodePlease')));
     } finally { setBusy(false); }
   }
 
   async function doReopen() {
     const isNoShow = booking.status === 'no_show';
     const note = await prompt({
-      title: isNoShow ? 'Reset no-show' : 'Reopen booking',
+      title: isNoShow ? t('resetNoShow') : t('reopenBooking'),
       label: isNoShow
-        ? 'Reason (optional) - restores the booking to its status before No-show'
-        : 'Reason (optional)',
+        ? t('reasonOptionalRestoresBookingIts')
+        : t('reasonOptional'),
       multiline: true,
     });
     if (note === null) return;
@@ -277,12 +279,12 @@ export default function BookingDetailPage() {
       const updated = await bookingsApi.reopen(id, note);
       setBooking(updated);
       toast.success(isNoShow
-        ? 'No-show reset - booking restored to its previous status.'
-        : 'Booking reopened successfully.');
+        ? t('noShowResetBookingRestored')
+        : t('bookingReopenedSuccessfully'));
     } catch (e) {
       toast.error(apiErrorMessage(e, isNoShow
-        ? 'Unable to reset the no-show. Please try again.'
-        : 'Unable to reopen the booking. Please try again.'));
+        ? t('unableResetNoShowPlease')
+        : t('unableReopenBookingPleaseTry')));
     } finally { setBusy(false); }
   }
 
@@ -295,17 +297,17 @@ export default function BookingDetailPage() {
   }
 
   async function doDelete() {
-    if (!deleteReason) { toast.error('Select a reason for deleting this booking.'); return; }
+    if (!deleteReason) { toast.error(t('selectReasonDeletingBooking')); return; }
     if (deleteReason.toLowerCase() === 'other' && !deleteNote.trim()) {
-      toast.error('Describe the reason when choosing “Other”.'); return;
+      toast.error(t('describeReasonWhenChoosingOther')); return;
     }
     setBusy(true);
     try {
       await bookingsApi.remove(id, { reason: deleteReason, reason_note: deleteNote.trim() });
-      toast.success('Booking deleted successfully.');
+      toast.success(t('bookingDeletedSuccessfully'));
       navigate('/bookings');
     } catch (e) {
-      toast.error(apiErrorMessage(e, 'Unable to delete the booking. Please try again.'));
+      toast.error(apiErrorMessage(e, t('unableDeleteBookingPleaseTry')));
     } finally {
       setBusy(false);
     }
@@ -333,7 +335,7 @@ export default function BookingDetailPage() {
   return (
     <>
       <button className="btn btn-ghost" onClick={() => navigate('/bookings')} style={{ marginBottom: 12 }}>
-        <ArrowLeft size={15} /> Back to bookings
+        <ArrowLeft size={15} /> {t('backBookings')}
       </button>
 
       <PageHeader
@@ -346,24 +348,24 @@ export default function BookingDetailPage() {
             {hasPerm('bookings.edit') && booking.can_modify && (
               <button className="btn btn-secondary btn-sm" disabled={busy}
                 onClick={() => setEditOpen(true)}>
-                <Pencil size={15} /> Edit
+                <Pencil size={15} /> {t('common:actions.edit')}
               </button>
             )}
             {hasPerm('bookings.duplicate') && (
               <button className="btn btn-secondary btn-sm" disabled={busy}
                 onClick={() => setDup(bookingDuplicateInitial(booking))}>
-                <Copy size={15} /> Duplicate
+                <Copy size={15} /> {t('common:actions.duplicate')}
               </button>
             )}
             {hasPerm('bookings.delete') && booking.can_delete && (
               <button className="btn btn-secondary btn-sm" disabled={busy}
                 onClick={openDelete} style={{ color: 'var(--color-danger, #dc2626)' }}>
-                <Trash2 size={15} /> Delete
+                <Trash2 size={15} /> {t('common:actions.delete')}
               </button>
             )}
             {canReopen && (
               <button className="btn btn-secondary btn-sm" disabled={busy} onClick={doReopen}>
-                <RotateCcw size={15} /> {booking.status === 'no_show' ? 'Reset no-show' : 'Reopen'}
+                <RotateCcw size={15} /> {booking.status === 'no_show' ? t('resetNoShow') : t('reopen')}
               </button>
             )}
           </div>
@@ -380,7 +382,7 @@ export default function BookingDetailPage() {
         }}>
           <UserX size={18} style={{ color: 'var(--color-warning, #b45309)', flexShrink: 0 }} />
           <span style={{ fontSize: 13.5 }}>
-            <strong>Existing customer updated their information</strong> while placing this booking -
+            <strong>{t('existingCustomerUpdatedTheirInformation')}</strong> while placing this booking -
             review the customer’s details to confirm the change.
           </span>
         </div>
@@ -390,51 +392,51 @@ export default function BookingDetailPage() {
         {/* --- Summary --- */}
         <div className="col" style={{ flex: '1 1 340px' }}>
           <div className="card">
-            <div className="card-header"><h3 className="card-title">Details</h3></div>
+            <div className="card-header"><h3 className="card-title">{t('details')}</h3></div>
             <div className="card-body">
-              <KV icon={User} label="Customer">
+              <KV icon={User} label={t('common:labels.customer')}>
                 <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
                   {booking.customer_label}{booking.booking_type === 'walk_in' ? ' · Walk-in' : ''}
                   {booking.customer != null && (
                     booking.customer_was_new
-                      ? <StatusBadge tone="info" label="New customer" />
-                      : <StatusBadge tone="muted" label="Existing customer" />
+                      ? <StatusBadge tone="info" label={t('newCustomer')} />
+                      : <StatusBadge tone="muted" label={t('existingCustomer')} />
                   )}
-                  {booking.customer_verified === true && <StatusBadge tone="success" label="Verified" />}
-                  {booking.customer_verified === false && <StatusBadge tone="warning" label="Unverified" />}
+                  {booking.customer_verified === true && <StatusBadge tone="success" label={t('verified')} />}
+                  {booking.customer_verified === false && <StatusBadge tone="warning" label={t('unverified')} />}
                 </span>
                 <div className="muted" style={{ fontSize: 12 }}>
                   {booking.customer_email || booking.walk_in_email || booking.walk_in_phone || ''}
                 </div>
               </KV>
-              <KV icon={LayoutGrid} label="Facility">
+              <KV icon={LayoutGrid} label={t('common:labels.facility')}>
                 {booking.facility_type_name || booking.facility_category_name || '-'}
               </KV>
-              <KV icon={Calendar} label="Scheduled">
+              <KV icon={Calendar} label={t('scheduled')}>
                 {formatDate(booking.scheduled_date)} at {formatTime(booking.scheduled_time)}
                 <div className="muted" style={{ fontSize: 12 }}>{booking.duration_minutes} min</div>
               </KV>
-              <KV icon={MapPin} label="Club / Facility">
+              <KV icon={MapPin} label={t('clubFacility')}>
                 {booking.club_name || '-'}
                 {booking.facility_name ? ` · ${booking.facility_name}` : ''}
               </KV>
-              <KV icon={User} label="Assigned to">{booking.assigned_to_name || <span className="muted">Unassigned</span>}</KV>
-              <KV label="Priority">
+              <KV icon={User} label={t('assigned')}>{booking.assigned_to_name || <span className="muted">{t('common:state.unassigned')}</span>}</KV>
+              <KV label={t('priority')}>
                 <StatusBadge tone={PRIORITY_TONE[booking.priority] || 'muted'} label={booking.priority} />
-                {booking.booking_type ? <span className="muted" style={{ marginLeft: 8, fontSize: 12 }}>{booking.booking_type === 'walk_in' ? 'Walk-in' : 'Advance'}</span> : null}
+                {booking.booking_type ? <span className="muted" style={{ marginLeft: 8, fontSize: 12 }}>{booking.booking_type === 'walk_in' ? t('walk') : t('advance')}</span> : null}
               </KV>
-              <KV label="Payment">
+              <KV label={t('payment')}>
                 <StatusBadge tone={PAYMENT_TONE[booking.payment_status] || 'muted'} label={(booking.payment_status || '').replace('_', ' ')} />
                 {booking.payment_method ? <span className="muted" style={{ marginLeft: 8, fontSize: 12 }}>{booking.payment_method.replace('_', ' ')}</span> : null}
               </KV>
-              <KV label="Source">{booking.source_display || (booking.source ? booking.source.replace('_', ' ') : '-')}</KV>
+              <KV label={t('source')}>{booking.source_display || (booking.source ? booking.source.replace('_', ' ') : '-')}</KV>
               {booking.add_on_names?.length > 0 && (
-                <KV label="Add-ons">{booking.add_on_names.join(', ')}</KV>
+                <KV label={t('addOns')}>{booking.add_on_names.join(', ')}</KV>
               )}
-              {booking.customer_notes && <KV label="Customer notes">{booking.customer_notes}</KV>}
-              {booking.internal_notes && <KV label="Internal notes">{booking.internal_notes}</KV>}
-              {booking.special_instructions && <KV label="Special instructions">{booking.special_instructions}</KV>}
-              <KV label="Created by">
+              {booking.customer_notes && <KV label={t('customerNotes')}>{booking.customer_notes}</KV>}
+              {booking.internal_notes && <KV label={t('internalNotes')}>{booking.internal_notes}</KV>}
+              {booking.special_instructions && <KV label={t('specialInstructions')}>{booking.special_instructions}</KV>}
+              <KV label={t('created')}>
                 {booking.created_by_name || '-'}
                 {booking.updated_by_name ? <div className="muted" style={{ fontSize: 12 }}>Last updated by {booking.updated_by_name}</div> : null}
               </KV>
@@ -444,13 +446,13 @@ export default function BookingDetailPage() {
           <div style={{ height: 16 }} />
 
           <div className="card">
-            <div className="card-header"><h3 className="card-title">Pricing</h3></div>
+            <div className="card-header"><h3 className="card-title">{t('pricing')}</h3></div>
             <div className="card-body">
               {/* Clear subscription state - never confuse a temporary hold with final use. */}
-              {booking.coverage_state && COVERAGE_STATE[booking.coverage_state] && (
+              {booking.coverage_state && coverageState(t)[booking.coverage_state] && (
                 <div style={{ marginBottom: 8 }}>
-                  <StatusBadge tone={COVERAGE_STATE[booking.coverage_state].tone}
-                    label={COVERAGE_STATE[booking.coverage_state].label} />
+                  <StatusBadge tone={coverageState(t)[booking.coverage_state].tone}
+                    label={coverageState(t)[booking.coverage_state].label} />
                 </div>
               )}
               {/* A membership became eligible AFTER this booking was priced - redeem it
@@ -463,7 +465,7 @@ export default function BookingDetailPage() {
                   background: 'var(--color-info-bg, #eff6ff)',
                   border: '1px solid var(--color-info, #3b82f6)',
                 }}>
-                  <strong>Eligible subscription available for this booking.</strong>{' '}
+                  <strong>{t('eligibleSubscriptionAvailableBooking')}</strong>{' '}
                   {booking.eligible_subscription.membership_number} - {booking.eligible_subscription.plan_name}:{' '}
                   {booking.eligible_subscription.covered.map((c) => c.label).join(', ')}.
                   {(booking.eligible_subscription.held_by || []).length > 0 && (
@@ -474,7 +476,7 @@ export default function BookingDetailPage() {
                   {hasPerm('bookings.apply_subscription') && (
                     <div style={{ marginTop: 8 }}>
                       <button className="btn btn-primary btn-sm" disabled={busy} onClick={doRedeemSubscription}>
-                        Redeem from Subscription
+                        {t('redeemSubscription')}
                       </button>
                     </div>
                   )}
@@ -488,7 +490,7 @@ export default function BookingDetailPage() {
                   background: 'var(--color-success-bg, #ecfdf5)',
                   border: '1px solid var(--color-success, #10b981)',
                 }}>
-                  <strong>Covered by Membership</strong>{' '}
+                  <strong>{t('coveredMembership')}</strong>{' '}
                   ({booking.coverage_snapshot.membership_number} - {booking.coverage_snapshot.plan_name})
                   <div style={{ marginTop: 4 }}>
                     {(booking.coverage_snapshot.covered_lines || []).map((l, i) => (
@@ -499,7 +501,7 @@ export default function BookingDetailPage() {
                     ))}
                   </div>
                   <div className="muted" style={{ fontSize: 12, marginTop: 4 }}>
-                    Covered <Money amount={booking.coverage_snapshot.covered_amount} code={booking.coverage_snapshot.currency} />
+                    {t('covered')} <Money amount={booking.coverage_snapshot.covered_amount} code={booking.coverage_snapshot.currency} />
                     {' · '}Payable <Money amount={booking.coverage_snapshot.payable_amount} code={booking.coverage_snapshot.currency} />
                     {' · '}Usage deducted on completion
                   </div>
@@ -508,7 +510,7 @@ export default function BookingDetailPage() {
                     && !['paid', 'partially_paid'].includes(booking.payment_status) && (
                     <div style={{ marginTop: 8 }}>
                       <button className="btn btn-secondary btn-sm" disabled={busy} onClick={doUnapplySubscription}>
-                        Unapply Subscription
+                        {t('unapplySubscription')}
                       </button>
                     </div>
                   )}
@@ -519,7 +521,7 @@ export default function BookingDetailPage() {
                   background: 'var(--color-success-bg, #ecfdf5)',
                   border: '1px solid var(--color-success, #10b981)',
                 }}>
-                  <strong>Covered by Membership</strong> ({booking.membership_coverage.membership_number} - {booking.membership_coverage.plan_name}):{' '}
+                  <strong>{t('coveredMembership')}</strong> ({booking.membership_coverage.membership_number} - {booking.membership_coverage.plan_name}):{' '}
                   {booking.membership_coverage.covered.map((c) => c.label).join(', ')}. Usage is
                   deducted on completion.
                 </div>
@@ -541,30 +543,30 @@ export default function BookingDetailPage() {
                     </div>
                   ))}
                   <div className="divider" style={{ margin: '4px 0' }} />
-                  <PriceRow label="Subtotal (excl. VAT)"
+                  <PriceRow label={t('subtotalExclVat')}
                     value={<Money amount={(Number(booking.total_amount) - Number(booking.tax_amount)).toFixed(2)} code={booking.currency} />} />
                   <PriceRow label="VAT" value={<Money amount={booking.tax_amount} code={booking.currency} />} />
                 </>
               ) : (
                 <>
-                  <PriceRow label="Service" value={<Money amount={booking.base_amount} code={booking.currency} />} />
+                  <PriceRow label={t('service')} value={<Money amount={booking.base_amount} code={booking.currency} />} />
                   {Number(booking.addons_amount) > 0 && (
-                    <PriceRow label="Add-ons" value={<Money amount={booking.addons_amount} code={booking.currency} />} />
+                    <PriceRow label={t('addOns')} value={<Money amount={booking.addons_amount} code={booking.currency} />} />
                   )}
                   {Number(booking.surcharge_amount) > 0 && (
-                    <PriceRow label="Surcharges" value={<>+ <Money amount={booking.surcharge_amount} code={booking.currency} /></>} />
+                    <PriceRow label={t('surcharges')} value={<>+ <Money amount={booking.surcharge_amount} code={booking.currency} /></>} />
                   )}
                   {Number(booking.discount_amount) > 0 && (
-                    <PriceRow label="Discounts" value={<>- <Money amount={booking.discount_amount} code={booking.currency} /></>} />
+                    <PriceRow label={t('discounts')} value={<>- <Money amount={booking.discount_amount} code={booking.currency} /></>} />
                   )}
-                  <PriceRow label={booking.tax_inclusive ? 'VAT (included)' : 'VAT'} value={<Money amount={booking.tax_amount} code={booking.currency} />} />
+                  <PriceRow label={booking.tax_inclusive ? t('vatIncluded') : t('vat')} value={<Money amount={booking.tax_amount} code={booking.currency} />} />
                 </>
               )}
 
               {booking.applied_rules?.length > 0 && (
                 <div style={{ margin: '6px 0 2px' }}>
                   <div className="muted" style={{ fontSize: 11.5, textTransform: 'uppercase', letterSpacing: '.06em', marginBottom: 4 }}>
-                    Applied rules
+                    {t('appliedRules')}
                   </div>
                   {booking.applied_rules.map((r) => (
                     <div key={r.id} style={{
@@ -582,7 +584,7 @@ export default function BookingDetailPage() {
                 </div>
               )}
               <div className="divider" />
-              <PriceRow label="Total" value={<Money amount={booking.total_amount} code={booking.currency} />} strong />
+              <PriceRow label={t('common:labels.total')} value={<Money amount={booking.total_amount} code={booking.currency} />} strong />
               {booking.calculated_at && (
                 <div className="muted" style={{ fontSize: 11.5, marginTop: 6 }}>
                   Priced {formatDateTime(booking.calculated_at)}
@@ -616,15 +618,15 @@ export default function BookingDetailPage() {
                 <div style={{ marginTop: 12 }}>
                   {booking.promo_code ? (
                     <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13 }}>
-                      <Tag size={14} /> Promo <strong>{booking.promo_code_label}</strong> applied
+                      <Tag size={14} /> {t('promo')} <strong>{booking.promo_code_label}</strong> applied
                       <button className="btn btn-ghost btn-sm" style={{ marginLeft: 'auto', color: 'var(--color-danger,#dc2626)' }}
-                        disabled={busy} onClick={doRemovePromo}>Remove</button>
+                        disabled={busy} onClick={doRemovePromo}>{t('common:actions.remove')}</button>
                     </div>
                   ) : (
                     <div style={{ display: 'flex', gap: 8 }}>
                       <input className="form-input" value={promoInput} onChange={(e) => setPromoInput(e.target.value)}
-                        placeholder="Promo code" style={{ flex: 1, textTransform: 'uppercase' }} />
-                      <button className="btn btn-secondary" disabled={busy || !promoInput.trim()} onClick={doApplyPromo}>Apply</button>
+                        placeholder={t('promoCode')} style={{ flex: 1, textTransform: 'uppercase' }} />
+                      <button className="btn btn-secondary" disabled={busy || !promoInput.trim()} onClick={doApplyPromo}>{t('common:actions.apply')}</button>
                     </div>
                   )}
                 </div>
@@ -638,19 +640,19 @@ export default function BookingDetailPage() {
         <div className="col" style={{ flex: '1.4 1 420px' }}>
           {isStaff && !terminal && (
             <div className="card">
-              <div className="card-header"><h3 className="card-title">Actions</h3></div>
+              <div className="card-header"><h3 className="card-title">{t('actionsHeading')}</h3></div>
               <div className="card-body" style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
                 {/* Assigned goes through the Assign dialog; Completed goes through
                     the Completion & Payment wizard - neither is a raw status jump,
                     so assignment can't be bypassed and completion requires payment. */}
                 {nextStatuses.filter((s) => s !== 'assigned' && s !== 'completed').map((s) => (
                   <button key={s} className="btn btn-primary" disabled={busy} onClick={() => doTransition(s)}>
-                    {statusLabel(s)}
+                    {statusLabel(t, s)}
                   </button>
                 ))}
                 {nextStatuses.includes('completed') && hasPerm('bookings.edit') && (
                   <button className="btn btn-primary" disabled={busy} onClick={() => setCompleteOpen(true)}>
-                    <FileText size={15} /> Complete &amp; pay
+                    <FileText size={15} /> {t('completeAndPay')}
                   </button>
                 )}
                 {/* Assign belongs to the assignment stage only (after Confirmed):
@@ -660,24 +662,24 @@ export default function BookingDetailPage() {
                 {booking.status === 'confirmed'
                   && (hasPerm('bookings.assign') || hasPerm('bookings.skip_assignment')) && (
                   <button className="btn btn-primary" disabled={busy} onClick={handleAssignClick}>
-                    <User size={15} /> {booking.assigned_to ? 'Move to Assigned' : 'Assign'}
+                    <User size={15} /> {booking.assigned_to ? t('moveAssigned') : t('common:actions.assign')}
                   </button>
                 )}
                 {booking.recurrence !== 'none' && (
                   <button className="btn btn-ghost" disabled={busy} onClick={async () => {
-                    const n = Number(await prompt({ title: 'Generate recurrences', label: 'How many future occurrences?', type: 'number', defaultValue: '4' }));
+                    const n = Number(await prompt({ title: t('generateRecurrences'), label: t('howManyFutureOccurrences'), type: 'number', defaultValue: '4' }));
                     if (!n) return;
                     await bookingsApi.generateRecurrences(id, n);
                     toast.success(`${n} recurrences generated`);
-                  }}><RefreshCw size={15} /> Generate recurrences</button>
+                  }}><RefreshCw size={15} /> {t('generateRecurrences')}</button>
                 )}
                 {canNoShow && (
                   <button className="btn btn-ghost" disabled={busy} onClick={doNoShow} style={{ color: 'var(--color-warning, #b45309)' }}>
-                    <UserX size={15} /> Mark no-show
+                    <UserX size={15} /> {t('markNoShow')}
                   </button>
                 )}
                 <button className="btn btn-ghost" disabled={busy} onClick={doCancel} style={{ color: 'var(--color-danger, #dc2626)' }}>
-                  <XCircle size={15} /> Cancel
+                  <XCircle size={15} /> {t('common:actions.cancel')}
                 </button>
               </div>
             </div>
@@ -686,10 +688,10 @@ export default function BookingDetailPage() {
           <div style={{ height: isStaff && !terminal ? 16 : 0 }} />
 
           <div className="card">
-            <div className="card-header"><h3 className="card-title">Booking log</h3></div>
+            <div className="card-header"><h3 className="card-title">{t('bookingLog')}</h3></div>
             <div className="card-body">
               {(booking.status_history || []).length === 0 ? (
-                <p className="muted">No activity yet - booking is freshly created.</p>
+                <p className="muted">{t('noActivityYetBookingFreshly')}</p>
               ) : (
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
                   {booking.status_history.map((h) => {
@@ -703,18 +705,18 @@ export default function BookingDetailPage() {
                         <div style={{ flex: 1 }}>
                           <div style={{ fontSize: 13 }}>
                             {isEvent
-                              ? (h.note || statusLabel(h.to_status))
-                              : <>{h.from_status ? `${statusLabel(h.from_status)} → ` : ''}{statusLabel(h.to_status)}</>}
+                              ? (h.note || statusLabel(t, h.to_status))
+                              : <>{h.from_status ? `${statusLabel(t, h.from_status)} → ` : ''}{statusLabel(t, h.to_status)}</>}
                           </div>
                           {meta.covered_amount != null && (
                             <div className="muted" style={{ fontSize: 12 }}>
-                              Covered <Money amount={meta.covered_amount} code={meta.currency} />
+                              {t('covered')} <Money amount={meta.covered_amount} code={meta.currency} />
                               {meta.payable_amount != null && <> · Payable <Money amount={meta.payable_amount} code={meta.currency} /></>}
                             </div>
                           )}
                           {meta.amount != null && (
                             <div className="muted" style={{ fontSize: 12 }}>
-                              Amount <Money amount={meta.amount} code={meta.currency} />
+                              {t('common:labels.amount')} <Money amount={meta.amount} code={meta.currency} />
                             </div>
                           )}
                           <div className="muted" style={{ fontSize: 12 }}>
@@ -740,8 +742,8 @@ export default function BookingDetailPage() {
         booking={booking}
         canSkip={hasPerm('bookings.skip_assignment')}
         onClose={() => setAssignOpen(false)}
-        onAssigned={(updated) => { setBooking(updated); setAssignOpen(false); toast.success('Worker assigned successfully.'); }}
-        onSkipped={(updated) => { setBooking(updated); setAssignOpen(false); toast.success('Assignment skipped - booking moved to Assigned.'); }}
+        onAssigned={(updated) => { setBooking(updated); setAssignOpen(false); toast.success(t('workerAssignedSuccessfully')); }}
+        onSkipped={(updated) => { setBooking(updated); setAssignOpen(false); toast.success(t('assignmentSkippedBookingMovedAssigned')); }}
       />
 
       <RefundModal
@@ -764,7 +766,7 @@ export default function BookingDetailPage() {
         open={Boolean(dup)}
         initial={dup}
         onClose={() => setDup(null)}
-        onSaved={(b) => { setDup(null); toast.success('Booking duplicated'); if (b?.id) navigate(`/bookings/${b.id}`); }}
+        onSaved={(b) => { setDup(null); toast.success(t('bookingDuplicated')); if (b?.id) navigate(`/bookings/${b.id}`); }}
       />
 
       <BookingFormModal
@@ -773,39 +775,39 @@ export default function BookingDetailPage() {
         initial={editOpen ? bookingEditInitial(booking) : null}
         lockedExceptNotes={booking.status === 'closed'}
         onClose={() => setEditOpen(false)}
-        onSaved={(b) => { setEditOpen(false); setBooking(b); toast.success('Booking updated successfully.'); }}
+        onSaved={(b) => { setEditOpen(false); setBooking(b); toast.success(t('bookingUpdatedSuccessfully')); }}
       />
 
       <Modal
         open={confirmDelete}
         onClose={() => { if (!busy) setConfirmDelete(false); }}
-        title="Delete booking"
+        title={t('deleteBooking')}
         size="sm"
         footer={
           <>
             <button className="btn btn-secondary" type="button" disabled={busy}
-              onClick={() => setConfirmDelete(false)}>Cancel</button>
+              onClick={() => setConfirmDelete(false)}>{t('common:actions.cancel')}</button>
             <button className="btn btn-danger" type="button" disabled={busy || !deleteReason}
-              onClick={doDelete}>{busy ? 'Deleting…' : 'Delete booking'}</button>
+              onClick={doDelete}>{busy ? t('common:state.deleting') : t('deleteBooking')}</button>
           </>
         }
       >
         <p style={{ marginTop: 0, fontSize: 13.5 }}>
-          Permanently delete booking <strong>{booking.reference}</strong> and its history.
+          {t('permanentlyDeleteBooking')} <strong>{booking.reference}</strong> and its history.
           This cannot be undone. A reason is required for the audit trail.
         </p>
-        <FormField label="Reason *">
+        <FormField label={t('reason')}>
           <Select2
             options={deleteReasons.map((r) => ({ value: r, label: r }))}
             value={deleteReason}
             onChange={setDeleteReason}
-            placeholder="Select a reason…"
+            placeholder={t('selectReason')}
           />
         </FormField>
         <FormField label={`Note${deleteReason.toLowerCase() === 'other' ? ' *' : ' (optional)'}`}>
           <textarea className="form-textarea" rows={3} value={deleteNote}
             onChange={(e) => setDeleteNote(e.target.value)}
-            placeholder="Add any detail for the record…" />
+            placeholder={t('addAnyDetailRecord')} />
         </FormField>
       </Modal>
 
@@ -817,7 +819,7 @@ export default function BookingDetailPage() {
         onCompleted={(updated) => {
           setCompleteOpen(false);
           setBooking(updated);
-          toast.success('Booking completed successfully.');
+          toast.success(t('bookingCompletedSuccessfully'));
           loadFinance();   // refreshes the panel and pops the invoice/receipt success modal
         }}
       />
@@ -826,9 +828,9 @@ export default function BookingDetailPage() {
           then the same Invoice & Receipt wizard captures payment up front. */}
       <ConfirmDialog
         open={confirmGenerate}
-        title="Generate invoice now?"
-        message="This service booking has not yet been completed. Do you still want to generate the invoice?"
-        confirmLabel="Yes, generate"
+        title={t('generateInvoiceNow')}
+        message={t('serviceBookingHasNotYet')}
+        confirmLabel={t('yesGenerate')}
         busy={busy}
         onConfirm={() => { setConfirmGenerate(false); setBillOpen(true); }}
         onClose={() => setConfirmGenerate(false)}
@@ -847,26 +849,27 @@ export default function BookingDetailPage() {
 
 // Salesforce-style "Path": a horizontal chevron progress bar of the booking
 // lifecycle. Purely presentational - reflects the current status, no actions.
-const PATH_FLOW = [
-  { value: 'booked', label: 'Pending' },
-  { value: 'confirmed', label: 'Confirmed' },
-  { value: 'assigned', label: 'Assigned' },
-  { value: 'arrived', label: 'Checked in' },
-  { value: 'in_progress', label: 'In progress' },
-  { value: 'completed', label: 'Completed' },
-  { value: 'closed', label: 'Closed' },
-];
-const PATH_NEGATIVE = { cancelled: 'Cancelled', no_show: 'No-show' };
+const PATH_VALUES = ['booked', 'confirmed', 'assigned', 'arrived',
+  'in_progress', 'completed', 'closed'];
+const pathFlow = (t) => PATH_VALUES.map((value) => ({
+  value, label: t(`status.${value}`),
+}));
+// The two terminal outcomes that sit outside the normal flow.
+const pathNegative = (t) => ({
+  cancelled: t('status.cancelled'),
+  no_show: t('status.no_show'),
+});
 
 function BookingStatusPath({ status }) {
-  const negativeLabel = PATH_NEGATIVE[status];
-  const currentIndex = PATH_FLOW.findIndex((s) => s.value === status);
+  const { t } = useTranslation('bookings');
+  const negativeLabel = pathNegative(t)[status];
+  const currentIndex = pathFlow(t).findIndex((s) => s.value === status);
   // For a cancelled / no-show booking the normal flow is greyed and a red
   // terminal chevron is appended to make the closed-negative outcome obvious.
   const steps = negativeLabel
-    ? [...PATH_FLOW.map((s) => ({ ...s, state: 'muted' })),
+    ? [...pathFlow(t).map((s) => ({ ...s, state: 'muted' })),
        { value: status, label: negativeLabel, state: 'negative' }]
-    : PATH_FLOW.map((s, i) => ({
+    : pathFlow(t).map((s, i) => ({
         ...s,
         state: i < currentIndex ? 'complete' : i === currentIndex ? 'current' : 'upcoming',
       }));
@@ -888,6 +891,7 @@ function BookingStatusPath({ status }) {
 }
 
 function AssignModal({ open, booking, canSkip = false, onClose, onAssigned, onSkipped }) {
+  const { t } = useTranslation('bookings');
   const [staff, setStaff] = useState([]);
   const [worker, setWorker] = useState('');
   const [facility, setFacility] = useState('');
@@ -938,7 +942,7 @@ function AssignModal({ open, booking, canSkip = false, onClose, onAssigned, onSk
         }
       } else {
         setConflict(null);
-        toast.error(apiErrorMessage(e, 'Unable to assign the worker. Please try again.'));
+        toast.error(apiErrorMessage(e, t('unableAssignWorkerPleaseTry')));
       }
     } finally { setBusy(false); }
   }
@@ -949,49 +953,49 @@ function AssignModal({ open, booking, canSkip = false, onClose, onAssigned, onSk
       const updated = await bookingsApi.skipAssignment(booking.id);
       onSkipped?.(updated);
     } catch (e) {
-      toast.error(apiErrorMessage(e, 'Unable to skip assignment. Please try again.'));
+      toast.error(apiErrorMessage(e, t('unableSkipAssignmentPleaseTry')));
     } finally { setBusy(false); }
   }
 
   return (
     <Modal
-      open={open} onClose={onClose} title="Assign staff" size="sm"
+      open={open} onClose={onClose} title={t('assignStaff')} size="sm"
       footer={
         <>
-          <button className="btn btn-secondary" type="button" onClick={onClose}>Cancel</button>
+          <button className="btn btn-secondary" type="button" onClick={onClose}>{t('common:actions.cancel')}</button>
           {showSkip && (
             <button className="btn btn-ghost" type="button" onClick={skip} disabled={busy}>
-              Skip assignment
+              {t('skipAssignment')}
             </button>
           )}
           {conflict ? (
             <button className="btn btn-warning" onClick={() => submit(true)} disabled={busy}>
-              Assign anyway
+              {t('assignAnyway')}
             </button>
           ) : (
             <button className="btn btn-primary" onClick={() => submit(false)} disabled={!worker || busy}>
-              Assign
+              {t('common:actions.assign')}
             </button>
           )}
         </>
       }
     >
-      <FormField label="Staff member">
+      <FormField label={t('staffMember')}>
         <Select2
           options={staff.map((u) => ({ value: u.id, label: `${u.full_name || u.email} (${u.role})` }))}
           value={worker}
           onChange={(v) => { setWorker(v); setConflict(null); }}
-          placeholder="Choose a staff member…"
+          placeholder={t('chooseStaffMember')}
         />
       </FormField>
       {facilityOptions.length > 0 && (
-        <FormField label="Facility"
-          hint="Only units free for this slot are listed. Leave as is to keep the allocated one.">
+        <FormField label={t('common:labels.facility')}
+          hint={t('onlyUnitsFreeSlotListed')}>
           <Select2
             options={facilityOptions.map((f) => ({ value: f.id, label: f.name }))}
             value={facility}
             onChange={(v) => { setFacility(v); setConflict(null); }}
-            placeholder="No specific facility"
+            placeholder={t('noSpecificFacility')}
             clearable
           />
         </FormField>
@@ -1005,7 +1009,7 @@ function AssignModal({ open, booking, canSkip = false, onClose, onAssigned, onSk
             border: '1px solid var(--color-warning, #f59e0b)', fontSize: 13,
           }}
         >
-          <strong>Availability warning.</strong> {conflict} You can assign anyway - this
+          <strong>{t('availabilityWarning')}</strong> {conflict} You can assign anyway - this
           will be recorded in the audit log.
         </div>
       )}

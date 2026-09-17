@@ -52,20 +52,28 @@ const year = new Date().getFullYear();
 </footer>
 
 <style>
-  .footer { background: var(--navy); color: #cfcce4; padding: 64px 0 28px; }
+  .footer {
+    background: var(--brand-deep);
+    color: rgba(255, 255, 255, 0.72);
+    padding: 64px 0 28px;
+  }
+  .footer .muted { color: rgba(255, 255, 255, 0.58); }
   .footer__top {
     display: grid; grid-template-columns: 1.6fr 1fr 1fr 1fr; gap: 32px;
     padding-bottom: 32px; border-bottom: 1px solid rgba(255, 255, 255, 0.12);
   }
   .footer__brand img { height: 72px; width: auto; max-width: 280px; object-fit: contain; background: #fff; padding: 8px 14px; border-radius: 10px; margin-bottom: 14px; }
-  .footer h4 { color: #fff; font-size: 0.95rem; margin-bottom: 14px; }
+  .footer h4 { color: var(--on-brand); font-size: 0.95rem; margin-bottom: 14px; }
   .footer ul { list-style: none; padding: 0; margin: 0; display: grid; gap: 8px; }
-  .footer a:hover { color: var(--amber); }
+  .footer a:hover { color: var(--accent); }
   .footer__social { display: flex; gap: 10px; margin-top: 14px; }
   .footer__social a {
     width: 34px; height: 34px; border-radius: 50%; display: grid; place-items: center;
-    background: rgba(255, 255, 255, 0.1); font-weight: 700;
+    background: rgba(255, 255, 255, 0.10); color: var(--on-brand); font-weight: 700;
+    transition: background .15s ease, color .15s ease;
   }
+  /* After the base rule: same specificity, so order decides the winner. */
+  .footer__social a:hover { background: var(--accent); color: var(--on-accent); }
   .footer__bottom {
     display: flex; justify-content: space-between; align-items: center; gap: 16px;
     padding-top: 22px; flex-wrap: wrap; font-size: 0.9rem;

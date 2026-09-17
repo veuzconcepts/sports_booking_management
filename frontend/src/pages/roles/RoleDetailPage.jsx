@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { ArrowLeft, Save } from 'lucide-react';
+import { useTranslation } from 'react-i18next';
 import toast from 'react-hot-toast';
 
 import { PageHeader } from '../../components/PageHeader.jsx';
@@ -11,6 +12,7 @@ import { useAuth } from '../../hooks/useAuth.jsx';
 import { apiErrorMessage } from '../../utils/apiError';
 
 export default function RoleDetailPage() {
+  const { t } = useTranslation('roles');
   const { slug } = useParams();
   const navigate = useNavigate();
   const { refreshUser, hasPerm } = useAuth();
@@ -33,9 +35,9 @@ export default function RoleDetailPage() {
         setRole(found || null);
         setSelected(new Set(found?.permissions || []));
       })
-      .catch((e) => toast.error(apiErrorMessage(e, 'Unable to load the role. Please try again.')))
+      .catch((e) => toast.error(apiErrorMessage(e, t('unableLoadRolePleaseTry'))))
       .finally(() => setLoading(false));
-  }, [slug]);
+  }, [slug, t]);
   useEffect(load, [load]);
 
   // Editable only when the role allows it AND the user holds roles.edit.
@@ -45,12 +47,12 @@ export default function RoleDetailPage() {
     setSaving(true);
     try {
       await accessApi.updateRole(slug, { permissions: [...selected] });
-      toast.success('Permissions saved');
+      toast.success(t('permissionsSaved'));
       // Reflect the change live for the current user (e.g. their own role) - no
       // manual page refresh needed.
       await refreshUser?.();
     } catch (e) {
-      toast.error(apiErrorMessage(e, 'Unable to save the role. Please try again.'));
+      toast.error(apiErrorMessage(e, t('unableSaveRolePleaseTry')));
     } finally { setSaving(false); }
   }
 
@@ -61,9 +63,9 @@ export default function RoleDetailPage() {
     return (
       <>
         <button className="btn btn-ghost" onClick={() => navigate('/roles')} style={{ marginBottom: 12 }}>
-          <ArrowLeft size={15} /> Back to roles
+          <ArrowLeft size={15} /> {t('backRoles')}
         </button>
-        <div className="card"><div className="empty"><h3>Role not found</h3></div></div>
+        <div className="card"><div className="empty"><h3>{t('roleNotFound')}</h3></div></div>
       </>
     );
   }
@@ -71,7 +73,7 @@ export default function RoleDetailPage() {
   return (
     <>
       <button className="btn btn-ghost" onClick={() => navigate('/roles')} style={{ marginBottom: 12 }}>
-        <ArrowLeft size={15} /> Back to roles
+        <ArrowLeft size={15} /> {t('backRoles')}
       </button>
 
       <PageHeader
@@ -80,7 +82,7 @@ export default function RoleDetailPage() {
         actions={
           !readOnly && (
             <button className="btn btn-primary" onClick={save} disabled={saving}>
-              <Save size={15} /> {saving ? 'Saving…' : 'Save permissions'}
+              <Save size={15} /> {saving ? t('common:state.saving') : t('savePermissions')}
             </button>
           )
         }
@@ -96,7 +98,7 @@ export default function RoleDetailPage() {
       />
 
       <p className="muted" style={{ fontSize: 12.5, marginTop: 10 }}>
-        <StatusBadge tone="info" label="Tip" /> Per-user exceptions (grant/revoke beyond this
+        <StatusBadge tone="info" label={t('tip')} /> Per-user exceptions (grant/revoke beyond this
         role) are set when creating or editing a user.
       </p>
     </>

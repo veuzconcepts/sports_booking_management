@@ -20,6 +20,7 @@ from .models import (
     SiteSection,
     StatItem,
     Testimonial,
+    WebsiteCampaign,
     WhyChooseUsPoint,
 )
 
@@ -349,3 +350,131 @@ class PublicPlanSerializer(serializers.Serializer):
             limit = "Unlimited" if e.limit_type == "unlimited" else f"{e.quantity} per {e.period}"
             out.append(f"{label}: {limit}")
         return out
+
+
+# --------------------------------------------------------------------------- #
+# Website campaigns
+# --------------------------------------------------------------------------- #
+def _safe_link(value, field):
+    """A link a campaign may point at.
+
+    An internal path or an ordinary web address only. `javascript:` and `data:`
+    are refused outright: a campaign is content an operator types, and content
+    that can execute is not content. Everything else is left alone so an
+    operator can link wherever they legitimately need to.
+    """
+    text = (value or "").strip()
+    if not text:
+        return ""
+    lowered = text.lower()
+    if lowered.startswith(("javascript:", "data:", "vbscript:")):
+        raise serializers.ValidationError({field: "That link type is not allowed."})
+    if text.startswith("/") or lowered.startswith(("http://", "https://", "mailto:", "tel:")):
+        return text
+    raise serializers.ValidationError(
+        {field: "Use an internal path such as /book, or a full https:// address."})
+
+
+class WebsiteCampaignSerializer(_Base):
+    """The admin view of a campaign: everything, including the internal notes."""
+
+    image_detail = serializers.SerializerMethodField()
+    mobile_image_detail = serializers.SerializerMethodField()
+    status = serializers.CharField(read_only=True)
+    type_display = serializers.CharField(source="get_campaign_type_display", read_only=True)
+    placement_display = serializers.CharField(source="get_placement_display", read_only=True)
+    frequency_display = serializers.CharField(source="get_frequency_display", read_only=True)
+    promo_code_label = serializers.CharField(source="promo_code.code", read_only=True, default=None)
+    holiday_label = serializers.CharField(
+        source="schedule_exception.name", read_only=True, default=None)
+    scope_label = serializers.SerializerMethodField()
+
+    class Meta(_Base.Meta):
+        model = WebsiteCampaign
+        fields = (
+            "id", "name", "campaign_type", "type_display", "title", "subtitle", "description",
+            "image", "image_detail", "mobile_image", "mobile_image_detail", "alt_text",
+            "cta_label", "cta_url", "secondary_cta_label", "secondary_cta_url",
+            "starts_at", "ends_at",
+            "frequency", "frequency_display", "placement", "placement_display",
+            "audience", "priority", "dismissible",
+            "clubs", "facilities", "scope_label",
+            "promo_code", "promo_code_label", "schedule_exception", "holiday_label",
+            "internal_notes", "is_archived", "status",
+            "impressions", "dismissals", "cta_clicks",
+            "is_enabled", "is_published", "published_at", "display_order",
+            "created_at", "updated_at",
+        )
+        read_only_fields = (
+            "id", "status", "impressions", "dismissals", "cta_clicks",
+            "is_published", "published_at", "created_at", "updated_at",
+        )
+
+    def get_image_detail(self, obj):
+        return media_repr(obj.image, self.context.get("request"))
+
+    def get_mobile_image_detail(self, obj):
+        return media_repr(obj.mobile_image, self.context.get("request"))
+
+    def get_scope_label(self, obj) -> str:
+        clubs = [club.name for club in obj.clubs.all()]
+        if not clubs:
+            return "Whole website"
+        return ", ".join(clubs)
+
+    def validate_cta_url(self, value):
+        return _safe_link(value, "cta_url")
+
+    def validate_secondary_cta_url(self, value):
+        return _safe_link(value, "secondary_cta_url")
+
+    def validate(self, attrs):
+        def eff(name):
+            return attrs.get(name, getattr(self.instance, name, None))
+
+        starts, ends = eff("starts_at"), eff("ends_at")
+        if starts and ends and ends <= starts:
+            raise serializers.ValidationError({"ends_at": "The end must come after the start."})
+        if eff("cta_url") and not eff("cta_label"):
+            raise serializers.ValidationError(
+                {"cta_label": "Give the button a label, or remove its link."})
+        return attrs
+
+
+class PublicCampaignSerializer(serializers.Serializer):
+    """What a visitor's browser is allowed to know about a campaign.
+
+    A deliberately separate, explicit serializer rather than a subset of the
+    admin one: internal notes, engagement figures, scope and draft state must
+    never reach the public payload, and listing what MAY go out is far harder to
+    get wrong by accident than listing what may not.
+    """
+
+    id = serializers.IntegerField()
+    type = serializers.CharField(source="campaign_type")
+    title = serializers.CharField()
+    subtitle = serializers.CharField()
+    description = serializers.CharField()
+    alt_text = serializers.CharField()
+    cta_label = serializers.CharField()
+    cta_url = serializers.CharField()
+    secondary_cta_label = serializers.CharField()
+    secondary_cta_url = serializers.CharField()
+    frequency = serializers.CharField()
+    dismissible = serializers.BooleanField()
+    priority = serializers.IntegerField()
+    image = serializers.SerializerMethodField()
+    mobile_image = serializers.SerializerMethodField()
+    promo_code = serializers.SerializerMethodField()
+
+    def get_image(self, obj):
+        return media_repr(obj.image, self.context.get("request"))
+
+    def get_mobile_image(self, obj):
+        # No mobile artwork means the main image is used responsively, which is
+        # better than cropping a landscape design into a portrait frame.
+        return media_repr(obj.mobile_image, self.context.get("request"))
+
+    def get_promo_code(self, obj) -> str:
+        """The code's public name only. Its rules stay with the promo engine."""
+        return obj.promo_code.code if obj.promo_code_id else ""

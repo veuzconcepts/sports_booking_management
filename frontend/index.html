@@ -18,6 +18,24 @@
     />
   </head>
   <body>
+    <!-- The remembered language, applied before anything renders. React picks
+         the same value up on mount and confirms it against the server; this
+         only stops the page being laid out in the wrong direction first. -->
+    <script>
+      (function () {
+        try {
+          var code = localStorage.getItem('ui_language');
+          if (!code) return;
+          var dir = localStorage.getItem('ui_language_dir') === 'rtl' ? 'rtl' : 'ltr';
+          var root = document.documentElement;
+          root.setAttribute('lang', code);
+          root.setAttribute('dir', dir);
+          if (dir === 'rtl') root.classList.add('is-rtl');
+        } catch (e) {
+          /* private mode or blocked storage: the default direction stands */
+        }
+      })();
+    </script>
     <div id="root"></div>
     <script type="module" src="/src/main.jsx"></script>
   </body>

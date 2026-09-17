@@ -1,0 +1,19 @@
+{
+  "activeBookings": "Active bookings",
+  "booking": "Booking",
+  "bookingMix": "Booking mix",
+  "completed": "Completed",
+  "customers": "Customers",
+  "dashboard": "Dashboard",
+  "inProgress": "In progress",
+  "latestActivityAcrossAllClubs": "Latest activity across all clubs.",
+  "liveOverviewBookingsAcrossEvery": "Live overview of bookings across every club.",
+  "netRevenueAllTime": "Net revenue (all-time)",
+  "netRevenueLast14Days": "Net revenue (last 14 days)",
+  "noBookingsYet": "No bookings yet.",
+  "paidLessRefundsAcrossAll": "Paid less refunds across all channels.",
+  "recentBookings": "Recent bookings",
+  "repeatRate": "Repeat rate",
+  "shareBookingsStage": "Share of bookings by stage.",
+  "viewAll": "View all"
+}

@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { NavLink, useLocation, useNavigate } from 'react-router-dom';
+import { useTranslation } from 'react-i18next';
 import {
   LayoutDashboard,
   Users,
@@ -10,6 +11,7 @@ import {
   BarChart3,
   Bell,
   Settings,
+  Languages,
   ShieldCheck,
   UserCog,
   KeyRound,
@@ -24,6 +26,7 @@ import {
   Globe,
   Home,
   Images,
+  Megaphone,
   Gift,
 } from 'lucide-react';
 
@@ -32,82 +35,87 @@ import { useAuth } from '../hooks/useAuth.jsx';
 /**
  * Primary sections live in the left rail; each section's items (and any
  * collapsible sub-groups) render in the right panel.
- *   item:  { to, label, icon }
- *   group: { group: <id>, label, icon, children: [{ to, label }] }
+ *   item:  { to, labelKey, icon }
+ *   group: { group: <id>, labelKey, icon, children: [{ to, labelKey }] }
+ *
+ * `labelKey` is a key in the `navigation` namespace, resolved at render, so
+ * the tree stays one data structure rather than one per language.
  */
 const SECTIONS = [
   {
-    key: 'dashboard', label: 'Dashboard', icon: LayoutDashboard,
-    items: [{ to: '/dashboard', label: 'Overview', icon: LayoutDashboard }],
+    key: 'dashboard', labelKey: 'sections.dashboard', icon: LayoutDashboard,
+    items: [{ to: '/dashboard', labelKey: 'items.overview', icon: LayoutDashboard }],
   },
   {
-    key: 'operations', label: 'Operations', icon: CalendarCheck,
+    key: 'operations', labelKey: 'sections.operations', icon: CalendarCheck,
     items: [
-      { to: '/bookings', label: 'Bookings', icon: CalendarCheck, perm: 'bookings.view' },
-      { to: '/staff', label: 'Staff & Shifts', icon: HardHat, perm: 'staff.view' },
-      { to: '/customers', label: 'Customers', icon: Users, perm: 'customers.view' },
+      { to: '/bookings', labelKey: 'items.bookings', icon: CalendarCheck, perm: 'bookings.view' },
+      { to: '/staff', labelKey: 'items.staff', icon: HardHat, perm: 'staff.view' },
+      { to: '/customers', labelKey: 'items.customers', icon: Users, perm: 'customers.view' },
       {
-        group: 'catalogue', label: 'Clubs & Facilities', icon: LayoutGrid,
+        group: 'catalogue', labelKey: 'groups.catalogue', icon: LayoutGrid,
         children: [
-          { to: '/clubs', label: 'Clubs & Facilities', perm: 'clubs.view' },
-          { to: '/facilities', label: 'Catalogue & Pricing', perm: 'facilities.view' },
-          { to: '/subscriptions', label: 'Memberships', perm: 'subscriptions.view' },
+          { to: '/clubs', labelKey: 'items.clubs', perm: 'clubs.view' },
+          { to: '/facilities', labelKey: 'items.facilities', perm: 'facilities.view' },
+          { to: '/subscriptions', labelKey: 'items.subscriptions', perm: 'subscriptions.view' },
         ],
       },
-      { to: '/promo-codes', label: 'Promo Codes', icon: Ticket, perm: 'promotions.view' },
+      { to: '/promo-codes', labelKey: 'items.promoCodes', icon: Ticket, perm: 'promotions.view' },
     ],
   },
   {
-    key: 'finance', label: 'Finance', icon: CreditCard,
+    key: 'finance', labelKey: 'sections.finance', icon: CreditCard,
     items: [
-      { to: '/invoices', label: 'Invoices', icon: FileText, perm: 'invoicing.view' },
-      { to: '/credit-notes', label: 'Refunds', icon: RotateCcw, perm: 'invoicing.view' },
-      { to: '/payments', label: 'Payments', icon: CreditCard },
+      { to: '/invoices', labelKey: 'items.invoices', icon: FileText, perm: 'invoicing.view' },
+      { to: '/credit-notes', labelKey: 'items.creditNotes', icon: RotateCcw, perm: 'invoicing.view' },
+      { to: '/payments', labelKey: 'items.payments', icon: CreditCard },
     ],
   },
   {
-    key: 'insights', label: 'Insights', icon: BarChart3,
+    key: 'insights', labelKey: 'sections.insights', icon: BarChart3,
     items: [
-      { to: '/reports', label: 'Reports', icon: BarChart3 },
-      { to: '/loyalty-reports', label: 'Loyalty Reports', icon: Gift, perm: 'loyalty.view_ledger' },
-      { to: '/notifications', label: 'Notifications', icon: Bell },
+      { to: '/reports', labelKey: 'items.reports', icon: BarChart3 },
+      { to: '/loyalty-reports', labelKey: 'items.loyaltyReports', icon: Gift, perm: 'loyalty.view_ledger' },
+      { to: '/notifications', labelKey: 'items.notifications', icon: Bell },
     ],
   },
   {
     // Capability-gated, not role-gated: each link shows when the user holds its
     // permission, so a created role granted the capability sees it.
-    key: 'admin', label: 'Settings', icon: Settings,
+    key: 'admin', labelKey: 'sections.admin', icon: Settings,
     items: [
-      { to: '/organization', label: 'Organization Info', icon: Building2, perm: 'organization.view' },
-      { to: '/users', label: 'Users', icon: UserCog, perm: 'users.view' },
-      { to: '/roles', label: 'Roles & Permissions', icon: KeyRound, perm: 'roles.view' },
-      { to: '/auditlogs', label: 'Audit Logs', icon: ShieldCheck, perm: 'audit.view' },
-      { to: '/settings', label: 'System Settings', icon: Settings, perm: 'settings.manage' },
-      { to: '/booking-config', label: 'Booking Configuration', icon: CalendarCheck, perm: 'settings.manage' },
-      { to: '/loyalty-config', label: 'Loyalty', icon: Gift, perm: 'loyalty.view' },
+      { to: '/organization', labelKey: 'items.organization', icon: Building2, perm: 'organization.view' },
+      { to: '/users', labelKey: 'items.users', icon: UserCog, perm: 'users.view' },
+      { to: '/roles', labelKey: 'items.roles', icon: KeyRound, perm: 'roles.view' },
+      { to: '/auditlogs', labelKey: 'items.auditLogs', icon: ShieldCheck, perm: 'audit.view' },
+      { to: '/settings', labelKey: 'items.systemSettings', icon: Settings, perm: 'settings.manage' },
+      { to: '/languages', labelKey: 'items.languages', icon: Languages, perm: 'settings.view' },
+      { to: '/booking-config', labelKey: 'items.bookingConfig', icon: CalendarCheck, perm: 'settings.manage' },
+      { to: '/loyalty-config', labelKey: 'items.loyalty', icon: Gift, perm: 'loyalty.view' },
     ],
   },
   {
     // Customer-website CMS - each item shows only with the website.view capability.
-    key: 'website', label: 'Website', icon: Globe,
+    key: 'website', labelKey: 'sections.website', icon: Globe,
     items: [
-      { to: '/website', label: 'Dashboard', icon: LayoutDashboard, perm: 'website.view' },
+      { to: '/website', labelKey: 'items.websiteDashboard', icon: LayoutDashboard, perm: 'website.view' },
       {
-        group: 'website-home', label: 'Home', icon: Home,
+        group: 'website-home', labelKey: 'groups.websiteHome', icon: Home,
         children: [
-          { to: '/website/sections', label: 'Home Sections', perm: 'website.view' },
-          { to: '/website/banners', label: 'Hero Banners', perm: 'website.view' },
-          { to: '/website/process-steps', label: 'How It Works', perm: 'website.view' },
-          { to: '/website/why-choose-us', label: 'Why Choose Us', perm: 'website.view' },
-          { to: '/website/stats', label: 'Stats', perm: 'website.view' },
-          { to: '/website/testimonials', label: 'Testimonials', perm: 'website.view' },
-          { to: '/website/brands', label: 'Trusted Brands', perm: 'website.view' },
+          { to: '/website/sections', labelKey: 'items.homeSections', perm: 'website.view' },
+          { to: '/website/banners', labelKey: 'items.banners', perm: 'website.view' },
+          { to: '/website/process-steps', labelKey: 'items.processSteps', perm: 'website.view' },
+          { to: '/website/why-choose-us', labelKey: 'items.whyChooseUs', perm: 'website.view' },
+          { to: '/website/stats', labelKey: 'items.stats', perm: 'website.view' },
+          { to: '/website/testimonials', labelKey: 'items.testimonials', perm: 'website.view' },
+          { to: '/website/brands', labelKey: 'items.brands', perm: 'website.view' },
         ],
       },
-      { to: '/website/faqs', label: 'FAQ', icon: FileText, perm: 'website.view' },
-      { to: '/website/footer', label: 'Footer', icon: FileText, perm: 'website.view' },
-      { to: '/website/seo', label: 'SEO Settings', icon: Search, perm: 'website.view' },
-      { to: '/website/media', label: 'Media Library', icon: Images, perm: 'website.view' },
+      { to: '/website/campaigns', labelKey: 'items.campaigns', icon: Megaphone, perm: 'website.view' },
+      { to: '/website/faqs', labelKey: 'items.faqs', icon: FileText, perm: 'website.view' },
+      { to: '/website/footer', labelKey: 'items.footer', icon: FileText, perm: 'website.view' },
+      { to: '/website/seo', labelKey: 'items.seo', icon: Search, perm: 'website.view' },
+      { to: '/website/media', labelKey: 'items.media', icon: Images, perm: 'website.view' },
     ],
   },
 ];
@@ -116,6 +124,7 @@ const allLinks = (section) =>
   section.items.flatMap((it) => (it.group ? it.children : [it]));
 
 export function Sidebar({ open = false, collapsed = false, onToggleCollapse, onNavigate }) {
+  const { t } = useTranslation('navigation');
   const { role, hasPerm } = useAuth();
   const { pathname } = useLocation();
   const navigate = useNavigate();
@@ -178,8 +187,8 @@ export function Sidebar({ open = false, collapsed = false, onToggleCollapse, onN
       <button
         className="nav-collapse-toggle"
         onClick={onToggleCollapse}
-        aria-label={collapsed ? 'Expand menu' : 'Collapse menu'}
-        title={collapsed ? 'Expand menu' : 'Collapse menu'}
+        aria-label={collapsed ? t('expandMenu') : t('collapseMenu')}
+        title={collapsed ? t('expandMenu') : t('collapseMenu')}
       >
         {collapsed ? <ChevronRight size={15} /> : <ChevronLeft size={15} />}
       </button>
@@ -195,20 +204,20 @@ export function Sidebar({ open = false, collapsed = false, onToggleCollapse, onN
               onClick={() => selectSection(s)}
             >
               <Icon />
-              <span>{s.label}</span>
+              <span>{t(s.labelKey)}</span>
             </button>
           );
         })}
         <div className="nav-rail-spacer" />
         <NavLink to="/search" className="nav-rail-item" onClick={(e) => e.preventDefault()}>
           <Search />
-          <span>Search</span>
+          <span>{t('common:actions.search')}</span>
         </NavLink>
       </div>
 
       {/* Right panel: selected section */}
       <div className="nav-panel">
-        <div className="nav-panel-title">{active?.label}</div>
+        <div className="nav-panel-title">{active ? t(active.labelKey) : ''}</div>
         {active?.items.map((it) => {
           if (it.group) {
             const open = groupOpen(it.group);
@@ -217,7 +226,7 @@ export function Sidebar({ open = false, collapsed = false, onToggleCollapse, onN
               <div key={it.group}>
                 <button className="nav-group-header" onClick={() => toggleGroup(it.group)}>
                   {Icon && <Icon className="lead" />}
-                  <span>{it.label}</span>
+                  <span>{t(it.labelKey)}</span>
                   <ChevronDown className={`nav-group-chevron ${open ? 'open' : ''}`} />
                 </button>
                 {open && (
@@ -225,7 +234,7 @@ export function Sidebar({ open = false, collapsed = false, onToggleCollapse, onN
                     {it.children.map((c) => (
                       <NavLink key={c.to} to={c.to} onClick={() => onNavigate?.()}
                         className={({ isActive }) => `nav-sublink ${isActive ? 'active' : ''}`}>
-                        {c.label}
+                        {t(c.labelKey)}
                       </NavLink>
                     ))}
                   </div>
@@ -238,7 +247,7 @@ export function Sidebar({ open = false, collapsed = false, onToggleCollapse, onN
             <NavLink key={it.to} to={it.to} onClick={() => onNavigate?.()}
               className={({ isActive }) => `nav-link ${isActive ? 'active' : ''}`}>
               {Icon && <Icon />}
-              <span>{it.label}</span>
+              <span>{t(it.labelKey)}</span>
             </NavLink>
           );
         })}

@@ -1,0 +1,163 @@
+/* Right-to-left support.
+ *
+ * Direction is set once on <html> by LanguageProvider. Most of the interface
+ * needs nothing here: layout uses flex and grid, which mirror automatically,
+ * and newer rules already use logical properties (margin-inline, inset-inline).
+ *
+ * This file covers the cases that do NOT mirror on their own: rules written
+ * with physical left/right that are not worth rewriting wholesale, and the
+ * handful of things that must deliberately NOT flip.
+ */
+
+/* ------------------------------------------------ what must not mirror --- */
+/* Numbers, identifiers and machine text stay left-to-right inside an RTL
+   sentence, otherwise a reference like BK-000123 or a phone number reads
+   backwards. `unicode-bidi: isolate` keeps them from disturbing the text
+   around them. */
+[dir="rtl"] .ltr-text,
+[dir="rtl"] code,
+[dir="rtl"] time,
+[dir="rtl"] input[type="email"],
+[dir="rtl"] input[type="tel"],
+[dir="rtl"] input[type="url"],
+[dir="rtl"] input[type="number"],
+[dir="rtl"] input[type="time"],
+[dir="rtl"] input[type="date"],
+[dir="rtl"] .tp-input,
+[dir="rtl"] .pf-in,
+[dir="rtl"] .pf-dial {
+  direction: ltr;
+  unicode-bidi: isolate;
+  text-align: start;
+}
+
+/* A currency amount reads as a number: keep the digits and the symbol in their
+   own direction, but let it sit at the correct end of the cell. */
+[dir="rtl"] .money {
+  direction: ltr;
+  unicode-bidi: isolate;
+}
+
+/* Brand marks and media are not text and never mirror. */
+[dir="rtl"] .brand-logo img,
+[dir="rtl"] img,
+[dir="rtl"] video {
+  transform: none;
+}
+
+/* ------------------------------------------------------- table and list --- */
+[dir="rtl"] .table thead th,
+[dir="rtl"] .table tbody td {
+  text-align: right;
+}
+/* A column the page explicitly right-aligns (amounts, counts) is asking for
+   the "end" of the row, which in RTL is the left. */
+[dir="rtl"] .table th[style*="text-align: right"],
+[dir="rtl"] .table td[style*="text-align: right"] {
+  text-align: left !important;
+}
+
+[dir="rtl"] .col-sticky-right { left: 0; right: auto; }
+[dir="rtl"] .col-sticky-left { right: 0; left: auto; }
+
+/* ------------------------------------------------------------ chevrons --- */
+/* Directional affordances point the other way: a "next page" arrow in Arabic
+   points left. Status and non-directional icons are left alone. */
+[dir="rtl"] .page-btn svg,
+[dir="rtl"] .lv-chevron,
+[dir="rtl"] .breadcrumb-sep svg,
+[dir="rtl"] .rtl-flip svg {
+  transform: scaleX(-1);
+}
+
+/* ------------------------------------------------------------- sidebar --- */
+/* The shell itself uses logical properties (inset-inline, margin-inline), so
+   it mirrors on its own. Only the pieces that cannot be expressed logically
+   are listed here, next to the rules they mirror.
+   See layouts/layout.css for the active-item bar and the drawer transform. */
+
+/* ------------------------------------------------- popovers and drawers --- */
+/* Every popover is anchored with inset-inline-start / inset-inline-end in its
+   own stylesheet, so it follows the reading direction without an override.
+   The slide-over panel is mirrored in styles/responsive.css.
+
+   Do not add a physical left/right override here for a rule that is already
+   logical: the two fight, and the logical one usually loses. */
+
+/* ------------------------------------------------------------- inputs ---- */
+/* The search field and the time picker are positioned logically; only the time
+   input's own padding needs mirroring, because the picker button sits on the
+   end edge. */
+[dir="rtl"] .tp-input { padding: 6px 9px 6px 26px; }
+
+/* ------------------------------------------------------------- charts ---- */
+/* A time-series chart reads left to right in every language: reversing it
+   would change what the data means. */
+[dir="rtl"] .recharts-wrapper,
+[dir="rtl"] .chart-ltr {
+  direction: ltr;
+}
+
+/* The weekly timeline is a clock, not prose: midnight stays on the left. */
+[dir="rtl"] .sch-timeline,
+[dir="rtl"] .bk-cal__grid {
+  direction: ltr;
+}
+[dir="rtl"] .sch-timeline .sch-tl-row > span:first-child,
+[dir="rtl"] .bk-cal__day-name {
+  direction: rtl;
+}
+
+/* ------------------------------------------------ mixed-language text --- */
+/* Every text-bearing block resolves its own direction from its first strong
+   character, and aligns to the start of that direction. Without this, any
+   string still falling back to English renders with its punctuation at the
+   wrong end.
+
+   Applied in both directions, not only RTL: an Arabic name inside an English
+   page has the same problem in reverse. */
+h1, h2, h3, h4, h5, h6,
+p, li, dt, dd,
+label, legend,
+th, td,
+.form-label, .form-help, .form-error,
+.card-title, .card-subtitle,
+.page-title, .page-subtitle,
+.modal-title, .modal-section,
+.badge, .lv-chip,
+.lt-menu__item, .lv-drop__item, .sch-menu__item,
+.nav-link, .nav-sublink, .nav-group-header, .nav-rail-item,
+.switch-label, .switch-desc,
+.empty h3, .empty p,
+.lt-state h3, .lt-state p {
+  unicode-bidi: plaintext;
+  text-align: start;
+}
+
+/* A cell the page has deliberately aligned keeps that alignment: an amount
+   column is aligned to the row, not to the language of its contents. */
+[style*="text-align: right"],
+[style*="text-align: center"],
+.lt td[align], .table td[align] {
+  unicode-bidi: plaintext;
+}
+
+/* Buttons and inputs centre or pad their own content, so they get the
+   direction resolution without the alignment override. */
+.btn, .page-btn, .th-preview__btn,
+input, textarea, select {
+  unicode-bidi: plaintext;
+}
+
+/* Everything else inside a content region. The property does nothing to an
+   element with no inline content, so this is safe to apply broadly and means a
+   new component never has to remember to opt in. Alignment is deliberately not
+   set: a centred or end-aligned element keeps what its page asked for. */
+.app-content *,
+.modal-body *,
+.modal-head *,
+.drawer-panel *,
+.auth-form-card *,
+.auth-hero * {
+  unicode-bidi: plaintext;
+}

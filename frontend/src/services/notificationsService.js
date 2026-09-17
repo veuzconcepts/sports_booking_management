@@ -18,14 +18,14 @@ export const templatesApi = {
   remove: (id)     => api.delete(`/notifications/templates/${id}/`),
 };
 
-export const NOTIFICATION_CHANNELS = [
-  { value: 'email', label: 'Email' },
+export const notificationChannels = (t) => [
+  { value: 'email', label: t('common:labels.email') },
   { value: 'sms',   label: 'SMS' },
-  { value: 'push',  label: 'Push' },
+  { value: 'push',  label: t('notifications:push') },
 ];
 
-export const NOTIFICATION_STATUSES = [
-  { value: 'pending', label: 'Pending' },
-  { value: 'sent',    label: 'Sent' },
-  { value: 'failed',  label: 'Failed' },
+export const notificationStatuses = (t) => [
+  { value: 'pending', label: t('notifications:pending') },
+  { value: 'sent',    label: t('notifications:sent') },
+  { value: 'failed',  label: t('common:state.failed') },
 ];

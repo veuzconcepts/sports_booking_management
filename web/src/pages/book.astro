@@ -2,10 +2,15 @@
 import BaseLayout from '../layouts/BaseLayout.astro';
 import Header from '../components/Header.astro';
 import BookingWizard from '../components/BookingWizard.jsx';
-import { getHome, getCatalogue, getClubs } from '../lib/api.js';
+import CampaignPopup from '../components/CampaignPopup.jsx';
+import { getHome, getCatalogue, getClubs, getCampaigns } from '../lib/api.js';
 import '../styles/booking.css';
+import '../styles/campaign.css';
 
-const [home, catalogue, clubData] = await Promise.all([getHome(), getCatalogue(), getClubs()]);
+const [home, catalogue, clubData, campaignList] = await Promise.all([
+  getHome(), getCatalogue(), getClubs(), getCampaigns({ placement: 'booking' }),
+]);
+const campaigns = campaignList?.campaigns || [];
 const categories = catalogue?.categories || [];
 const facilityTypes = catalogue?.facility_types || [];
 const clubs = clubData?.clubs || [];
@@ -31,4 +36,5 @@ const placeholderLogo = home?.branding?.logo_dark || home?.branding?.logo_light 
       />
     </div>
   </section>
+  {campaigns.length > 0 && <CampaignPopup client:idle campaigns={campaigns} />}
 </BaseLayout>

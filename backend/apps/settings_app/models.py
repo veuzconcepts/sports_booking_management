@@ -193,6 +193,16 @@ class Organization(models.Model):
     favicon = models.ImageField(upload_to="branding/", blank=True, null=True)
     og_image = models.ImageField(upload_to="branding/", blank=True, null=True)
 
+    # --- Theme ---------------------------------------------------------------
+    # Only the tokens that differ from the shipped palette, validated against
+    # apps.settings_app.theme.TOKENS. Storing the difference (rather than the
+    # whole palette) means a token added later picks up its default everywhere
+    # without a data migration, and a partial theme can never leave the
+    # interface half-styled. `theme_preset_name` is display only: what renders
+    # is always this field.
+    theme = models.JSONField(default=dict, blank=True)
+    theme_preset_name = models.CharField(max_length=60, blank=True)
+
     # --- SEO defaults (fallback when a page has no per-page CMS SEO) ----------
     meta_title = models.CharField(max_length=255, blank=True)
     meta_description = models.CharField(max_length=400, blank=True)
@@ -221,6 +231,32 @@ class Organization(models.Model):
         """Always return the single org row, creating it on first access."""
         obj = cls.objects.first()
         return obj or cls.objects.create()
+
+
+class ThemePreset(models.Model):
+    """A saved starting point for the organization theme.
+
+    A preset is never what renders: applying one copies its tokens onto
+    `Organization.theme`, which stays the single source of truth. That keeps
+    "what the application looks like" in one place, and means deleting a preset
+    can never change the live interface.
+    """
+
+    name = models.CharField(max_length=60, unique=True)
+    tokens = models.JSONField(default=dict, blank=True)
+    # Shipped presets cannot be edited or deleted, only duplicated.
+    is_builtin = models.BooleanField(default=False)
+    is_archived = models.BooleanField(default=False)
+    display_order = models.PositiveSmallIntegerField(default=0)
+
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ("display_order", "name")
+
+    def __str__(self):
+        return self.name
 
 
 class BookingConfiguration(models.Model):
@@ -403,3 +439,97 @@ class ScheduleException(models.Model):
         if not self.closed and not self.shifts:
             raise ValidationError(
                 {"shifts": "Add the operating hours, or mark the date closed."})
+
+
+class Language(models.Model):
+    """A language the application can be presented in.
+
+    Master data, in the same spirit as `Currency`: the set of languages an
+    administrator has enabled, which one is the default, and how each behaves.
+    Translation RESOURCES live in the frontend bundle; this table only decides
+    which languages are offered and how they are labelled, so enabling a
+    language never requires a deployment and administrators never touch
+    translation keys.
+
+    Exactly one row is the default, enforced by a partial unique constraint. The
+    default must stay enabled, so the application always has a language to fall
+    back to.
+    """
+
+    class Direction(models.TextChoices):
+        LTR = "ltr", _("Left to right")
+        RTL = "rtl", _("Right to left")
+
+    code = models.CharField(
+        max_length=10, unique=True,
+        help_text="IETF language tag, e.g. 'en', 'ar', 'fr'.")
+    locale = models.CharField(
+        max_length=20, blank=True,
+        help_text="Region-specific locale for formatting, e.g. 'en-GB', 'ar-SA'. "
+                  "Leave empty to use the language code.")
+    name = models.CharField(max_length=60, help_text="English name, e.g. 'Arabic'.")
+    native_name = models.CharField(
+        max_length=60, help_text="The language's own name, e.g. 'العربية'.")
+    direction = models.CharField(
+        max_length=3, choices=Direction.choices, default=Direction.LTR)
+
+    is_enabled = models.BooleanField(
+        default=True, help_text="Offered to users in the language selector.")
+    is_default = models.BooleanField(
+        default=False, help_text="Used when a user has expressed no preference.")
+    display_order = models.PositiveSmallIntegerField(default=0)
+
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ("display_order", "name")
+        constraints = [
+            models.UniqueConstraint(
+                fields=["is_default"], condition=models.Q(is_default=True),
+                name="unique_default_language"),
+        ]
+
+    def __str__(self):
+        return f"{self.name} ({self.code})"
+
+    @property
+    def effective_locale(self) -> str:
+        """What `Intl` should format with: the explicit locale, else the code."""
+        return self.locale or self.code
+
+    @property
+    def is_rtl(self) -> bool:
+        return self.direction == self.Direction.RTL
+
+    def clean(self):
+        super().clean()
+        if self.is_default and not self.is_enabled:
+            raise ValidationError(
+                {"is_enabled": "The default language must stay enabled."})
+
+    @classmethod
+    def default_code(cls) -> str:
+        """The configured default, or 'en' when nothing is configured yet."""
+        code = cls.objects.filter(is_default=True, is_enabled=True).values_list(
+            "code", flat=True).first()
+        return code or "en"
+
+    @classmethod
+    def resolve(cls, requested: str | None) -> str:
+        """The language to actually use for `requested`.
+
+        Falls back down the chain the UI expects: the exact code, then the base
+        language of a regional code ('ar-SA' -> 'ar'), then the configured
+        default. A language that has been disabled resolves to the default
+        rather than leaving a user stuck on a language nobody maintains.
+        """
+        if requested:
+            enabled = set(cls.objects.filter(is_enabled=True)
+                          .values_list("code", flat=True))
+            if requested in enabled:
+                return requested
+            base = requested.split("-")[0]
+            if base in enabled:
+                return base
+        return cls.default_code()

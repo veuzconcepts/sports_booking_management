@@ -1,12 +1,19 @@
+import re
+
+from django.core.exceptions import ValidationError as DjangoValidationError
 from rest_framework import serializers
 
 from . import schedule as sched
+from . import theme as theme_cfg
+from .uploads import validate_branding_image
 from .models import (
     BookingConfiguration,
+    Language,
     Organization,
     ScheduleException,
     SystemConfig,
     TaxRate,
+    ThemePreset,
 )
 
 
@@ -26,10 +33,41 @@ class OrganizationSerializer(serializers.ModelSerializer):
             "logo_light", "logo_dark", "logo_light_vertical", "logo_dark_vertical",
             "favicon", "og_image",
             "meta_title", "meta_description",
+            "theme", "theme_preset_name",
             "facebook", "instagram", "twitter", "linkedin", "youtube", "tiktok", "whatsapp",
             "updated_at",
         )
         read_only_fields = ("updated_at",)
+
+    # Branding images are public files served to every visitor, so each one is
+    # checked for size, declared type and what the bytes actually decode to.
+    BRANDING_IMAGE_FIELDS = (
+        "logo_light", "logo_dark", "logo_light_vertical", "logo_dark_vertical",
+        "favicon", "og_image",
+    )
+
+    def validate(self, attrs):
+        errors = {}
+        for field in self.BRANDING_IMAGE_FIELDS:
+            uploaded = attrs.get(field)
+            if uploaded in (None, ""):
+                continue
+            try:
+                validate_branding_image(uploaded)
+            except DjangoValidationError as exc:
+                errors[field] = list(exc.messages)
+        if errors:
+            raise serializers.ValidationError(errors)
+        return attrs
+
+    def validate_theme(self, value):
+        """Only known tokens, only valid colours. A theme reaches a stylesheet,
+        so an unchecked value here is an injection point as well as a way to
+        make the interface unreadable."""
+        try:
+            return theme_cfg.clean(value)
+        except theme_cfg.ThemeError as exc:
+            raise serializers.ValidationError(str(exc)) from exc
 
     def validate_booking_hours(self, value):
         """The organization is the base every other scope falls back to, so it
@@ -97,6 +135,10 @@ class ScheduleExceptionSerializer(serializers.ModelSerializer):
     club_name = serializers.CharField(source="club.name", read_only=True, default=None)
     facility_name = serializers.CharField(
         source="facility.name", read_only=True, default=None)
+    # A facility-scoped row stores no club, but the edit form needs one to list
+    # that club's facilities. Derived, never written.
+    facility_club = serializers.IntegerField(
+        source="facility.club_id", read_only=True, default=None)
     scope = serializers.CharField(read_only=True)
     scope_label = serializers.SerializerMethodField()
 
@@ -104,13 +146,13 @@ class ScheduleExceptionSerializer(serializers.ModelSerializer):
         model = ScheduleException
         fields = (
             "id", "name", "club", "club_name", "facility", "facility_name",
-            "scope", "scope_label",
+            "facility_club", "scope", "scope_label",
             "start_date", "end_date", "closed", "shifts", "breaks",
             "slot_minutes", "is_active", "notes",
             "created_at", "updated_at",
         )
-        read_only_fields = ("id", "club_name", "facility_name", "scope",
-                            "scope_label", "created_at", "updated_at")
+        read_only_fields = ("id", "club_name", "facility_name", "facility_club",
+                            "scope", "scope_label", "created_at", "updated_at")
 
     def get_scope_label(self, obj) -> str:
         if obj.facility_id:
@@ -153,3 +195,76 @@ class ScheduleExceptionSerializer(serializers.ModelSerializer):
             attrs["shifts"] = day["shifts"]
             attrs["breaks"] = day.get("breaks", [])
         return attrs
+
+
+class LanguageSerializer(serializers.ModelSerializer):
+    """A language an administrator has made available."""
+
+    effective_locale = serializers.CharField(read_only=True)
+    is_rtl = serializers.BooleanField(read_only=True)
+
+    class Meta:
+        model = Language
+        fields = (
+            "id", "code", "locale", "effective_locale", "name", "native_name",
+            "direction", "is_rtl", "is_enabled", "is_default", "display_order",
+            "created_at", "updated_at",
+        )
+        read_only_fields = ("id", "effective_locale", "is_rtl",
+                            "created_at", "updated_at")
+
+    def validate_code(self, value):
+        """A language tag, not free text: letters, optionally region-suffixed."""
+        code = (value or "").strip()
+        if not re.fullmatch(r"[A-Za-z]{2,3}(-[A-Za-z0-9]{2,8})?", code):
+            raise serializers.ValidationError(
+                "Use a standard language tag such as 'en', 'ar' or 'en-GB'.")
+        return code.lower()
+
+    def validate(self, attrs):
+        def eff(name):
+            return attrs.get(name, getattr(self.instance, name, None))
+
+        # The default is what everything falls back to, so it cannot be off.
+        if eff("is_default") and not eff("is_enabled"):
+            raise serializers.ValidationError(
+                {"is_enabled": "The default language must stay enabled."})
+        return attrs
+
+
+class ThemePresetSerializer(serializers.ModelSerializer):
+    """A saved starting point. `tokens` is validated against the catalogue so a
+    preset can never carry a value the renderer would have to guess about."""
+
+    resolved = serializers.SerializerMethodField()
+
+    class Meta:
+        model = ThemePreset
+        fields = ("id", "name", "tokens", "resolved", "is_builtin", "is_archived",
+                  "display_order", "created_at", "updated_at")
+        read_only_fields = ("id", "is_builtin", "created_at", "updated_at")
+
+    def get_resolved(self, obj):
+        """The full palette, so the settings screen can draw a swatch without
+        reimplementing the fallback rules."""
+        return theme_cfg.resolve(obj.tokens)
+
+    def validate_tokens(self, value):
+        try:
+            return theme_cfg.clean(value)
+        except theme_cfg.ThemeError as exc:
+            raise serializers.ValidationError(str(exc)) from exc
+
+    def validate_name(self, value):
+        value = (value or "").strip()
+        if not value:
+            raise serializers.ValidationError("A theme name is required.")
+        return value
+
+    def update(self, instance, validated_data):
+        # A shipped preset is the fallback other people rely on; it can be
+        # duplicated but not rewritten.
+        if instance.is_builtin:
+            raise serializers.ValidationError(
+                "A built-in theme cannot be edited. Duplicate it first.")
+        return super().update(instance, validated_data)

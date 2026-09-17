@@ -53,12 +53,12 @@ export const creditNotesApi = {
     api.get(`/payments/credit-notes/${id}/download/`, { responseType: 'blob' }).then((r) => r.data),
 };
 
-export const INVOICE_STATUSES = [
-  { value: 'issued',             label: 'Issued' },
-  { value: 'paid',               label: 'Paid' },
-  { value: 'cancelled',          label: 'Cancelled' },
-  { value: 'partially_refunded', label: 'Partially refunded' },
-  { value: 'refunded',           label: 'Refunded' },
+export const invoiceStatuses = (t) => [
+  { value: 'issued',             label: t('payments:issued2') },
+  { value: 'paid',               label: t('payments:paid') },
+  { value: 'cancelled',          label: t('payments:cancelled') },
+  { value: 'partially_refunded', label: t('payments:partiallyRefunded') },
+  { value: 'refunded',           label: t('payments:refunded') },
 ];
 
 // Shared status -> badge tone for invoices across pages.
@@ -71,26 +71,26 @@ export const INVOICE_STATUS_TONE = {
 export const CREDIT_NOTE_STATUS_TONE = {
   pending_approval: 'warning', issued: 'success', rejected: 'danger',
 };
-export const CREDIT_NOTE_STATUS_LABELS = {
+export const creditNoteStatusLabels = (t) => ({
   pending_approval: 'Pending approval', issued: 'Issued', rejected: 'Rejected',
-};
-export const CREDIT_NOTE_STATUSES = [
-  { value: 'pending_approval', label: 'Pending approval' },
-  { value: 'issued',           label: 'Issued' },
-  { value: 'rejected',         label: 'Rejected' },
+});
+export const creditNoteStatuses = (t) => [
+  { value: 'pending_approval', label: t('payments:pendingApproval') },
+  { value: 'issued',           label: t('payments:issued2') },
+  { value: 'rejected',         label: t('payments:rejected3') },
 ];
 
-export const PAYMENT_METHODS = [
-  { value: 'card',       label: 'Card' },
-  { value: 'cash',       label: 'Cash' },
-  { value: 'wallet',     label: 'Wallet' },
-  { value: 'membership', label: 'Membership' },
+export const paymentMethods = (t) => [
+  { value: 'card',       label: t('payments:card') },
+  { value: 'cash',       label: t('payments:cash') },
+  { value: 'wallet',     label: t('payments:wallet') },
+  { value: 'membership', label: t('payments:membership') },
 ];
 
-export const PAYMENT_STATUSES = [
-  { value: 'pending',             label: 'Pending' },
-  { value: 'paid',                label: 'Paid' },
-  { value: 'failed',              label: 'Failed' },
-  { value: 'refunded',            label: 'Refunded' },
-  { value: 'partially_refunded',  label: 'Partially refunded' },
+export const paymentStatuses = (t) => [
+  { value: 'pending',             label: t('payments:pending') },
+  { value: 'paid',                label: t('payments:paid') },
+  { value: 'failed',              label: t('common:state.failed') },
+  { value: 'refunded',            label: t('payments:refunded') },
+  { value: 'partially_refunded',  label: t('payments:partiallyRefunded') },
 ];

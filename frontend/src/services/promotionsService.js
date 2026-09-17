@@ -10,9 +10,9 @@ export const promoCodesApi = {
   redemptions:  (id)   => api.get(`/promotions/${id}/redemptions/`).then((r) => r.data),
 };
 
-export const DISCOUNT_TYPES = [
-  { value: 'percent', label: 'Percentage (%)' },
-  { value: 'fixed',   label: 'Fixed amount' },
+export const discountTypes = (t) => [
+  { value: 'percent', label: t('promotions:percentage') },
+  { value: 'fixed',   label: t('promotions:fixedAmount') },
 ];
 
 export const PROMO_STATUS_TONE = {

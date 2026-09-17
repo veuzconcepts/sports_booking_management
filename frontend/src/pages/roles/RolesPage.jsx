@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Plus, Pencil, Trash2, ShieldCheck, Copy } from 'lucide-react';
+import { useTranslation } from 'react-i18next';
 import toast from 'react-hot-toast';
 
 import { PageHeader } from '../../components/PageHeader.jsx';
@@ -10,15 +11,16 @@ import { Modal } from '../../components/Modal.jsx';
 import { FormField } from '../../components/FormField.jsx';
 import { Select2 } from '../../components/Select2.jsx';
 import { ConfirmDialog } from '../../components/ConfirmDialog.jsx';
-import { CUSTOM_BASE_ROLES, accessApi } from '../../services/usersService.js';
+import { customBaseRoles, accessApi } from '../../services/usersService.js';
 import { useAuth } from '../../hooks/useAuth.jsx';
 import { usePrompt } from '../../components/PromptDialog.jsx';
 import { assignableBaseRoles } from '../../utils/rbac.js';
 import { apiErrorMessage } from '../../utils/apiError';
 
-const baseLabel = (v) => CUSTOM_BASE_ROLES.find((b) => b.value === v)?.label?.split(' (')[0] || v;
+const baseLabel = (t, v) => customBaseRoles(t).find((b) => b.value === v)?.label?.split(' (')[0] || v;
 
 export default function RolesPage() {
+  const { t } = useTranslation('roles');
   const navigate = useNavigate();
   const { hasPerm } = useAuth();
   const prompt = usePrompt();
@@ -37,46 +39,46 @@ export default function RolesPage() {
   const load = useCallback(() => {
     setLoading(true);
     accessApi.listRoles()
-      .then((d) => setRoles(d.roles))
-      .catch((e) => toast.error(apiErrorMessage(e, 'Unable to load the roles. Please try again.')))
+      .then((d) => setRoles(d?.roles || []))
+      .catch((e) => toast.error(apiErrorMessage(e, t('unableLoadRolesPleaseTry'))))
       .finally(() => setLoading(false));
-  }, []);
+  }, [t]);
   useEffect(load, [load]);
 
   async function doDelete() {
     setBusy(true);
     try {
       await accessApi.deleteRole(toDelete.slug);
-      toast.success('Role deleted');
+      toast.success(t('roleDeleted'));
       setToDelete(null);
       load();
     } catch (e) {
-      toast.error(apiErrorMessage(e, 'Unable to delete the role. Please try again.'));
+      toast.error(apiErrorMessage(e, t('unableDeleteRolePleaseTry')));
     } finally { setBusy(false); }
   }
 
   async function doDuplicate(r) {
-    const name = await prompt({ title: 'Duplicate role', label: 'New role name',
+    const name = await prompt({ title: t('duplicateRole'), label: t('newRoleName'),
       defaultValue: `${r.name} (copy)` });
     if (!name) return;
     try {
       const created = await accessApi.duplicateRole(r.slug, { name });
-      toast.success('Role duplicated');
+      toast.success(t('roleDuplicated'));
       navigate(`/roles/${created.slug}`);
     } catch (e) {
-      toast.error(apiErrorMessage(e, 'Unable to duplicate the role. Please try again.'));
+      toast.error(apiErrorMessage(e, t('unableDuplicateRolePleaseTry')));
     }
   }
 
   return (
     <>
       <PageHeader
-        title="Roles & Permissions"
-        subtitle="Define roles and what each can do. Assign them to users on the Users page."
+        title={t('rolesPermissions')}
+        subtitle={t('defineRolesWhatEachCan')}
         actions={
           canCreate && (
             <button className="btn btn-primary" onClick={() => setCreateOpen(true)}>
-              <Plus size={15} /> New role
+              <Plus size={15} /> {t('newRole')}
             </button>
           )
         }
@@ -86,10 +88,10 @@ export default function RolesPage() {
         loading={loading}
         rows={roles}
         onRowClick={(r) => r.editable && navigate(`/roles/${r.slug}`)}
-        emptyTitle="No roles"
-        emptyHint="Create a role to get started."
+        emptyTitle={t('noRoles')}
+        emptyHint={t('createRoleGetStarted')}
         columns={[
-          { key: 'name', header: 'Role', render: (r) => (
+          { key: 'name', header: t('role'), render: (r) => (
             <div>
               {r.editable ? (
                 <button className="link-btn" style={{ fontWeight: 600 }}
@@ -100,30 +102,30 @@ export default function RolesPage() {
               <div className="muted" style={{ fontSize: 12 }}><code>{r.slug}</code></div>
             </div>
           ) },
-          { key: 'type', header: 'Type', render: (r) => (
-            <StatusBadge tone={r.is_system ? 'muted' : 'info'} label={r.is_system ? 'System' : 'Custom'} />
+          { key: 'type', header: t('type'), render: (r) => (
+            <StatusBadge tone={r.is_system ? 'muted' : 'info'} label={r.is_system ? t('system') : t('custom')} />
           ) },
-          { key: 'base', header: 'Behaviour', render: (r) => (r.is_system ? '-' : baseLabel(r.base_role)) },
-          { key: 'perms', header: 'Permissions', render: (r) => (
-            r.editable ? `${r.permissions.length} permission(s)` : <span className="muted">Full access</span>
+          { key: 'base', header: t('behaviour'), render: (r) => (r.is_system ? '-' : baseLabel(t, r.base_role)) },
+          { key: 'perms', header: t('permissions'), render: (r) => (
+            r.editable ? `${r.permissions.length} permission(s)` : <span className="muted">{t('fullAccess')}</span>
           ) },
-          { key: 'users', header: 'Users', render: (r) => r.user_count },
+          { key: 'users', header: t('users'), render: (r) => r.user_count },
           { key: 'actions', header: '', sticky: 'right', render: (r) => (
             <div style={{ display: 'flex', gap: 6, justifyContent: 'flex-end' }}>
               {r.editable ? (
-                <button className="icon-btn" title="Edit permissions" onClick={(e) => { e.stopPropagation(); navigate(`/roles/${r.slug}`); }}>
+                <button className="icon-btn" title={t('editPermissions')} onClick={(e) => { e.stopPropagation(); navigate(`/roles/${r.slug}`); }}>
                   <Pencil size={15} />
                 </button>
               ) : (
-                <ShieldCheck size={15} color="var(--color-text-muted)" title="Full access" />
+                <ShieldCheck size={15} color="var(--color-text-muted)" title={t('fullAccess')} />
               )}
               {canDup(r) && (
-                <button className="icon-btn" title="Duplicate role" onClick={(e) => { e.stopPropagation(); doDuplicate(r); }}>
+                <button className="icon-btn" title={t('duplicateRole')} onClick={(e) => { e.stopPropagation(); doDuplicate(r); }}>
                   <Copy size={15} />
                 </button>
               )}
               {canDelete && r.deletable && (
-                <button className="icon-btn" title="Delete role" onClick={(e) => { e.stopPropagation(); setToDelete(r); }}>
+                <button className="icon-btn" title={t('deleteRole2')} onClick={(e) => { e.stopPropagation(); setToDelete(r); }}>
                   <Trash2 size={15} />
                 </button>
               )}
@@ -133,15 +135,15 @@ export default function RolesPage() {
       />
 
       <NewRoleModal open={createOpen} onClose={() => setCreateOpen(false)}
-        onCreated={(slug) => { setCreateOpen(false); toast.success('Role created'); navigate(`/roles/${slug}`); }} />
+        onCreated={(slug) => { setCreateOpen(false); toast.success(t('roleCreated')); navigate(`/roles/${slug}`); }} />
 
       <ConfirmDialog
         open={Boolean(toDelete)}
         busy={busy}
         tone="danger"
-        title="Delete role?"
-        confirmLabel="Delete"
-        message={<>Delete the role <strong>{toDelete?.name}</strong>? This cannot be undone.</>}
+        title={t('deleteRole3')}
+        confirmLabel={t('common:actions.delete')}
+        message={<>{t('deleteRole')} <strong>{toDelete?.name}</strong>? This cannot be undone.</>}
         onConfirm={doDelete}
         onClose={() => !busy && setToDelete(null)}
       />
@@ -150,38 +152,39 @@ export default function RolesPage() {
 }
 
 function NewRoleModal({ open, onClose, onCreated }) {
+  const { t } = useTranslation('roles');
   const { role } = useAuth();
   const [name, setName] = useState('');
   const [base, setBase] = useState('facility_staff');
   const [busy, setBusy] = useState(false);
 
   // The admin (senior) base is super-admin-only; the backend enforces this too.
-  const baseOptions = assignableBaseRoles({ role });
+  const baseOptions = assignableBaseRoles(t, { role });
 
   useEffect(() => { if (open) { setName(''); setBase('facility_staff'); } }, [open]);
 
   async function submit() {
-    if (!name.trim()) { toast.error('Role name is required.'); return; }
+    if (!name.trim()) { toast.error(t('roleNameRequired')); return; }
     setBusy(true);
     try {
       // Start a custom role from its base tier's default permissions.
       const role = await accessApi.createRole({ name: name.trim(), base_role: base });
       onCreated?.(role.slug);
     } catch (e) {
-      toast.error(apiErrorMessage(e, 'Unable to create the role. Please try again.'));
+      toast.error(apiErrorMessage(e, t('unableCreateRolePleaseTry')));
     } finally { setBusy(false); }
   }
 
   return (
-    <Modal open={open} onClose={onClose} title="New role" size="sm"
+    <Modal open={open} onClose={onClose} title={t('newRole')} size="sm"
       footer={<>
-        <button className="btn btn-secondary" type="button" onClick={onClose}>Cancel</button>
-        <button className="btn btn-primary" onClick={submit} disabled={busy}>Create & edit</button>
+        <button className="btn btn-secondary" type="button" onClick={onClose}>{t('common:actions.cancel')}</button>
+        <button className="btn btn-primary" onClick={submit} disabled={busy}>{t('createEdit')}</button>
       </>}>
-      <FormField label="Role name" hint="e.g. Club Supervisor, Cashier.">
+      <FormField label={t('roleName')} hint={t('eGClubSupervisorCashier')}>
         <input className="form-input" value={name} onChange={(e) => setName(e.target.value)} autoFocus />
       </FormField>
-      <FormField label="Behaviour tier" hint="Controls data scoping & staff behaviour; you'll fine-tune permissions next.">
+      <FormField label={t('behaviourTier')} hint={t('behaviourTierHint')}>
         <Select2 options={baseOptions} value={base} onChange={setBase} />
       </FormField>
     </Modal>

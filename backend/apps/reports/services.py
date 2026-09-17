@@ -13,7 +13,7 @@ from django.db.models.functions import Coalesce, TruncDate
 from django.utils import timezone
 
 from apps.bookings.models import (
-    ACTIVE_STATUSES, COMPLETED_STATUSES, Booking,
+    ACTIVE_STATUSES, COMPLETED_STATUSES, Booking, BookingStatus,
 )
 from apps.customers.models import Customer
 from apps.payments.models import Payment, PaymentStatus
@@ -315,4 +315,128 @@ def memberships_report(date_from=None, date_to=None, scope_clubs=None) -> dict:
             {"number": r["number"], "customer": r["customer__linked_user__email"],
              "plan": r["plan__name"], "end_date": str(r["end_date"])}
             for r in expiring_list],
+    }
+
+
+def _booking_qs(start, end, owner=None, club=None, scope_clubs=None):
+    """Bookings in the window, scoped the same way every other report scopes.
+
+    Extracted so the trend, hour and cancellation reports below cannot drift
+    from `bookings_report`: one definition of "which bookings count".
+    """
+    qs = Booking.objects.filter(scheduled_date__gte=start, scheduled_date__lte=end)
+    if owner is not None:
+        qs = qs.filter(Q(created_by=owner) | Q(assigned_to=owner))
+    if scope_clubs is not None:
+        qs = qs.filter(Q(club_id__in=scope_clubs) | Q(club__isnull=True))
+    if club:
+        qs = qs.filter(club_id=club)
+    return qs
+
+
+def booking_trends(date_from=None, date_to=None, owner=None, club=None,
+                   scope_clubs=None, limit=500) -> dict:
+    """Bookings per day, for trend and period-comparison questions.
+
+    Days with no bookings are omitted rather than zero-filled: the caller knows
+    the period, and sending a zero for every closed day would triple the size
+    of the series for no extra meaning.
+    """
+    start, end = _default_range(date_from, date_to)
+    qs = _booking_qs(start, end, owner, club, scope_clubs)
+
+    rows = list(
+        qs.values("scheduled_date")
+        .annotate(n=Count("id"))
+        .order_by("scheduled_date")
+        .values_list("scheduled_date", "n")
+    )
+    series = [{"date": d.isoformat(), "bookings": n} for d, n in rows[:limit]]
+    total = sum(n for _d, n in rows)
+    days = (end - start).days + 1
+    return {
+        "date_from": start.isoformat(),
+        "date_to": end.isoformat(),
+        "total": total,
+        "days": days,
+        "average_per_day": round(total / days, 2) if days else 0,
+        "busiest_day": max(series, key=lambda r: r["bookings"], default=None),
+        "series": series,
+        "truncated": len(rows) > limit,
+    }
+
+
+# Monday-first, matching how the schedule screens present a week.
+_WEEKDAY_NAMES = ["Monday", "Tuesday", "Wednesday", "Thursday",
+                  "Friday", "Saturday", "Sunday"]
+
+
+def booking_hours(date_from=None, date_to=None, owner=None, club=None,
+                  scope_clubs=None) -> dict:
+    """When customers book: counts by hour of day and by weekday.
+
+    Grouped in Python from the stored local `scheduled_time` rather than in
+    SQL, because the booking time is already the club's local time of day and
+    pushing it through a database timezone conversion would shift it.
+    """
+    start, end = _default_range(date_from, date_to)
+    qs = _booking_qs(start, end, owner, club, scope_clubs)
+
+    by_hour = {hour: 0 for hour in range(24)}
+    by_weekday = {name: 0 for name in _WEEKDAY_NAMES}
+    for scheduled_date, scheduled_time in qs.values_list("scheduled_date", "scheduled_time"):
+        if scheduled_time is not None:
+            by_hour[scheduled_time.hour] += 1
+        if scheduled_date is not None:
+            by_weekday[_WEEKDAY_NAMES[scheduled_date.weekday()]] += 1
+
+    hours = [{"hour": h, "bookings": n} for h, n in by_hour.items() if n]
+    weekdays = [{"weekday": name, "bookings": n} for name, n in by_weekday.items()]
+    return {
+        "date_from": start.isoformat(),
+        "date_to": end.isoformat(),
+        "total": qs.count(),
+        "by_hour": hours,
+        "by_weekday": weekdays,
+        "busiest_hour": max(hours, key=lambda r: r["bookings"], default=None),
+        "busiest_weekday": max(weekdays, key=lambda r: r["bookings"], default=None),
+    }
+
+
+def cancellations_report(date_from=None, date_to=None, owner=None, club=None,
+                         scope_clubs=None, limit=500) -> dict:
+    """Cancellations and no-shows, with the rate and where they concentrate.
+
+    Both are counted because both cost the slot; they are reported separately
+    as well, since a no-show and a cancellation mean different things
+    operationally.
+    """
+    start, end = _default_range(date_from, date_to)
+    qs = _booking_qs(start, end, owner, club, scope_clubs)
+
+    total = qs.count()
+    cancelled = qs.filter(status=BookingStatus.CANCELLED).count()
+    no_show = qs.filter(status=BookingStatus.NO_SHOW).count()
+    lost = cancelled + no_show
+
+    by_type = [
+        {"facility_type": row[0], "name": row[1], "lost": row[2]}
+        for row in (qs.filter(status__in=[BookingStatus.CANCELLED, BookingStatus.NO_SHOW],
+                              facility_type__isnull=False)
+                    .values_list("facility_type_id", "facility_type__name")
+                    .annotate(n=Count("id")).order_by("-n")
+                    .values_list("facility_type_id", "facility_type__name", "n"))
+    ][:limit]
+
+    return {
+        "date_from": start.isoformat(),
+        "date_to": end.isoformat(),
+        "total_bookings": total,
+        "cancelled": cancelled,
+        "no_show": no_show,
+        "lost": lost,
+        # Expressed against all bookings in the window, so it can be compared
+        # between periods of different sizes.
+        "lost_rate_percent": round(lost * 100 / total, 2) if total else 0,
+        "by_facility_type": by_type,
     }

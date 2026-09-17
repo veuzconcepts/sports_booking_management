@@ -113,3 +113,20 @@ class SchedulePermission(BasePermission):
                            "organization-wide schedule."
             return False
         return True
+
+
+class ThemePermission(BasePermission):
+    """Reading the theme needs `organization.view`; changing it, or managing the
+    saved presets, needs `organization.manage` - the same gate as the rest of
+    the branding settings, so there is one answer to "who may rebrand this"."""
+
+    def has_permission(self, request, view):
+        user = request.user
+        if not (user and user.is_authenticated):
+            self.message = "Please sign in to continue."
+            return False
+        cap = "organization.view" if request.method in SAFE_METHODS else "organization.manage"
+        if not user.has_perm_code(cap):
+            self.message = access.denial_message(*cap.split(".", 1))
+            return False
+        return True

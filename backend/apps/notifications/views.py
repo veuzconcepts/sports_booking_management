@@ -11,15 +11,21 @@ from .models import Notification, NotificationChannel, NotificationTemplate
 from .permissions import NotificationLogPermission, TemplatePermission
 from .serializers import NotificationSerializer, NotificationTemplateSerializer
 from .services import notify
+from config.listing import GroupedListMixin
 
 
-class NotificationViewSet(viewsets.ReadOnlyModelViewSet):
+class NotificationViewSet(GroupedListMixin, viewsets.ReadOnlyModelViewSet):
     queryset = Notification.objects.select_related("recipient", "template").all()
     serializer_class = NotificationSerializer
     permission_classes = [permissions.IsAuthenticated, NotificationLogPermission]
     filterset_fields = ["status", "channel", "event", "recipient"]
     search_fields = ["to_address", "subject", "recipient__email"]
-    ordering_fields = ["created_at", "status"]
+    ordering_fields = ["created_at", "status", "channel", "event", "to_address"]
+    group_by_fields = {
+        "status": {"field": "status"},
+        "channel": {"field": "channel"},
+        "event": {"field": "event", "empty_label": "No event"},
+    }
 
     def get_queryset(self):
         qs = super().get_queryset()
@@ -74,10 +80,17 @@ class NotificationViewSet(viewsets.ReadOnlyModelViewSet):
         return Response(NotificationSerializer(sent).data, status=status.HTTP_201_CREATED)
 
 
-class NotificationTemplateViewSet(viewsets.ModelViewSet):
+class NotificationTemplateViewSet(GroupedListMixin, viewsets.ModelViewSet):
     queryset = NotificationTemplate.objects.all()
     serializer_class = NotificationTemplateSerializer
     permission_classes = [permissions.IsAuthenticated, TemplatePermission]
     filterset_fields = ["channel", "is_active"]
+    search_fields = ["code", "name", "subject"]
+    ordering_fields = ["code", "name", "channel", "is_active"]
+    group_by_fields = {
+        "channel": {"field": "channel"},
+        "is_active": {"field": "is_active", "true_label": "Active",
+                      "empty_label": "Inactive"},
+    }
     search_fields = ["code", "name", "subject"]
     ordering_fields = ["code", "created_at"]

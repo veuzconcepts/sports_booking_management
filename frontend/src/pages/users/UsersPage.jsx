@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
   Plus, Pencil, Eye, KeyRound, KeySquare, ShieldCheck, ShieldOff,
@@ -6,11 +6,11 @@ import {
   User as UserIcon, FileText, RefreshCw, CheckSquare, X,
 } from 'lucide-react';
 import toast from 'react-hot-toast';
+import { Trans, useTranslation } from 'react-i18next';
 import { Controller, useForm } from 'react-hook-form';
 
-import { PageHeader } from '../../components/PageHeader.jsx';
-import { DataTable } from '../../components/DataTable.jsx';
-import { Toolbar } from '../../components/Toolbar.jsx';
+import { PageTabs } from '../../components/PageTabs.jsx';
+import { ListPage, ListView } from '../../components/listview/index.js';
 import { StatusBadge } from '../../components/StatusBadge.jsx';
 import { Modal } from '../../components/Modal.jsx';
 import { ConfirmDialog } from '../../components/ConfirmDialog.jsx';
@@ -20,10 +20,9 @@ import { Select2 } from '../../components/Select2.jsx';
 import { Toggle } from '../../components/Toggle.jsx';
 import { Drawer } from '../../components/Drawer.jsx';
 import { RowMenu } from '../../components/RowMenu.jsx';
-import { useApiList } from '../../hooks/useApiList.js';
 import { useAuth } from '../../hooks/useAuth.jsx';
 
-import { USER_ROLES, accessApi, accountApi, usersApi, sessionsApi } from '../../services/usersService.js';
+import { userRoles, accessApi, accountApi, usersApi, sessionsApi } from '../../services/usersService.js';
 import { clubsApi } from '../../services/clubsService.js';
 import { facilitiesApi } from '../../services/facilitiesService.js';
 import { formatDateTime } from '../../services/timeformat.jsx';
@@ -33,20 +32,20 @@ import { assignableRoleOptions, canManageUser, canTransferSuperAdmin } from '../
 // Roles that are club-scoped (assigned to specific locations).
 const SITE_SCOPED_ROLES = ['club_admin', 'manager', 'facility_operator', 'facility_staff'];
 
-const roleLabel = (v) => USER_ROLES.find((r) => r.value === v)?.label || v;
+const roleLabel = (t, v) => userRoles(t).find((r) => r.value === v)?.label || v;
 
 // Status filter is a composite over is_active / locked / is_deleted (the backend
 // has no single "status" field). "Locked" is a real server-side filter
 // (?locked=true, matching the is_locked property) - not a client-side post-filter.
-const STATUS_OPTIONS = [
-  { value: 'active',   label: 'Active' },
-  { value: 'inactive', label: 'Inactive' },
-  { value: 'locked',   label: 'Locked' },
-  { value: 'deleted',  label: 'Deleted' },
+const statusOptions = (t) => [
+  { value: 'active',   label: t('common:state.active') },
+  { value: 'inactive', label: t('common:state.inactive') },
+  { value: 'locked',   label: t('locked') },
+  { value: 'deleted',  label: t('deleted') },
 ];
-const MFA_OPTIONS = [
-  { value: 'true',  label: 'Enrolled' },
-  { value: 'false', label: 'Not enrolled' },
+const mfaOptions = (t) => [
+  { value: 'true',  label: t('enrolled') },
+  { value: 'false', label: t('notEnrolled') },
 ];
 
 const fmtDateTime = (iso) => (iso ? formatDateTime(iso) : '-');
@@ -62,20 +61,22 @@ function apiErr(e, fallback) {
 
 // Single status badge with a clear precedence: deleted > locked > inactive > active.
 function StatusCell({ u }) {
-  if (u.is_deleted) return <StatusBadge tone="danger" label="Deleted" />;
-  if (u.is_locked) return <StatusBadge tone="warning" label="Locked" />;
-  if (!u.is_active) return <StatusBadge tone="muted" label="Inactive" />;
-  return <StatusBadge tone="success" label="Active" />;
+  const { t } = useTranslation('users');
+  if (u.is_deleted) return <StatusBadge tone="danger" label={t('deleted')} />;
+  if (u.is_locked) return <StatusBadge tone="warning" label={t('locked')} />;
+  if (!u.is_active) return <StatusBadge tone="muted" label={t('common:state.inactive')} />;
+  return <StatusBadge tone="success" label={t('common:state.active')} />;
 }
 
 // Per-channel login access (additional to role/permissions): Web portal + Mobile.
 function AccessCell({ u }) {
+  const { t } = useTranslation('users');
   return (
     <span style={{ display: 'inline-flex', gap: 4, flexWrap: 'wrap' }}>
       <StatusBadge tone={u.web_login_enabled ? 'success' : 'muted'}
-                   label={u.web_login_enabled ? 'Web' : 'No Web'} />
+                   label={u.web_login_enabled ? t('web') : t('noWeb')} />
       <StatusBadge tone={u.mobile_login_enabled ? 'success' : 'muted'}
-                   label={u.mobile_login_enabled ? 'Mobile' : 'No Mobile'} />
+                   label={u.mobile_login_enabled ? t('mobile') : t('noMobile')} />
     </span>
   );
 }
@@ -85,77 +86,84 @@ function AccessCell({ u }) {
 // (optional) - the user still enrols on their device, so a just-enabled user is
 // "Enabled" (not yet "Enrolled"), NOT "Disabled".
 function MfaCell({ u }) {
+  const { t } = useTranslation('users');
   // One mutually-exclusive status badge: Enforced > Disabled > Enrolled > Enabled.
   let tone = 'info';
-  let label = 'Enabled';                       // available (optional), not yet set up
-  if (u.mfa_policy === 'enforced') { tone = 'warning'; label = 'Enforced'; }
-  else if (u.mfa_policy === 'disabled') { tone = 'muted'; label = 'Disabled'; }
-  else if (u.mfa_enabled) { tone = 'success'; label = 'Enrolled'; }
+  let label = t('common:state.enabled');                       // available (optional), not yet set up
+  if (u.mfa_policy === 'enforced') { tone = 'warning'; label = t('enforced'); }
+  else if (u.mfa_policy === 'disabled') { tone = 'muted'; label = t('common:state.disabled'); }
+  else if (u.mfa_enabled) { tone = 'success'; label = t('enrolled'); }
   return (
     <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
       <StatusBadge tone={tone} label={label} />
-      {u.mfa_required && <StatusBadge tone="info" label="Role" />}
+      {u.mfa_required && <StatusBadge tone="info" label={t('role')} />}
     </span>
   );
 }
 
 // Derive the Status filter's current value from the query params.
-function statusValueFromQuery(q) {
-  if (q.is_deleted === 'true') return 'deleted';
-  if (q.locked === 'true') return 'locked';
-  if (q.is_active === 'true') return 'active';
-  if (q.is_active === 'false') return 'inactive';
-  return '';
-}
-
-const tabBtnStyle = (active) => ({
-  padding: '8px 14px',
-  border: 'none',
-  background: 'transparent',
-  borderBottom: active ? '2px solid var(--color-primary-600)' : '2px solid transparent',
-  color: active ? 'var(--color-text)' : 'var(--color-text-muted)',
-  fontWeight: 600,
-  fontSize: 13.5,
-  cursor: 'pointer',
-});
-
 export default function UsersPage() {
+  const { t } = useTranslation('users');
   const [tab, setTab] = useTabParam('users');
   return (
-    <>
-      <PageHeader
-        title="User Management"
-        subtitle="Manage user accounts and monitor active sessions."
-      />
-      <div style={{ display: 'flex', gap: 4, borderBottom: '1px solid var(--color-border)', marginBottom: 18 }}>
-        <button style={tabBtnStyle(tab === 'users')} onClick={() => setTab('users')}>Users</button>
-        <button style={tabBtnStyle(tab === 'sessions')} onClick={() => setTab('sessions')}>Active Sessions</button>
-      </div>
+    <ListPage
+      title={t('userManagement')}
+      subtitle={t('manageUserAccountsMonitorActive')}
+      tabs={(
+        <PageTabs
+          active={tab}
+          onChange={setTab}
+          label={t('userManagement')}
+          tabs={[
+            { key: 'users', label: t('title') },
+            { key: 'sessions', label: t('activeSessions') },
+          ]}
+        />
+      )}
+    >
       {tab === 'users' ? <UsersTable /> : <SessionsAdminPage />}
-    </>
+    </ListPage>
   );
 }
 
 /* -------------------- Confirm-dialog copy per action --------------------- */
-const CONFIRM = {
-  deactivate: { title: 'Deactivate user?', label: 'Deactivate', tone: 'danger',
-    msg: (u) => <>Deactivate <strong>{u.email}</strong>? They will be signed out and unable to log in until reactivated.</> },
-  activate: { title: 'Activate user?', label: 'Activate', tone: 'primary',
-    msg: (u) => <>Reactivate <strong>{u.email}</strong>? They will be able to log in again.</> },
-  unlock: { title: 'Unlock account?', label: 'Unlock', tone: 'primary',
-    msg: (u) => <>Clear the lockout on <strong>{u.email}</strong>? Their failed-attempt counter is reset.</> },
-  forcepw: { title: 'Force password change?', label: 'Force change', tone: 'primary',
-    msg: (u) => <>Require <strong>{u.email}</strong> to set a new password at their next login? Their current password keeps working only until then - no password is set now.</> },
-  resetmfa: { title: 'Reset MFA?', label: 'Reset MFA', tone: 'danger',
-    msg: (u) => <>Reset MFA for <strong>{u.email}</strong>? Their current authenticator is removed and they must set up a <strong>fresh</strong> one at their next sign-in (MFA stays required). To turn MFA off instead, use <em>Disable MFA</em>.</> },
-  delete: { title: 'Delete user?', label: 'Delete', tone: 'danger',
-    msg: (u) => <>Delete <strong>{u.email}</strong>? They are signed out and hidden from lists; the record is kept for history (soft delete).</> },
-  transfer: { title: 'Transfer super admin?', label: 'Transfer & step down', tone: 'danger',
-    msg: (u) => <>Make <strong>{u.email}</strong> the new <strong>super admin</strong>? There is only ever one super admin, so <strong>you will be demoted to Admin</strong>. Only the super admin can do this, and only the new super admin can transfer it back.</> },
+// A factory rather than a constant: the copy has to follow the active language,
+// and `t` only exists inside a component.
+const confirmCopy = (t) => {
+  const sentence = (kind, email) => (
+    <Trans
+      t={t}
+      i18nKey={`confirm.${kind}.message`}
+      values={{ email }}
+      components={{ b: <strong />, i: <em /> }}
+    />
+  );
+  const entry = (kind, tone) => ({
+    title: t(`confirm.${kind}.title`),
+    label: t(`confirm.${kind}.label`),
+    tone,
+    msg: (u) => sentence(kind, u.email),
+  });
+  return {
+    deactivate: entry('deactivate', 'danger'),
+    activate: entry('activate', 'primary'),
+    unlock: entry('unlock', 'primary'),
+    forcepw: entry('forcepw', 'primary'),
+    resetmfa: entry('resetmfa', 'danger'),
+    delete: entry('delete', 'danger'),
+    transfer: entry('transfer', 'danger'),
+  };
 };
 
 /* ----------------------------- Users table ------------------------------ */
+const USER_GROUP_KEYS = [
+  ['role', 'groups.role'],
+  ['is_active', 'groups.status'],
+];
+
 function UsersTable() {
+  const { t } = useTranslation('users');
+  const { t: tc } = useTranslation('common');
   const { user: me, hasPerm } = useAuth();
   const [createOpen, setCreateOpen] = useState(false);
   const [editUser, setEditUser] = useState(null);
@@ -166,9 +174,8 @@ function UsersTable() {
   const [confirmErr, setConfirmErr] = useState('');
   const [roles, setRoles] = useState([]);
   const fetcher = useCallback((q) => usersApi.list(q), []);
-  // Default: hide soft-deleted users unless the Status filter selects them.
-  const { rows, loading, error, count, query, setQuery, reload } =
-    useApiList(fetcher, { is_deleted: 'false' });
+  const [reloadKey, setReloadKey] = useState(0);
+  const reload = useCallback(() => setReloadKey((k) => k + 1), []);
 
   const actorIsSuper = me?.role === 'super_admin';
   // Mirror backend _guard_manage_target (UI honesty only - backend is the gate).
@@ -183,56 +190,42 @@ function UsersTable() {
     return false;
   }, [me, actorIsSuper]);
 
-  // ---- bulk selection (multi-user actions; reuse the per-user endpoints) ----
-  const [selected, setSelected] = useState(() => new Set());
-  const [bulk, setBulk] = useState(null);       // chosen bulk action (pending confirm)
+  // ---- bulk actions (multi-user; reuse the per-user endpoints) --------------
+  // Selection now lives in ListView, which clears it whenever the query
+  // changes. `bulk` carries the chosen action AND the rows it was raised for,
+  // so the confirmation cannot drift from what was selected.
+  const [bulk, setBulk] = useState(null);       // { ...action, targets: [...] }
   const [bulkBusy, setBulkBusy] = useState(false);
-  // Selection is scoped to the current page; reset on any query change.
-  useEffect(() => { setSelected(new Set()); }, [query]);
-
-  const pageIds = rows.map((u) => u.id);
-  const allPageSelected = pageIds.length > 0 && pageIds.every((id) => selected.has(id));
-  function toggleRow(id) {
-    setSelected((prev) => { const n = new Set(prev); n.has(id) ? n.delete(id) : n.add(id); return n; });
-  }
-  function toggleAllPage() {
-    setSelected((prev) => {
-      const n = new Set(prev);
-      if (allPageSelected) pageIds.forEach((id) => n.delete(id));
-      else pageIds.forEach((id) => n.add(id));
-      return n;
-    });
-  }
-  const selectedUsers = rows.filter((u) => selected.has(u.id));
+  const selectedUsers = bulk?.targets || [];
 
   // Each bulk action reuses an existing per-user endpoint (no new behaviour);
   // ineligible rows (guards / self / owner) are skipped, backend still enforces.
   const BULK_ACTIONS = [
-    { key: 'activate', label: 'Activate', tone: 'primary', done: 'activated', icon: <UserCheck size={14} />, primary: true,
+    { key: 'activate', label: t('common:actions.activate'), tone: 'primary', done: 'activated', icon: <UserCheck size={14} />, primary: true,
       eligible: (u) => canManage(u) && !u.is_deleted && !u.is_active,
       run: (u) => usersApi.activate(u.id) },
-    { key: 'deactivate', label: 'Deactivate', tone: 'danger', done: 'deactivated', icon: <UserX size={14} />, primary: true,
+    { key: 'deactivate', label: t('common:actions.deactivate'), tone: 'danger', done: 'deactivated', icon: <UserX size={14} />, primary: true,
       eligible: (u) => canManage(u) && !u.is_deleted && u.is_active && u.id !== me?.id && !u.is_super_admin,
       run: (u) => usersApi.deactivate(u.id) },
-    { key: 'enable_mfa', label: 'Enable MFA', tone: 'primary', done: 'MFA enabled', icon: <ShieldCheck size={14} />,
+    { key: 'enable_mfa', label: t('enableMfa'), tone: 'primary', done: 'MFA enabled', icon: <ShieldCheck size={14} />,
       eligible: (u) => canManage(u) && !u.is_deleted && u.id !== me?.id && !u.is_super_admin && u.role !== 'admin' && !u.mfa_required && u.mfa_policy === 'disabled',
       run: (u) => usersApi.setMfaPolicy(u.id, 'optional') },
-    { key: 'enforce_mfa', label: 'Enforce MFA', tone: 'primary', done: 'MFA enforced', icon: <Shield size={14} />,
+    { key: 'enforce_mfa', label: t('enforceMfa'), tone: 'primary', done: 'MFA enforced', icon: <Shield size={14} />,
       eligible: (u) => canManage(u) && !u.is_deleted && u.id !== me?.id && !u.is_super_admin && u.role !== 'admin',
       run: (u) => usersApi.setMfaPolicy(u.id, 'enforced') },
-    { key: 'disable_mfa', label: 'Disable MFA', tone: 'danger', done: 'MFA disabled', icon: <ShieldOff size={14} />,
+    { key: 'disable_mfa', label: t('disableMfa'), tone: 'danger', done: 'MFA disabled', icon: <ShieldOff size={14} />,
       eligible: (u) => canManage(u) && !u.is_deleted && u.id !== me?.id && !u.is_super_admin && u.role !== 'admin' && !u.mfa_required,
       run: (u) => usersApi.setMfaPolicy(u.id, 'disabled') },
-    { key: 'reset_mfa', label: 'Reset MFA', tone: 'danger', done: 'MFA reset', icon: <RefreshCw size={14} />,
+    { key: 'reset_mfa', label: t('resetMfa2'), tone: 'danger', done: 'MFA reset', icon: <RefreshCw size={14} />,
       eligible: (u) => canManage(u) && !u.is_deleted && u.id !== me?.id && u.mfa_enabled,
       run: (u) => usersApi.resetMfa(u.id) },
-    { key: 'force_pw', label: 'Force password change', tone: 'primary', done: 'flagged for password change', icon: <KeySquare size={14} />, primary: true,
+    { key: 'force_pw', label: t('forcePasswordChange'), tone: 'primary', done: 'flagged for password change', icon: <KeySquare size={14} />, primary: true,
       eligible: (u) => canManage(u) && !u.is_deleted && u.id !== me?.id && !u.must_change_password,
       run: (u) => usersApi.forcePasswordChange(u.id) },
-    { key: 'logout_all', label: 'Force logout all', tone: 'danger', done: 'logged out', icon: <LogOut size={14} />, primary: true,
+    { key: 'logout_all', label: t('forceLogoutAll'), tone: 'danger', done: 'logged out', icon: <LogOut size={14} />, primary: true,
       eligible: (u) => canManageSessions(u) && u.id !== me?.id,
       run: (u) => sessionsApi.terminateAll(u.id) },
-    { key: 'delete', label: 'Delete', tone: 'danger', done: 'deleted', icon: <Trash2 size={14} />,
+    { key: 'delete', label: t('common:actions.delete'), tone: 'danger', done: 'deleted', icon: <Trash2 size={14} />,
       eligible: (u) => canManage(u) && !u.is_deleted && u.id !== me?.id && !u.is_super_admin && !u.last_login,
       run: (u) => usersApi.remove(u.id) },
   ];
@@ -248,7 +241,6 @@ function UsersTable() {
     }
     setBulkBusy(false);
     setBulk(null);
-    setSelected(new Set());
     reload();
     const parts = [`${ok} ${bulk.done}`];
     if (skipped) parts.push(`${skipped} skipped`);
@@ -257,29 +249,13 @@ function UsersTable() {
   }
 
   useEffect(() => {
-    accessApi.listRoles().then((d) => setRoles(d.roles)).catch(() => {});
+    // Default to an empty list: a payload without `roles` must not leave the
+    // state undefined, which would throw the moment the filter reads it.
+    accessApi.listRoles()
+      .then((d) => setRoles(d?.roles || []))
+      .catch(() => setRoles([]));
   }, []);
 
-  // Debounced search -> ?search= (email/name/phone).
-  const [searchInput, setSearchInput] = useState(query.search || '');
-  useEffect(() => {
-    const t = setTimeout(() => {
-      setQuery((q) => ({ ...q, search: searchInput || undefined, page: 1 }));
-    }, 350);
-    return () => clearTimeout(t);
-  }, [searchInput, setQuery]);
-
-  function setStatus(v) {
-    const next = { ...query, page: 1 };
-    delete next.is_active;
-    delete next.locked;
-    if (v === 'deleted') next.is_deleted = 'true';
-    else if (v === 'active') { next.is_active = 'true'; next.is_deleted = 'false'; }
-    else if (v === 'inactive') { next.is_active = 'false'; next.is_deleted = 'false'; }
-    else if (v === 'locked') { next.locked = 'true'; next.is_deleted = 'false'; }
-    else next.is_deleted = 'false';   // cleared -> non-deleted
-    setQuery(next);
-  }
 
   async function runConfirm() {
     if (!confirm) return;
@@ -287,15 +263,15 @@ function UsersTable() {
     setConfirmBusy(true);
     setConfirmErr('');
     try {
-      if (kind === 'deactivate') { await usersApi.deactivate(u.id); toast.success('User deactivated'); }
-      else if (kind === 'activate') { await usersApi.activate(u.id); toast.success('User activated'); }
-      else if (kind === 'unlock') { await usersApi.unlock(u.id); toast.success('Account unlocked'); }
-      else if (kind === 'forcepw') { await usersApi.forcePasswordChange(u.id); toast.success('Password change required at next login'); }
-      else if (kind === 'resetmfa') { await usersApi.disableMfa(u.id); toast.success('MFA reset - user must re-enrol'); }
-      else if (kind === 'delete') { await usersApi.remove(u.id); toast.success('User deleted'); }
+      if (kind === 'deactivate') { await usersApi.deactivate(u.id); toast.success(t('actions.deactivated')); }
+      else if (kind === 'activate') { await usersApi.activate(u.id); toast.success(t('actions.activated')); }
+      else if (kind === 'unlock') { await usersApi.unlock(u.id); toast.success(t('actions.unlocked')); }
+      else if (kind === 'forcepw') { await usersApi.forcePasswordChange(u.id); toast.success(t('actions.mustChangePassword')); }
+      else if (kind === 'resetmfa') { await usersApi.disableMfa(u.id); toast.success(t('actions.mfaReset')); }
+      else if (kind === 'delete') { await usersApi.remove(u.id); toast.success(t('actions.deleted')); }
       else if (kind === 'transfer') {
         await usersApi.transferSuperAdmin(u.id);
-        toast.success('Super admin transferred. You are now an Admin.');
+        toast.success(t('actions.ownerTransferred'));
         setConfirm(null);
         // The caller just demoted themselves - reload so their new context applies.
         window.location.assign('/users');
@@ -305,7 +281,7 @@ function UsersTable() {
       reload();
     } catch (e) {
       // Surface the backend 403/400 inline in the dialog - never a silent fail.
-      setConfirmErr(apiErr(e, 'Unable to complete the requested action. Please try again.'));
+      setConfirmErr(apiErr(e, t('actions.failed')));
     } finally {
       setConfirmBusy(false);
     }
@@ -319,39 +295,39 @@ function UsersTable() {
     return [
       !isSelf && manage && {
         key: 'toggle',
-        label: u.is_active ? 'Deactivate' : 'Activate',
+        label: u.is_active ? t('common:actions.deactivate') : t('common:actions.activate'),
         icon: u.is_active ? <UserX size={15} /> : <UserCheck size={15} />,
         danger: u.is_active,
         onClick: () => { setConfirmErr(''); setConfirm({ user: u, kind: u.is_active ? 'deactivate' : 'activate' }); },
       },
       !isSelf && manage && !u.is_deleted && {
         key: 'resetpw',
-        label: 'Reset password',
+        label: t('resetPassword'),
         icon: <KeyRound size={15} />,
         onClick: () => setPwUser(u),
       },
       !isSelf && manage && !u.is_deleted && !u.must_change_password && {
         key: 'forcepw',
-        label: 'Force password change',
+        label: t('forcePasswordChange'),
         icon: <KeySquare size={15} />,
         onClick: () => { setConfirmErr(''); setConfirm({ user: u, kind: 'forcepw' }); },
       },
       !isSelf && manage && !u.is_deleted && {
         key: 'resetmfa',
-        label: 'Reset MFA',
+        label: t('resetMfa2'),
         icon: <ShieldOff size={15} />,
         onClick: () => { setConfirmErr(''); setConfirm({ user: u, kind: 'resetmfa' }); },
       },
       manage && u.is_locked && {
         key: 'unlock',
-        label: 'Unlock account',
+        label: t('unlockAccount'),
         icon: <Unlock size={15} />,
         onClick: () => { setConfirmErr(''); setConfirm({ user: u, kind: 'unlock' }); },
       },
       // Owner-only: hand the single super-admin to an eligible active staff user.
       canTransferSuperAdmin(me, u) && {
         key: 'transfer',
-        label: 'Make super admin',
+        label: t('makeSuperAdmin'),
         icon: <ShieldCheck size={15} />,
         onClick: () => { setConfirmErr(''); setConfirm({ user: u, kind: 'transfer' }); },
       },
@@ -359,7 +335,7 @@ function UsersTable() {
       // logged in, keep them for history and use Deactivate instead.
       !isSelf && manage && !u.is_deleted && !u.last_login && {
         key: 'delete',
-        label: 'Delete user',
+        label: t('deleteUser'),
         icon: <Trash2 size={15} />,
         danger: true,
         onClick: () => { setConfirmErr(''); setConfirm({ user: u, kind: 'delete' }); },
@@ -367,129 +343,100 @@ function UsersTable() {
     ];
   }
 
-  const cfg = confirm ? CONFIRM[confirm.kind] : null;
+  const cfg = confirm ? confirmCopy(t)[confirm.kind] : null;
+
+  // --- Listing configuration ------------------------------------------------
+  const columns = useMemo(() => [
+    { key: 'name', header: t('columns.name'), sortKey: 'first_name', minWidth: 180,
+      alwaysVisible: true,
+      render: (u) => (
+        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
+          <span style={{ fontWeight: 600 }}>{u.full_name}</span>
+          {u.is_super_admin && <StatusBadge tone="info" label={t('badges.owner')} />}
+        </span>
+      ) },
+    { key: 'email', header: t('columns.email'), sortKey: 'email', truncate: true,
+      minWidth: 200, render: (u) => <span className="muted">{u.email}</span> },
+    { key: 'role', header: t('columns.role'), sortKey: 'role', minWidth: 130,
+      render: (u) => <StatusBadge tone="info" label={u.role_name || roleLabel(t, u.role)} /> },
+    { key: 'status', header: t('columns.status'), sortKey: 'is_active', minWidth: 110,
+      render: (u) => <StatusCell u={u} /> },
+    { key: 'access', header: t('columns.loginAccess'), minWidth: 130, priority: 'medium',
+      render: (u) => <AccessCell u={u} /> },
+    { key: 'mfa', header: t('columns.mfa'), minWidth: 100, priority: 'low',
+      render: (u) => <MfaCell u={u} /> },
+    { key: 'last_login', header: t('columns.lastLogin'), sortKey: 'last_login',
+      nowrap: true, minWidth: 160, priority: 'low',
+      render: (u) => <span className="muted">{fmtDateTime(u.last_login)}</span> },
+  ], [t]);
+
+  // "Status" is one choice the user makes but several parameters the API needs,
+  // so the filter declares the expansion rather than the page rewriting the query.
+  const filters = useMemo(() => [
+    { key: 'role', label: t('filters.role'), type: 'select',
+      options: (roles || []).filter((r) => r.is_system)
+        .map((r) => ({ value: r.slug, label: r.name })) },
+    { key: 'status', label: t('filters.status'), type: 'select', options: statusOptions(t),
+      toParams: (v) => (
+        v === 'deleted' ? { is_deleted: 'true' }
+          : v === 'active' ? { is_active: 'true', is_deleted: 'false' }
+            : v === 'inactive' ? { is_active: 'false', is_deleted: 'false' }
+              : v === 'locked' ? { locked: 'true', is_deleted: 'false' }
+                : { is_deleted: 'false' }) },
+    { key: 'mfa_enabled', label: t('filters.mfa'), type: 'select', options: mfaOptions(t) },
+  ], [roles, t]);
+
+  const userGroups = useMemo(
+    () => USER_GROUP_KEYS.map(([key, k]) => ({ key, label: t(k) })), [t]);
+
+  const rowActions = useCallback((u) => [
+    { key: 'view', label: tc('actions.viewDetails'), icon: <Eye size={14} />,
+      onClick: () => setViewUser(u) },
+    !u.is_deleted && { key: 'edit', label: tc('actions.edit'), icon: <Pencil size={14} />,
+      onClick: () => setEditUser(u) },
+    ...rowMenuItems(u),
+  ].filter(Boolean), [rowMenuItems]);
+
+  // Each bulk action reuses a per-user endpoint. `run` receives the rows the
+  // user actually selected, which the confirmation then reports on.
+  const bulkActions = useMemo(() => BULK_ACTIONS.map((a) => ({
+    key: a.key,
+    label: a.label,
+    icon: a.icon,
+    danger: a.tone === 'danger',
+    run: (ids, selectedRows) => setBulk({ ...a, targets: selectedRows }),
+  })), [BULK_ACTIONS]);
 
   return (
     <>
-      <Toolbar
-        searchValue={searchInput}
-        onSearchChange={setSearchInput}
-        searchPlaceholder="Name, email, phone…"
-        filters={[
-          { value: query.role,
-            options: roles.filter((r) => r.is_system).map((r) => ({ value: r.slug, label: r.name })),
-            placeholder: 'All roles',
-            onChange: (v) => setQuery({ ...query, role: v, page: 1 }) },
-          { value: statusValueFromQuery(query), options: STATUS_OPTIONS,
-            placeholder: 'Status', onChange: setStatus },
-          { value: query.mfa_enabled, options: MFA_OPTIONS,
-            placeholder: 'MFA', onChange: (v) => setQuery({ ...query, mfa_enabled: v, page: 1 }) },
-        ]}
-        right={hasPerm('users.add') && <button className="btn btn-primary" onClick={() => setCreateOpen(true)}><Plus size={15} /> New user</button>}
+      <ListView
+        tableKey="users"
+        fetcher={fetcher}
+        reloadKey={reloadKey}
+        baseParams={{ is_deleted: 'false' }}
+        defaultOrdering="-date_joined"
+        searchPlaceholder={t('searchPlaceholder')}
+        emptyTitle={t('emptyTitle')}
+        emptyHint={t('emptyHint')}
+        columns={columns}
+        filters={filters}
+        groupOptions={userGroups}
+        rowActions={rowActions}
+        bulkActions={bulkActions}
+        toolbarRight={hasPerm('users.add') && (
+          <button className="btn btn-primary" onClick={() => setCreateOpen(true)}>
+            <Plus size={15} /> {t('newUser')}
+          </button>
+        )}
       />
-
-      {selected.size > 0 && (
-        <div className="fade-in" style={{
-          marginBottom: 12, padding: '10px 14px', borderRadius: 10,
-          display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap',
-          background: 'rgba(124,58,237,0.06)',
-          border: '1px solid var(--color-primary-200, rgba(124,58,237,0.25))',
-          boxShadow: '0 1px 2px rgba(15,23,42,0.04)',
-        }}>
-          <span style={{
-            display: 'inline-flex', alignItems: 'center', gap: 6, fontWeight: 700, fontSize: 13,
-            color: 'var(--color-primary-700, #6d28d9)',
-          }}>
-            <CheckSquare size={16} />{selected.size} selected
-          </span>
-          <span style={{ width: 1, height: 20, background: 'var(--color-border)', margin: '0 4px' }} />
-          {BULK_ACTIONS.filter((a) => a.primary).map((a) => {
-            const danger = a.tone === 'danger';
-            return (
-              <button
-                key={a.key}
-                type="button"
-                title={a.label}
-                onClick={() => setBulk(a)}
-                style={{
-                  display: 'inline-flex', alignItems: 'center', gap: 6,
-                  fontSize: 12.5, fontWeight: 600, padding: '6px 11px', borderRadius: 8,
-                  cursor: 'pointer', lineHeight: 1.2,
-                  border: `1px solid ${danger ? 'rgba(220,38,38,0.35)' : 'var(--color-border)'}`,
-                  background: danger ? 'rgba(220,38,38,0.05)' : '#fff',
-                  color: danger ? '#b91c1c' : 'var(--color-text, #1f2937)',
-                }}
-                onMouseEnter={(e) => { e.currentTarget.style.background = danger ? 'rgba(220,38,38,0.12)' : 'var(--color-surface-2, #f3f4f6)'; }}
-                onMouseLeave={(e) => { e.currentTarget.style.background = danger ? 'rgba(220,38,38,0.05)' : '#fff'; }}
-              >
-                {a.icon}{a.label}
-              </button>
-            );
-          })}
-          <RowMenu
-            triggerLabel="More actions"
-            items={BULK_ACTIONS.filter((a) => !a.primary).map((a) => ({
-              key: a.key, label: a.label, icon: a.icon, danger: a.tone === 'danger',
-              onClick: () => setBulk(a),
-            }))}
-          />
-          <button type="button" className="btn btn-ghost" style={{ marginLeft: 'auto', fontSize: 12.5, display: 'inline-flex', alignItems: 'center', gap: 6 }}
-            onClick={() => setSelected(new Set())}><X size={14} /> Clear</button>
-        </div>
-      )}
-
-      {error ? (
-        <ErrorState message="Unable to load the users. Please try again." onRetry={reload} />
-      ) : (
-      <DataTable
-        loading={loading}
-        rows={rows}
-        page={query.page || 1}
-        count={count}
-        onPageChange={(p) => setQuery({ ...query, page: p })}
-        emptyTitle="No users found"
-        emptyHint="Try adjusting your search or filters."
-        columns={[
-          { key: '_select', width: 36,
-            header: <input type="checkbox" checked={allPageSelected}
-                           onChange={toggleAllPage} aria-label="Select all on page" />,
-            render: (u) => <input type="checkbox" checked={selected.has(u.id)}
-                                  onChange={() => toggleRow(u.id)} aria-label={`Select ${u.email}`} /> },
-          { key: 'name', header: 'Name', render: (u) => (
-            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
-              <span style={{ fontWeight: 600 }}>{u.full_name}</span>
-              {u.is_super_admin && <StatusBadge tone="info" label="Owner" />}
-            </span>
-          ) },
-          { key: 'email', header: 'Email', truncate: true, width: 240,
-            render: (u) => <span className="muted">{u.email}</span> },
-          { key: 'role', header: 'Role',
-            render: (u) => <StatusBadge tone="info" label={u.role_name || roleLabel(u.role)} /> },
-          { key: 'status', header: 'Status', render: (u) => <StatusCell u={u} /> },
-          { key: 'access', header: 'Login Access', render: (u) => <AccessCell u={u} /> },
-          { key: 'mfa', header: 'MFA', render: (u) => <MfaCell u={u} /> },
-          { key: 'last_login', header: 'Last Login', nowrap: true,
-            render: (u) => <span className="muted">{fmtDateTime(u.last_login)}</span> },
-          { key: 'actions', header: '', align: 'right', render: (u) => (
-            <div className="table-actions" style={{ display: 'inline-flex', alignItems: 'center', gap: 2 }}>
-              {!u.is_deleted && (
-                <button className="icon-btn" title="Edit user" onClick={() => setEditUser(u)}><Pencil size={15} /></button>
-              )}
-              <button className="icon-btn" title="View details" onClick={() => setViewUser(u)}><Eye size={15} /></button>
-              <RowMenu items={rowMenuItems(u)} />
-            </div>
-          ) },
-        ]}
-      />
-      )}
 
       <UserFormModal open={createOpen} roles={roles} onClose={() => setCreateOpen(false)}
-        onSaved={() => { setCreateOpen(false); toast.success('User created'); reload(); }} />
+        onSaved={() => { setCreateOpen(false); toast.success(t('actions.created')); reload(); }} />
       <UserFormModal open={Boolean(editUser)} user={editUser} roles={roles} onClose={() => setEditUser(null)}
-        onSaved={() => { setEditUser(null); toast.success('User updated'); reload(); }}
+        onSaved={() => { setEditUser(null); toast.success(t('actions.updated')); reload(); }}
         onMfaChanged={reload} />
       <SetPasswordModal user={pwUser} onClose={() => setPwUser(null)}
-        onSaved={() => { setPwUser(null); toast.success('Password updated'); reload(); }} />
+        onSaved={() => { setPwUser(null); toast.success(t('actions.passwordUpdated')); reload(); }} />
       <ViewUserDrawer user={viewUser}
         canManageSessions={viewUser ? canManageSessions(viewUser) : false}
         onClose={() => setViewUser(null)} />
@@ -530,7 +477,7 @@ function UsersTable() {
                 </div>
               )}
               {eligible === 0 && (
-                <div style={{ marginTop: 8, color: '#dc2626', fontSize: 13 }}>None of the selected users are eligible for this action.</div>
+                <div style={{ marginTop: 8, color: '#dc2626', fontSize: 13 }}>{t('actions.noneEligible')}</div>
               )}
             </>
           );
@@ -556,6 +503,7 @@ function DLRow({ label, children }) {
 }
 
 function ViewUserDrawer({ user, canManageSessions = false, onClose }) {
+  const { t } = useTranslation('users');
   const u = user;
   // Live session count from the Sessions panel; falls back to the list value.
   const [sessionCount, setSessionCount] = useState(null);
@@ -567,39 +515,39 @@ function ViewUserDrawer({ user, canManageSessions = false, onClose }) {
       {u && (
         <div>
           {u.is_super_admin && (
-            <div style={{ marginBottom: 12 }}><StatusBadge tone="info" label="Owner" /></div>
+            <div style={{ marginBottom: 12 }}><StatusBadge tone="info" label={t('owner')} /></div>
           )}
-          <DLRow label="Status"><StatusCell u={u} /></DLRow>
-          <DLRow label="Admin Web Portal login">
+          <DLRow label={t('sessions.status')}><StatusCell u={u} /></DLRow>
+          <DLRow label={t('form.webLogin')}>
             <StatusBadge tone={u.web_login_enabled ? 'success' : 'muted'}
-                         label={u.web_login_enabled ? 'Enabled' : 'Disabled'} />
+                         label={u.web_login_enabled ? t('common:state.enabled') : t('common:state.disabled')} />
           </DLRow>
-          <DLRow label="Mobile App login">
+          <DLRow label={t('form.mobileLogin')}>
             <StatusBadge tone={u.mobile_login_enabled ? 'success' : 'muted'}
-                         label={u.mobile_login_enabled ? 'Enabled' : 'Disabled'} />
+                         label={u.mobile_login_enabled ? t('common:state.enabled') : t('common:state.disabled')} />
           </DLRow>
-          <DLRow label="User type / role">{u.role_name || roleLabel(u.role)}</DLRow>
-          <DLRow label="Phone">{u.phone || '-'}</DLRow>
-          <DLRow label="Assigned clubs">{(u.assigned_site_names || []).join(', ') || '-'}</DLRow>
-          <DLRow label="MFA enrolled">{u.mfa_enabled ? 'Yes' : 'No'}</DLRow>
-          <DLRow label="MFA required (role)">{u.mfa_required ? 'Yes' : 'No'}</DLRow>
-          <DLRow label="MFA enforced (admin)">{u.mfa_enforced ? 'Yes' : 'No'}</DLRow>
-          <DLRow label="Must change password">{u.must_change_password ? 'Yes' : 'No'}</DLRow>
-          <DLRow label="Failed login attempts">{u.failed_login_attempts ?? 0}</DLRow>
-          <DLRow label="Locked">{u.is_locked ? `Yes - until ${fmtDateTime(u.locked_until)}` : 'No'}</DLRow>
-          <DLRow label="Active sessions">{liveCount}</DLRow>
-          <DLRow label="Last login">{fmtDateTime(u.last_login)}</DLRow>
-          <DLRow label="Last login IP">{u.last_login_ip || '-'}</DLRow>
-          <DLRow label="Last activity">{fmtDateTime(u.last_activity_at)}</DLRow>
-          <DLRow label="Password changed">{fmtDateTime(u.last_password_change_at)}</DLRow>
-          <DLRow label="Created">{fmtDateTime(u.created_at)}</DLRow>
+          <DLRow label={t('form.role')}>{u.role_name || roleLabel(t, u.role)}</DLRow>
+          <DLRow label={t('common:labels.phone')}>{u.phone || '-'}</DLRow>
+          <DLRow label={t('form.assignedClubs')}>{(u.assigned_club_names || []).join(', ') || '-'}</DLRow>
+          <DLRow label={t('drawer.mfaEnrolled')}>{u.mfa_enabled ? 'Yes' : 'No'}</DLRow>
+          <DLRow label={t('drawer.mfaRequired')}>{u.mfa_required ? 'Yes' : 'No'}</DLRow>
+          <DLRow label={t('form.mfaEnforced')}>{u.mfa_enforced ? 'Yes' : 'No'}</DLRow>
+          <DLRow label={t('mustChangePassword')}>{u.must_change_password ? 'Yes' : 'No'}</DLRow>
+          <DLRow label={t('drawer.failedAttempts')}>{u.failed_login_attempts ?? 0}</DLRow>
+          <DLRow label={t('locked')}>{u.is_locked ? `Yes - until ${fmtDateTime(u.locked_until)}` : 'No'}</DLRow>
+          <DLRow label={t('drawer.activeSessions')}>{liveCount}</DLRow>
+          <DLRow label={t('drawer.lastLogin')}>{fmtDateTime(u.last_login)}</DLRow>
+          <DLRow label={t('drawer.lastLoginIp')}>{u.last_login_ip || '-'}</DLRow>
+          <DLRow label={t('drawer.lastActivity')}>{fmtDateTime(u.last_activity_at)}</DLRow>
+          <DLRow label={t('drawer.passwordChanged')}>{fmtDateTime(u.last_password_change_at)}</DLRow>
+          <DLRow label={t('drawer.created')}>{fmtDateTime(u.created_at)}</DLRow>
 
           {/* Sessions: only when the actor may manage them (owner/other-admin
               hidden per senior guard; the backend would 403 anyway). */}
           {canManageSessions && (
             <>
               <div className="divider" />
-              <SessionsPanel userId={u.id} title="Sessions" onCount={setSessionCount}
+              <SessionsPanel userId={u.id} title={t('sessionsTab')} onCount={setSessionCount}
                 terminateWarning="They will be signed out on every device." />
             </>
           )}
@@ -613,7 +561,9 @@ function ViewUserDrawer({ user, canManageSessions = false, onClose }) {
 // Used by the self security card (userId=null -> own) and the admin View
 // drawer (userId=<id>). List + revoke-one + terminate-all, all via the
 // existing /auth/sessions endpoints. Errors surface inline, never silent.
-function SessionsPanel({ userId = null, title = 'Active sessions', terminateWarning, onCount, onTerminatedSelf }) {
+function SessionsPanel({ userId = null, title, terminateWarning, onCount, onTerminatedSelf }) {
+  const { t } = useTranslation('users');
+  const heading = title || t('activeSessions2');
   const [rows, setRows] = useState(null);          // null = loading
   const [error, setError] = useState('');
   const [confirm, setConfirm] = useState(null);    // { kind: 'revoke'|'all', id? }
@@ -648,7 +598,7 @@ function SessionsPanel({ userId = null, title = 'Active sessions', terminateWarn
         await sessionsApi.revoke(confirm.id);
         setConfirm(null);
         await load();                              // refresh list + count
-        toast.success('Session revoked');
+        toast.success(t('sessions.revoked'));
       } else {
         await sessionsApi.terminateAll(userId);
         setConfirm(null);
@@ -657,13 +607,13 @@ function SessionsPanel({ userId = null, title = 'Active sessions', terminateWarn
         if (onTerminatedSelf || isSelf) {
           if (onTerminatedSelf) { await onTerminatedSelf(); }
           else {
-            toast.success('All sessions terminated - signing you out');
+            toast.success(t('sessions.allTerminatedSelf'));
             try { await logout(); } finally { window.location.assign('/login'); }
           }
           return;
         }
         await load();
-        toast.success('All sessions terminated');
+        toast.success(t('sessions.allTerminated'));
       }
     } catch (e) {
       setActErr(apiErr(e, 'Unable to revoke the session(s). Please try again.'));      // IDOR/permission -> inline
@@ -677,12 +627,12 @@ function SessionsPanel({ userId = null, title = 'Active sessions', terminateWarn
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
         <div className="form-label" style={{ margin: 0 }}>
           <Monitor size={14} style={{ verticalAlign: 'text-bottom', marginRight: 6 }} />
-          {title}{rows ? ` (${rows.length})` : ''}
+          {heading}{rows ? ` (${rows.length})` : ''}
         </div>
         {rows && rows.length > 0 && (
           <button className="btn btn-ghost" style={{ fontSize: 13 }}
             onClick={() => { setActErr(''); setConfirm({ kind: 'all' }); }}>
-            <LogOut size={14} /> Terminate all
+            <LogOut size={14} /> {t('terminateAll')}
           </button>
         )}
       </div>
@@ -692,7 +642,7 @@ function SessionsPanel({ userId = null, title = 'Active sessions', terminateWarn
       ) : rows === null ? (
         <p className="muted" style={{ fontSize: 13 }}>Loading…</p>
       ) : rows.length === 0 ? (
-        <p className="muted" style={{ fontSize: 13 }}>No active sessions.</p>
+        <p className="muted" style={{ fontSize: 13 }}>{t('drawer.noActiveSessions')}</p>
       ) : (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
           {rows.map((s) => (
@@ -704,7 +654,7 @@ function SessionsPanel({ userId = null, title = 'Active sessions', terminateWarn
                 <div>Started {fmtDateTime(s.created_at)}</div>
                 <div className="muted" style={{ fontSize: 12 }}>Expires {fmtDateTime(s.expires_at)}</div>
               </span>
-              <button className="icon-btn" title="Revoke session"
+              <button className="icon-btn" title={t('revokeSession')}
                 onClick={() => { setActErr(''); setConfirm({ kind: 'revoke', id: s.id }); }}>
                 <Trash2 size={15} />
               </button>
@@ -717,13 +667,13 @@ function SessionsPanel({ userId = null, title = 'Active sessions', terminateWarn
         open={Boolean(confirm)}
         busy={busy}
         tone="danger"
-        title={confirm?.kind === 'all' ? 'Terminate all sessions?' : 'Revoke session?'}
-        confirmLabel={confirm?.kind === 'all' ? 'Terminate all' : 'Revoke'}
+        title={confirm?.kind === 'all' ? t('terminateAllSessions') : t('revokeSession2')}
+        confirmLabel={confirm?.kind === 'all' ? t('terminateAll') : t('revoke')}
         message={confirm ? (
           <>
             {confirm.kind === 'all'
               ? <>Sign out of all active sessions? {terminateWarning}</>
-              : <>Revoke this session? That device is signed out on its next request.</>}
+              : <>{t('revokeSessionDeviceSignedOut')}</>}
             {actErr && (
               <div style={{ marginTop: 10, color: '#dc2626', fontSize: 13, fontWeight: 500 }}>{actErr}</div>
             )}
@@ -752,6 +702,7 @@ const SESSION_TONE = { active: 'success', idle: 'warning', expired: 'muted' };
 const SESSIONS_PAGE_SIZE = 20;
 
 function SessionsAdminPage() {
+  const { t } = useTranslation('users');
   const navigate = useNavigate();
   const { user: me, logout } = useAuth();
   const [rows, setRows] = useState(null);   // null = loading
@@ -785,8 +736,8 @@ function SessionsAdminPage() {
     setConfirmErr('');
     const { kind, row } = confirm;
     try {
-      if (kind === 'terminate') { await sessionsApi.revoke(row.id); toast.success('Session terminated'); }
-      else { await sessionsApi.terminateAll(row.user_id); toast.success('All sessions terminated for user'); }
+      if (kind === 'terminate') { await sessionsApi.revoke(row.id); toast.success(t('sessions.terminated')); }
+      else { await sessionsApi.terminateAll(row.user_id); toast.success(t('sessions.allTerminatedForUser')); }
       // Force-logging-out ALL of your OWN sessions ends this one too - sign out
       // cleanly + redirect instead of leaving a dead-token tab that looks logged in.
       if (kind === 'all' && row.user_id === me?.id) {
@@ -806,36 +757,36 @@ function SessionsAdminPage() {
 
   function rowMenu(r) {
     return [
-      { key: 'details', label: 'View session details', icon: <Eye size={15} />, onClick: () => setDetail(r) },
-      { key: 'profile', label: 'View user profile', icon: <UserIcon size={15} />, onClick: () => viewProfile(r) },
-      { key: 'audit', label: 'View audit logs', icon: <FileText size={15} />,
+      { key: 'details', label: t('viewSessionDetails'), icon: <Eye size={15} />, onClick: () => setDetail(r) },
+      { key: 'profile', label: t('viewUserProfile'), icon: <UserIcon size={15} />, onClick: () => viewProfile(r) },
+      { key: 'audit', label: t('viewAuditLogs'), icon: <FileText size={15} />,
         onClick: () => navigate(`/auditlogs?search=${encodeURIComponent(r.email || '')}`) },
-      r.can_manage && { key: 'terminate', label: 'Terminate session', icon: <Trash2 size={15} />, danger: true,
+      r.can_manage && { key: 'terminate', label: t('terminateSession2'), icon: <Trash2 size={15} />, danger: true,
         onClick: () => { setConfirmErr(''); setConfirm({ kind: 'terminate', row: r }); } },
-      r.can_manage && { key: 'all', label: 'Force logout all (this user)', icon: <LogOut size={15} />, danger: true,
+      r.can_manage && { key: 'all', label: t('forceLogoutAllUser'), icon: <LogOut size={15} />, danger: true,
         onClick: () => { setConfirmErr(''); setConfirm({ kind: 'all', row: r }); } },
     ];
   }
 
   const columns = [
-    { key: 'user', header: 'User', render: (r) => (
+    { key: 'user', header: t('user'), render: (r) => (
       <span><div style={{ fontWeight: 600 }}>{r.full_name}</div>
         <div className="muted" style={{ fontSize: 12 }}>{r.email}</div></span>
     ) },
-    { key: 'role', header: 'Role', render: (r) => <StatusBadge tone="info" label={r.role_name || r.role} /> },
-    { key: 'status', header: 'Status', render: (r) => <StatusBadge tone={SESSION_TONE[r.status] || 'muted'} label={r.status} /> },
-    { key: 'device', header: 'Device', render: (r) => (
+    { key: 'role', header: t('role'), render: (r) => <StatusBadge tone="info" label={r.role_name || r.role} /> },
+    { key: 'status', header: t('common:labels.status'), render: (r) => <StatusBadge tone={SESSION_TONE[r.status] || 'muted'} label={r.status} /> },
+    { key: 'device', header: t('device'), render: (r) => (
       <span style={{ fontSize: 12.5 }}>
         {[r.browser, r.operating_system, r.device_type].filter(Boolean).join(' · ') || '-'}
       </span>
     ) },
     { key: 'ip', header: 'IP', nowrap: true, render: (r) => <span className="muted">{r.ip_address || '-'}</span> },
-    { key: 'login', header: 'Login', nowrap: true, render: (r) => <span className="muted">{fmtDateTime(r.login_at)}</span> },
-    { key: 'last', header: 'Last activity', nowrap: true, render: (r) => <span className="muted">{fmtDateTime(r.last_activity_at)}</span> },
-    { key: 'mfa', header: 'MFA', render: (r) => (r.mfa_verified ? <StatusBadge tone="success" label="Verified" /> : <span className="muted">-</span>) },
+    { key: 'login', header: t('login'), nowrap: true, render: (r) => <span className="muted">{fmtDateTime(r.login_at)}</span> },
+    { key: 'last', header: t('lastActivity'), nowrap: true, render: (r) => <span className="muted">{fmtDateTime(r.last_activity_at)}</span> },
+    { key: 'mfa', header: 'MFA', render: (r) => (r.mfa_verified ? <StatusBadge tone="success" label={t('verified')} /> : <span className="muted">-</span>) },
     { key: 'actions', header: '', align: 'right', render: (r) => (
       <div className="table-actions" style={{ display: 'inline-flex', gap: 2, alignItems: 'center' }}>
-        <button className="icon-btn" title="Session details" onClick={() => setDetail(r)}><Eye size={15} /></button>
+        <button className="icon-btn" title={t('sessionDetails')} onClick={() => setDetail(r)}><Eye size={15} /></button>
         <RowMenu items={rowMenu(r)} />
       </div>
     ) },
@@ -846,9 +797,9 @@ function SessionsAdminPage() {
       <Toolbar
         searchValue={search}
         onSearchChange={(v) => { setSearch(v); setPage(1); }}
-        searchPlaceholder="Name, email, session ID, IP…"
+        searchPlaceholder={t('nameEmailSessionIdIp')}
         filters={[]}
-        right={<button className="btn btn-secondary" onClick={load}><RefreshCw size={15} /> Refresh</button>}
+        right={<button className="btn btn-secondary" onClick={load}><RefreshCw size={15} /> {t('common:actions.refresh')}</button>}
       />
 
       {error ? (
@@ -860,31 +811,31 @@ function SessionsAdminPage() {
           page={page}
           count={filtered.length}
           onPageChange={setPage}
-          emptyTitle="No active sessions"
-          emptyHint="Active sessions appear here when users sign in."
+          emptyTitle={t('noActiveSessions')}
+          emptyHint={t('activeSessionsAppearHereWhen')}
           columns={columns}
         />
       )}
 
       <Modal open={Boolean(detail)} onClose={() => setDetail(null)}
         title={detail ? `Session · ${detail.full_name}` : ''} size="md"
-        footer={<button className="btn btn-secondary" onClick={() => setDetail(null)}>Close</button>}>
+        footer={<button className="btn btn-secondary" onClick={() => setDetail(null)}>{t('common:actions.close')}</button>}>
         {detail && (
           <div>
-            <DLRow label="Session ID">{detail.session_id} <span className="muted">({detail.jti})</span></DLRow>
-            <DLRow label="User">{detail.full_name} - {detail.email}</DLRow>
-            <DLRow label="Role">{detail.role_name || detail.role}</DLRow>
-            <DLRow label="Club(es)">{(detail.site_names || []).join(', ') || '-'}</DLRow>
-            <DLRow label="Status">{detail.status}</DLRow>
-            <DLRow label="MFA verified">{detail.mfa_verified ? 'Yes' : 'No'}</DLRow>
-            <DLRow label="IP address">{detail.ip_address || '-'}</DLRow>
-            <DLRow label="Device type">{detail.device_type || '-'}</DLRow>
-            <DLRow label="Browser">{detail.browser || '-'}</DLRow>
-            <DLRow label="Operating system">{detail.operating_system || '-'}</DLRow>
-            <DLRow label="Login time">{fmtDateTime(detail.login_at)}</DLRow>
-            <DLRow label="Last activity">{fmtDateTime(detail.last_activity_at)}</DLRow>
-            <DLRow label="Session duration">{fmtDuration(detail.login_at)}</DLRow>
-            <DLRow label="Expires">{fmtDateTime(detail.expires_at)}</DLRow>
+            <DLRow label={t('sessions.sessionId')}>{detail.session_id} <span className="muted">({detail.jti})</span></DLRow>
+            <DLRow label={t('sessions.user')}>{detail.full_name} - {detail.email}</DLRow>
+            <DLRow label={t('sessions.role')}>{detail.role_name || detail.role}</DLRow>
+            <DLRow label={t('drawer.clubs')}>{(detail.club_names || []).join(', ') || '-'}</DLRow>
+            <DLRow label={t('common:labels.status')}>{detail.status}</DLRow>
+            <DLRow label={t('sessions.mfaVerified')}>{detail.mfa_verified ? 'Yes' : 'No'}</DLRow>
+            <DLRow label={t('sessions.ipAddress')}>{detail.ip_address || '-'}</DLRow>
+            <DLRow label={t('sessions.deviceType')}>{detail.device_type || '-'}</DLRow>
+            <DLRow label={t('sessions.browser')}>{detail.browser || '-'}</DLRow>
+            <DLRow label={t('sessions.operatingSystem')}>{detail.operating_system || '-'}</DLRow>
+            <DLRow label={t('sessions.loginTime')}>{fmtDateTime(detail.login_at)}</DLRow>
+            <DLRow label={t('lastActivity')}>{fmtDateTime(detail.last_activity_at)}</DLRow>
+            <DLRow label={t('sessions.duration')}>{fmtDuration(detail.login_at)}</DLRow>
+            <DLRow label={t('sessions.expires')}>{fmtDateTime(detail.expires_at)}</DLRow>
           </div>
         )}
       </Modal>
@@ -895,13 +846,13 @@ function SessionsAdminPage() {
         open={Boolean(confirm)}
         busy={busy}
         tone="danger"
-        title={confirm?.kind === 'all' ? 'Force logout all sessions?' : 'Terminate session?'}
-        confirmLabel={confirm?.kind === 'all' ? 'Force logout all' : 'Terminate'}
+        title={confirm?.kind === 'all' ? t('forceLogoutAllSessions') : t('terminateSession3')}
+        confirmLabel={confirm?.kind === 'all' ? t('forceLogoutAll') : t('terminate')}
         message={confirm ? (
           <>
             {confirm.kind === 'all'
-              ? <>End <strong>all</strong> active sessions for <strong>{confirm.row.email}</strong>? They'll be signed out on every device.</>
-              : <>Terminate this session for <strong>{confirm.row.email}</strong>? That device is signed out on its next request.</>}
+              ? <>{t('end')} <strong>all</strong> active sessions for <strong>{confirm.row.email}</strong>? They'll be signed out on every device.</>
+              : <>{t('terminateSession')} <strong>{confirm.row.email}</strong>? That device is signed out on its next request.</>}
             {confirmErr && <div style={{ marginTop: 10, color: '#dc2626', fontSize: 13, fontWeight: 500 }}>{confirmErr}</div>}
           </>
         ) : null}
@@ -918,11 +869,11 @@ function SessionsAdminPage() {
 // so the state can't go inconsistent; Reset uses disable-mfa (re-enrol). An
 // admin can't enrol on a user's behalf (TOTP self-enrol), so "Enable" = make MFA
 // AVAILABLE (optional), not "turn it on for them". Honest to the backend.
-const POLICY_BADGE = {
-  enforced: { tone: 'warning', label: 'Enforced' },
-  disabled: { tone: 'danger', label: 'Disabled' },
-  optional: { tone: 'info', label: 'Enabled (optional)' },
-};
+const policyBadge = (t) => ({
+  enforced: { tone: 'warning', label: t('enforced') },
+  disabled: { tone: 'danger', label: t('common:state.disabled') },
+  optional: { tone: 'info', label: t('enabledOptional') },
+});
 const POLICY_DONE = {
   optional: 'MFA enabled (optional)', disabled: 'MFA disabled', enforced: 'MFA enforced',
 };
@@ -944,6 +895,7 @@ function MfaSettingRow({ title, desc, top, children }) {
 }
 
 function MfaManager({ userId, policyInit, enabledInit, roleRequired, isSelf, isOwner, canManage, onChanged }) {
+  const { t } = useTranslation('users');
   const [policy, setPolicy] = useState(policyInit);   // 'disabled' | 'optional' | 'enforced'
   const [enabled, setEnabled] = useState(enabledInit);
   const [settingsOpen, setSettingsOpen] = useState(false);
@@ -964,7 +916,7 @@ function MfaManager({ userId, policyInit, enabledInit, roleRequired, isSelf, isO
       if (kind === 'reset') {
         await usersApi.disableMfa(userId);
         setEnabled(false);
-        toast.success('MFA reset - user must re-enrol');
+        toast.success(t('mfaResetUserMustRe'));
       } else {
         const target = KIND_TO_POLICY[kind];
         const r = await usersApi.setMfaPolicy(userId, target);
@@ -981,12 +933,12 @@ function MfaManager({ userId, policyInit, enabledInit, roleRequired, isSelf, isO
     }
   }
 
-  const badge = POLICY_BADGE[policy] || POLICY_BADGE.optional;
+  const badge = policyBadge(t)[policy] || policyBadge(t).optional;
   const status = (
     <span style={{ display: 'inline-flex', gap: 6, flexWrap: 'wrap', marginBottom: 8 }}>
-      <StatusBadge tone={enabled ? 'success' : 'muted'} label={enabled ? 'Enrolled' : 'Not enrolled'} />
+      <StatusBadge tone={enabled ? 'success' : 'muted'} label={enabled ? t('enrolled') : t('notEnrolled')} />
       <StatusBadge tone={badge.tone} label={badge.label} />
-      {roleRequired && <StatusBadge tone="info" label="Required by role" />}
+      {roleRequired && <StatusBadge tone="info" label={t('requiredRole')} />}
     </span>
   );
 
@@ -1001,7 +953,7 @@ function MfaManager({ userId, policyInit, enabledInit, roleRequired, isSelf, isO
   if (!canManage) {
     return (
       <div>{status}
-        <p className="muted" style={{ fontSize: 12 }}>Only a super admin can manage this account’s MFA.</p>
+        <p className="muted" style={{ fontSize: 12 }}>{t('onlySuperAdminCanManage')}</p>
       </div>
     );
   }
@@ -1012,58 +964,58 @@ function MfaManager({ userId, policyInit, enabledInit, roleRequired, isSelf, isO
       <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
         {policy === 'disabled' && (
           <button type="button" className="btn btn-primary" onClick={() => ask('enable')}>
-            <ShieldCheck size={15} /> Enable MFA
+            <ShieldCheck size={15} /> {t('enableMfa')}
           </button>
         )}
         {policy === 'optional' && (
           <>
             <button type="button" className="btn btn-ghost" onClick={() => ask('disable')}>
-              <ShieldOff size={15} /> Disable MFA
+              <ShieldOff size={15} /> {t('disableMfa')}
             </button>
             <button type="button" className="btn btn-secondary" onClick={() => ask('enforce')}>
-              <Shield size={15} /> Enforce MFA
+              <Shield size={15} /> {t('enforceMfa')}
             </button>
           </>
         )}
         {policy !== 'disabled' && (
           <button type="button" className="btn btn-secondary" onClick={() => setSettingsOpen((o) => !o)}>
-            <Settings size={15} /> User MFA settings
+            <Settings size={15} /> {t('userMfaSettings')}
           </button>
         )}
       </div>
 
       {policy === 'disabled' && (
         <p className="muted" style={{ fontSize: 12, marginTop: 6 }}>
-          MFA is turned off for this user. Enabling makes it available for them to set up on their own device.
+          {t('mfaTurnedOffUserEnabling')}
         </p>
       )}
       {policy === 'enforced' && !settingsOpen && (
         <p className="muted" style={{ fontSize: 12, marginTop: 6 }}>
-          MFA is enforced. To turn it off, open <strong>User MFA settings</strong> and remove enforcement first.
+          {t('mfaEnforcedTurnItOff')} <strong>{t('userMfaSettings')}</strong> and remove enforcement first.
         </p>
       )}
 
       {settingsOpen && policy !== 'disabled' && (
         <div style={{ marginTop: 10, padding: 12, border: '1px solid var(--color-border-soft, #eef0f3)', borderRadius: 8 }}>
-          <MfaSettingRow title="Enforcement" desc="Require this user to keep MFA enrolled.">
+          <MfaSettingRow title={t('enforcement')} desc="Require this user to keep MFA enrolled.">
             {roleRequired ? (
-              <StatusBadge tone="info" label="Required by role" />
+              <StatusBadge tone="info" label={t('requiredRole')} />
             ) : policy === 'enforced' ? (
-              <button type="button" className="btn btn-ghost" onClick={() => ask('unenforce')}>Remove</button>
+              <button type="button" className="btn btn-ghost" onClick={() => ask('unenforce')}>{t('common:actions.remove')}</button>
             ) : (
-              <button type="button" className="btn btn-secondary" onClick={() => ask('enforce')}>Enforce</button>
+              <button type="button" className="btn btn-secondary" onClick={() => ask('enforce')}>{t('enforce')}</button>
             )}
           </MfaSettingRow>
-          <MfaSettingRow top title="Reset MFA" desc="Remove the current authenticator; the user must set it up again.">
-            <button type="button" className="btn btn-ghost" disabled={!enabled} onClick={() => ask('reset')}>Reset</button>
+          <MfaSettingRow top title={t('resetMfa2')} desc="Remove the current authenticator; the user must set it up again.">
+            <button type="button" className="btn btn-ghost" disabled={!enabled} onClick={() => ask('reset')}>{t('common:actions.reset')}</button>
           </MfaSettingRow>
-          <MfaSettingRow top title="Disable MFA" desc="Turn MFA off for this user (they can’t use it).">
-            <button type="button" className="btn btn-ghost" disabled={roleRequired || isOwner} onClick={() => ask('disable')}>Disable</button>
+          <MfaSettingRow top title={t('disableMfa')} desc="Turn MFA off for this user (they can’t use it).">
+            <button type="button" className="btn btn-ghost" disabled={roleRequired || isOwner} onClick={() => ask('disable')}>{t('common:actions.disable')}</button>
           </MfaSettingRow>
           {(roleRequired || isOwner) && (
             <p className="muted" style={{ fontSize: 12, marginTop: 6 }}>
-              {roleRequired ? 'This user’s role requires MFA - it can’t be removed or disabled.'
-                : 'The owner account can’t have MFA disabled.'}
+              {roleRequired ? t('userSRoleRequiresMfa')
+                : t('ownerAccountCanTHave')}
             </p>
           )}
           <p className="muted" style={{ fontSize: 11.5, marginTop: 8 }}>
@@ -1086,10 +1038,10 @@ function MfaManager({ userId, policyInit, enabledInit, roleRequired, isSelf, isO
         }[confirm?.kind]}
         message={confirm ? (
           <>
-            {confirm.kind === 'enable' && <>Make MFA available for this user? They can set it up from their own profile (optional - not enforced).</>}
-            {confirm.kind === 'disable' && <>Turn MFA off for <strong>this user</strong>? Any existing authenticator is removed and they can’t use MFA until it’s re-enabled.</>}
-            {confirm.kind === 'enforce' && <>Require this user to keep MFA enrolled? If they aren’t enrolled, they’ll be gated to set it up at next login.</>}
-            {confirm.kind === 'unenforce' && <>Remove the enforcement? MFA becomes optional - the user may keep or turn off their own MFA.</>}
+            {confirm.kind === 'enable' && <>{t('makeMfaAvailableUserThey')}</>}
+            {confirm.kind === 'disable' && <>{t('turnMfaOff')} <strong>this user</strong>? Any existing authenticator is removed and they can’t use MFA until it’s re-enabled.</>}
+            {confirm.kind === 'enforce' && <>{t('requireUserKeepMfaEnrolled')}</>}
+            {confirm.kind === 'unenforce' && <>{t('removeEnforcementMfaBecomesOptional')}</>}
             {confirm.kind === 'reset' && <>Remove this user’s authenticator? They must re-enrol{roleRequired ? ' and will be gated to set it up again at next login.' : '.'}</>}
             {err && <div style={{ marginTop: 10, color: '#dc2626', fontSize: 13, fontWeight: 500 }}>{err}</div>}
           </>
@@ -1103,6 +1055,7 @@ function MfaManager({ userId, policyInit, enabledInit, roleRequired, isSelf, isO
 
 /* ----------------------------- Create / edit ----------------------------- */
 function UserFormModal({ open, user, roles = [], onClose, onSaved, onMfaChanged }) {
+  const { t } = useTranslation('users');
   const { user: me } = useAuth();
   const isEdit = Boolean(user);
   const isSelf = isEdit && me?.id === user?.id;
@@ -1128,7 +1081,7 @@ function UserFormModal({ open, user, roles = [], onClose, onSaved, onMfaChanged 
 
   // Roles the current actor may assign (super_admin never appears; admin base is
   // super-admin-only) - mirrors the backend role guards.
-  const roleOptions = assignableRoleOptions(roles, me);
+  const roleOptions = assignableRoleOptions(t, roles, me);
 
   const roleDisabled = isSelf;                          // can't change your own role
   const statusHidden = isOwner;                         // owner status never shown
@@ -1163,8 +1116,8 @@ function UserFormModal({ open, user, roles = [], onClose, onSaved, onMfaChanged 
       : { first_name: '', last_name: '', email: '', phone: '', role: 'customer', password: '', confirm_password: '',
           is_active: true, mfa_enforced: false,
           web_login_enabled: true, mobile_login_enabled: true });
-    setSiteIds(new Set(user?.assigned_sites || []));
-    setBayIds(new Set(user?.assigned_bays || []));
+    setSiteIds(new Set(user?.assigned_clubs || []));
+    setBayIds(new Set(user?.assigned_facilities || []));
   }, [open, user, reset]);
 
   const showSites = SITE_SCOPED_ROLES.includes(baseRole);
@@ -1193,24 +1146,26 @@ function UserFormModal({ open, user, roles = [], onClose, onSaved, onMfaChanged 
 
     // Permissions always follow the assigned role - no per-user overrides.
     payload.permission_overrides = { grant: [], revoke: [] };
-    payload.assigned_sites = showSites ? [...siteIds] : [];
-    payload.assigned_bays = showSites ? [...bayIds].filter((id) => baysForSites.some((b) => b.id === id)) : [];
+    payload.assigned_clubs = showSites ? [...siteIds] : [];
+    payload.assigned_facilities = showSites
+      ? [...bayIds].filter((id) => baysForSites.some((b) => b.id === id))
+      : [];
 
     try {
       if (isEdit) await usersApi.update(user.id, payload);
       else await usersApi.create(payload);
       onSaved();
     } catch (e) {
-      setFormError(apiErr(e, isEdit ? 'Unable to update the user. Please try again.' : 'Unable to create the user. Please try again.'));
+      setFormError(apiErr(e, isEdit ? t('form.updateFailed') : t('form.createFailed')));
     }
   }
 
   return (
     <Modal open={open} onClose={onClose} title={isEdit ? `Edit ${user.email}` : 'New user'} size="lg"
       footer={<>
-        <button className="btn btn-secondary" type="button" onClick={onClose}>Cancel</button>
+        <button className="btn btn-secondary" type="button" onClick={onClose}>{t('common:actions.cancel')}</button>
         <button className="btn btn-primary" onClick={handleSubmit(onSubmit)} disabled={isSubmitting}>
-          {isEdit ? 'Save changes' : 'Create user'}
+          {isEdit ? t('common:actions.saveChanges') : t('createUser')}
         </button>
       </>}>
       {formError && (
@@ -1220,32 +1175,32 @@ function UserFormModal({ open, user, roles = [], onClose, onSaved, onMfaChanged 
         }}>{formError}</div>
       )}
       <div className="row">
-        <div className="col"><FormField label="First name" error={errors.first_name?.message}>
+        <div className="col"><FormField label={t('form.firstName')} error={errors.first_name?.message}>
           <input className="form-input" {...register('first_name', { required: 'Required' })} /></FormField></div>
-        <div className="col"><FormField label="Last name" error={errors.last_name?.message}>
+        <div className="col"><FormField label={t('form.lastName')} error={errors.last_name?.message}>
           <input className="form-input" {...register('last_name', { required: 'Required' })} /></FormField></div>
       </div>
       <div className="row">
-        <div className="col"><FormField label="Email" hint="Used as the login identifier." error={errors.email?.message}>
+        <div className="col"><FormField label={t('common:labels.email')} hint={t('usedAsLoginIdentifier')} error={errors.email?.message}>
           <input className="form-input" type="email" {...register('email', { required: 'Required' })} /></FormField></div>
-        <div className="col"><FormField label="Phone">
+        <div className="col"><FormField label={t('common:labels.phone')}>
           <input className="form-input" {...register('phone')} /></FormField></div>
       </div>
       <div className="row">
-        <div className="col"><FormField label="Role"
+        <div className="col"><FormField label={t('role')}
           hint={roleDisabled ? 'You cannot change your own role.' : undefined}>
           <Controller name="role" control={control} render={({ field }) => (
             <Select2
               options={roleOptions}
-              value={field.value} onChange={field.onChange} placeholder="Select role…"
+              value={field.value} onChange={field.onChange} placeholder={t('form.rolePlaceholder')}
               disabled={roleDisabled}
             />
           )} /></FormField></div>
         <div className="col">
           {!statusHidden && (
-            <FormField label="Status"
-              hint={statusDisabled ? 'You cannot change your own status.' : 'Inactive users cannot log in.'}>
-              <Toggle label="Active" disabled={statusDisabled} {...register('is_active')} />
+            <FormField label={t('common:labels.status')}
+              hint={statusDisabled ? t('youCannotChangeYourOwn') : t('inactiveUsersCannotLog')}>
+              <Toggle label={t('common:state.active')} disabled={statusDisabled} {...register('is_active')} />
             </FormField>
           )}
         </div>
@@ -1255,25 +1210,25 @@ function UserFormModal({ open, user, roles = [], onClose, onSaved, onMfaChanged 
           Independent: a user may be allowed on one channel and blocked on the other. */}
       <div className="row">
         <div className="col">
-          <FormField label="Admin Web Portal login access"
+          <FormField label={t('form.webLoginAccess')}
             hint={webAccessLocked
-              ? 'You cannot change this for your own or the owner account.'
-              : 'When disabled, this user cannot sign in to the admin panel.'}>
-            <Toggle label="Enabled" disabled={webAccessLocked} {...register('web_login_enabled')} />
+              ? t('youCannotChangeYourOwn2')
+              : t('whenDisabledUserCannotSign2')}>
+            <Toggle label={t('common:state.enabled')} disabled={webAccessLocked} {...register('web_login_enabled')} />
           </FormField>
         </div>
         <div className="col">
-          <FormField label="Mobile App login access"
-            hint="When disabled, this user cannot sign in from the mobile app.">
-            <Toggle label="Enabled" {...register('mobile_login_enabled')} />
+          <FormField label={t('form.mobileLoginAccess')}
+            hint={t('whenDisabledUserCannotSign')}>
+            <Toggle label={t('common:state.enabled')} {...register('mobile_login_enabled')} />
           </FormField>
         </div>
       </div>
 
       <div className="row">
         <div className="col"><FormField
-          label={isEdit ? 'New password' : 'Password'}
-          hint={isEdit ? 'Leave blank to keep current.' : 'Min 10 chars; upper, lower, digit, symbol.'}
+          label={isEdit ? t('newPassword') : t('password')}
+          hint={isEdit ? t('leaveBlankKeepCurrent') : t('min10CharsUpperLower2')}
           error={errors.password?.message}>
           <input className="form-input" type="text" autoComplete="new-password"
             {...register('password', {
@@ -1281,7 +1236,7 @@ function UserFormModal({ open, user, roles = [], onClose, onSaved, onMfaChanged 
               minLength: { value: 10, message: 'Min 10 characters' },
             })} />
         </FormField></div>
-        <div className="col"><FormField label="Confirm password" error={errors.confirm_password?.message}>
+        <div className="col"><FormField label={t('form.confirmPassword')} error={errors.confirm_password?.message}>
           <input className="form-input" type="text" autoComplete="new-password"
             {...register('confirm_password', {
               validate: (val) => (!pwValue && !val) || val === pwValue || 'Passwords do not match',
@@ -1290,7 +1245,7 @@ function UserFormModal({ open, user, roles = [], onClose, onSaved, onMfaChanged 
       </div>
 
       {/* --- Multi-factor authentication --- */}
-      <FormField label="Multi-factor authentication">
+      <FormField label={t('drawer.multiFactor')}>
         {isEdit ? (
           <MfaManager
             key={user.id}
@@ -1307,7 +1262,7 @@ function UserFormModal({ open, user, roles = [], onClose, onSaved, onMfaChanged 
           <>
             <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13.5 }}>
               <input type="checkbox" disabled={mfaLocked} {...register('mfa_enforced')} />
-              Enforce MFA - require this user to enrol before using the app
+              {t('enforceMfaRequireUserEnrol')}
             </label>
             <p className="muted" style={{ fontSize: 12, marginTop: 4 }}>
               New users set up MFA themselves on their device; enforcing requires them to enrol at first login.
@@ -1317,24 +1272,24 @@ function UserFormModal({ open, user, roles = [], onClose, onSaved, onMfaChanged 
       </FormField>
 
       {baseRole === 'super_admin' && (
-        <p className="muted" style={{ fontSize: 13 }}>Super admins have full, unrestricted access.</p>
+        <p className="muted" style={{ fontSize: 13 }}>{t('form.ownerNote')}</p>
       )}
 
       {/* --- Clubs & facilities --- */}
       {showSites && (
         <>
           <div className="divider" />
-          <FormField label="Assigned clubs" hint="This user only sees data for these clubs.">
+          <FormField label={t('assignedClubs')} hint={t('userOnlySeesDataThese')}>
             <Select2
               multiple
               options={clubs.map((s) => ({ value: s.id, label: `${s.name} (${s.code})` }))}
               value={[...siteIds]}
               onChange={(arr) => setSiteIds(new Set(arr))}
-              placeholder="Select clubs…"
+              placeholder={t('form.clubsPlaceholder')}
               emptyText="No clubs configured yet."
             />
           </FormField>
-          <FormField label="Assigned facilities" hint="Facilities within the selected clubs.">
+          <FormField label={t('form.assignedFacilities')} hint={t('form.facilitiesHint')}>
             <CheckList
               items={baysForSites.map((b) => ({ id: b.id, label: b.label }))}
               selected={bayIds}
@@ -1366,6 +1321,7 @@ function CheckList({ items, selected, onToggle, empty }) {
 }
 
 function SetPasswordModal({ user, onClose, onSaved }) {
+  const { t } = useTranslation('users');
   const [pw, setPw] = useState('');
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState('');
@@ -1379,13 +1335,13 @@ function SetPasswordModal({ user, onClose, onSaved }) {
   return (
     <Modal open={Boolean(user)} onClose={onClose} title={user ? `Reset password · ${user.email}` : ''} size="sm"
       footer={<>
-        <button className="btn btn-secondary" type="button" onClick={onClose}>Cancel</button>
-        <button className="btn btn-primary" onClick={submit} disabled={busy || pw.length < 10}>Set password</button>
+        <button className="btn btn-secondary" type="button" onClick={onClose}>{t('common:actions.cancel')}</button>
+        <button className="btn btn-primary" onClick={submit} disabled={busy || pw.length < 10}>{t('setPassword')}</button>
       </>}>
       <p className="muted" style={{ fontSize: 13, marginTop: 0 }}>
-        The user must set a new password at their next login.
+        {t('userMustSetNewPassword')}
       </p>
-      <FormField label="New password" hint="Min 10 chars with upper, lower, digit, and a symbol."
+      <FormField label={t('form.newPassword')} hint={t('min10CharsUpperLower')}
         error={err || undefined}>
         <input className="form-input" type="text" value={pw} onChange={(e) => setPw(e.target.value)} autoFocus />
       </FormField>

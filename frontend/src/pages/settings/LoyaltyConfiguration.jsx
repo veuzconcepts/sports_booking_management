@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { Save, Zap, Gift, Hourglass, Plus, Trash2, Pencil } from 'lucide-react';
+import { useTranslation } from 'react-i18next';
 import toast from 'react-hot-toast';
 
 import { PageHeader } from '../../components/PageHeader.jsx';
@@ -16,6 +17,7 @@ const card = { border: '1px solid var(--color-border)', borderRadius: 12, paddin
 const grid = { display: 'grid', gap: 14, gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))' };
 
 export default function LoyaltyConfiguration() {
+  const { t } = useTranslation('loyalty');
   const { hasPerm } = useAuth();
   const canManage = hasPerm('loyalty.manage_rules');
   const canTiers = hasPerm('loyalty.manage_tiers');
@@ -27,7 +29,7 @@ export default function LoyaltyConfiguration() {
 
   useEffect(() => {
     loyaltyApi.getConfig().then(setForm)
-      .catch((e) => toast.error(apiErrorMessage(e, 'Could not load the loyalty configuration')));
+      .catch((e) => toast.error(apiErrorMessage(e, t('couldNotLoadLoyaltyConfiguration'))));
     loadTiers();
   }, []);
 
@@ -42,9 +44,9 @@ export default function LoyaltyConfiguration() {
     setBusy(true);
     try {
       setForm(await loyaltyApi.updateConfig(form));
-      toast.success('Loyalty configuration saved');
+      toast.success(t('loyaltyConfigurationSaved'));
     } catch (e) {
-      toast.error(apiErrorMessage(e, 'Could not save the loyalty configuration'));
+      toast.error(apiErrorMessage(e, t('couldNotSaveLoyaltyConfiguration')));
     } finally { setBusy(false); }
   }
 
@@ -52,15 +54,15 @@ export default function LoyaltyConfiguration() {
     try {
       await loyaltyApi.deleteTier(tierDelete.id);
       setTierDelete(null); loadTiers();
-      toast.success('Tier deleted');
-    } catch (e) { toast.error(apiErrorMessage(e, 'Could not delete the tier')); }
+      toast.success(t('tierDeleted'));
+    } catch (e) { toast.error(apiErrorMessage(e, t('couldNotDeleteTier'))); }
   }
 
   return (
     <>
       <PageHeader
-        title="Loyalty"
-        subtitle="Configure how points are earned and redeemed, and manage customer tiers."
+        title={t('loyalty')}
+        subtitle={t('configureHowPointsEarnedRedeemed')}
       />
 
       {!form ? <p className="muted">Loading…</p> : (
@@ -68,16 +70,16 @@ export default function LoyaltyConfiguration() {
           {/* Earning */}
           <section style={card}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 12 }}>
-              <Zap size={18} /><h3 style={{ margin: 0, fontSize: 16 }}>Earning</h3>
+              <Zap size={18} /><h3 style={{ margin: 0, fontSize: 16 }}>{t('earning')}</h3>
             </div>
-            <Toggle label="Customers earn points" checked={!!form.earning_enabled}
+            <Toggle label={t('customersEarnPoints')} checked={!!form.earning_enabled}
               disabled={!canManage} onChange={bool('earning_enabled')} />
             <div style={{ ...grid, marginTop: 12 }}>
-              <FormField label="Points per 1.0 paid" hint="e.g. 1 = 1 point per AED of net paid.">
+              <FormField label={t('pointsPer10Paid')} hint={t('eG11Point')}>
                 <input className="form-input" type="number" step="0.001" value={form.points_per_currency}
                   onChange={num('points_per_currency')} disabled={!canManage} />
               </FormField>
-              <FormField label="Fixed points per booking">
+              <FormField label={t('fixedPointsPerBooking')}>
                 <input className="form-input" type="number" value={form.fixed_points_per_booking}
                   onChange={num('fixed_points_per_booking')} disabled={!canManage} />
               </FormField>
@@ -93,32 +95,32 @@ export default function LoyaltyConfiguration() {
           {/* Redemption */}
           <section style={card}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 12 }}>
-              <Gift size={18} /><h3 style={{ margin: 0, fontSize: 16 }}>Redemption</h3>
+              <Gift size={18} /><h3 style={{ margin: 0, fontSize: 16 }}>{t('redemption')}</h3>
             </div>
-            <Toggle label="Customers can redeem points" checked={!!form.redemption_enabled}
+            <Toggle label={t('customersCanRedeemPoints')} checked={!!form.redemption_enabled}
               disabled={!canManage} onChange={bool('redemption_enabled')} />
             <div style={{ ...grid, marginTop: 12 }}>
-              <FormField label="Value per point" hint="Money off per point, e.g. 0.05.">
+              <FormField label={t('valuePerPoint')} hint={t('moneyOffPerPointE')}>
                 <input className="form-input" type="number" step="0.001" value={form.currency_per_point}
                   onChange={num('currency_per_point')} disabled={!canManage} />
               </FormField>
-              <FormField label="Minimum points to redeem">
+              <FormField label={t('minimumPointsRedeem')}>
                 <input className="form-input" type="number" value={form.min_redeem_points}
                   onChange={num('min_redeem_points')} disabled={!canManage} />
               </FormField>
-              <FormField label="Max points per booking" hint="0 = no cap.">
+              <FormField label={t('maxPointsPerBooking')} hint="0 = no cap.">
                 <input className="form-input" type="number" value={form.max_redeem_points_per_booking}
                   onChange={num('max_redeem_points_per_booking')} disabled={!canManage} />
               </FormField>
-              <FormField label="Max % of payable" hint="0 = no cap.">
+              <FormField label={t('maxPayable')} hint="0 = no cap.">
                 <input className="form-input" type="number" value={form.max_redeem_percent}
                   onChange={num('max_redeem_percent')} disabled={!canManage} />
               </FormField>
             </div>
             <div style={{ marginTop: 8 }}>
-              <Toggle label="Allow with a promo code" checked={!!form.stack_with_promo}
+              <Toggle label={t('allowPromoCode')} checked={!!form.stack_with_promo}
                 disabled={!canManage} onChange={bool('stack_with_promo')} />
-              <Toggle label="Allow with membership coverage" checked={!!form.stack_with_membership}
+              <Toggle label={t('allowMembershipCoverage')} checked={!!form.stack_with_membership}
                 disabled={!canManage} onChange={bool('stack_with_membership')} />
             </div>
           </section>
@@ -128,9 +130,9 @@ export default function LoyaltyConfiguration() {
           {/* Expiry */}
           <section style={card}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 12 }}>
-              <Hourglass size={18} /><h3 style={{ margin: 0, fontSize: 16 }}>Expiry</h3>
+              <Hourglass size={18} /><h3 style={{ margin: 0, fontSize: 16 }}>{t('expiry')}</h3>
             </div>
-            <FormField label="Expire points after (months)" hint="0 = points never expire.">
+            <FormField label={t('expirePointsAfterMonths')} hint="0 = points never expire.">
               <input className="form-input" type="number" value={form.expiry_months}
                 onChange={num('expiry_months')} disabled={!canManage} style={{ maxWidth: 200 }} />
             </FormField>
@@ -139,7 +141,7 @@ export default function LoyaltyConfiguration() {
           {canManage && (
             <div style={{ marginTop: 16 }}>
               <button className="btn btn-primary" onClick={save} disabled={busy}>
-                <Save size={15} /> {busy ? 'Saving…' : 'Save configuration'}
+                <Save size={15} /> {busy ? t('common:state.saving') : t('saveConfiguration')}
               </button>
             </div>
           )}
@@ -149,21 +151,21 @@ export default function LoyaltyConfiguration() {
           {/* Tiers */}
           <section style={card}>
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
-              <h3 style={{ margin: 0, fontSize: 16 }}>Tiers</h3>
+              <h3 style={{ margin: 0, fontSize: 16 }}>{t('tiers')}</h3>
               {canTiers && (
                 <button className="btn btn-secondary btn-sm"
                   onClick={() => setTierModal({ name: '', slug: '', rank: tiers.length,
                     min_points: '', min_spend: '', discount_percent: '0', priority_booking: false,
                     benefits: '', is_active: true })}>
-                  <Plus size={14} /> Add tier
+                  <Plus size={14} /> {t('addTier')}
                 </button>
               )}
             </div>
             <div className="table-wrapper">
               <table className="table">
                 <thead><tr>
-                  <th>Rank</th><th>Tier</th><th>Min points</th><th>Min spend</th>
-                  <th>Discount %</th><th>Priority</th><th>Active</th>{canTiers && <th></th>}
+                  <th>{t('rank')}</th><th>{t('tier')}</th><th>{t('minPoints')}</th><th>{t('minSpend')}</th>
+                  <th>{t('discount')}</th><th>{t('priority')}</th><th>{t('common:state.active')}</th>{canTiers && <th></th>}
                 </tr></thead>
                 <tbody>
                   {tiers.map((t) => (
@@ -177,8 +179,8 @@ export default function LoyaltyConfiguration() {
                       <td>{t.is_active ? 'Yes' : 'No'}</td>
                       {canTiers && (
                         <td style={{ textAlign: 'right', whiteSpace: 'nowrap' }}>
-                          <button className="icon-btn" title="Edit" onClick={() => setTierModal({ ...t })}><Pencil size={15} /></button>
-                          <button className="icon-btn" title="Delete" style={{ color: 'var(--color-danger,#dc2626)' }}
+                          <button className="icon-btn" title={t('common:actions.edit')} onClick={() => setTierModal({ ...t })}><Pencil size={15} /></button>
+                          <button className="icon-btn" title={t('common:actions.delete')} style={{ color: 'var(--color-danger,#dc2626)' }}
                             onClick={() => setTierDelete(t)}><Trash2 size={15} /></button>
                         </td>
                       )}
@@ -196,9 +198,9 @@ export default function LoyaltyConfiguration() {
           onSaved={() => { setTierModal(null); loadTiers(); }} />
       )}
       <ConfirmDialog
-        open={Boolean(tierDelete)} tone="danger" title="Delete tier"
+        open={Boolean(tierDelete)} tone="danger" title={t('deleteTier')}
         message={tierDelete ? `Delete the “${tierDelete.name}” tier?` : ''}
-        confirmLabel="Delete" onConfirm={deleteTier}
+        confirmLabel={t('common:actions.delete')} onConfirm={deleteTier}
         onClose={() => setTierDelete(null)}
       />
     </>
@@ -206,48 +208,49 @@ export default function LoyaltyConfiguration() {
 }
 
 function TierModal({ tier, onClose, onSaved }) {
-  const [t, setT] = useState(tier);
+  const { t } = useTranslation('loyalty');
+  const [draft, setDraft] = useState(tier);
   const [busy, setBusy] = useState(false);
-  const set = (k) => (e) => setT((x) => ({ ...x, [k]: e?.target ? (e.target.type === 'checkbox' ? e.target.checked : e.target.value) : e }));
+  const set = (k) => (e) => setDraft((x) => ({ ...x, [k]: e?.target ? (e.target.type === 'checkbox' ? e.target.checked : e.target.value) : e }));
 
   async function save() {
-    if (!t.name || !t.slug) { toast.error('Name and slug are required.'); return; }
+    if (!draft.name || !draft.slug) { toast.error(t('nameSlugRequired')); return; }
     setBusy(true);
     try {
       const payload = {
-        name: t.name, slug: t.slug, rank: Number(t.rank) || 0,
-        min_points: t.min_points === '' || t.min_points == null ? null : Number(t.min_points),
-        min_spend: t.min_spend === '' || t.min_spend == null ? null : t.min_spend,
-        discount_percent: t.discount_percent || '0',
-        priority_booking: !!t.priority_booking, benefits: t.benefits || '',
-        color: t.color || '', is_active: t.is_active !== false,
+        name: draft.name, slug: draft.slug, rank: Number(draft.rank) || 0,
+        min_points: draft.min_points === '' || draft.min_points == null ? null : Number(draft.min_points),
+        min_spend: draft.min_spend === '' || draft.min_spend == null ? null : draft.min_spend,
+        discount_percent: draft.discount_percent || '0',
+        priority_booking: !!draft.priority_booking, benefits: draft.benefits || '',
+        color: draft.color || '', is_active: draft.is_active !== false,
       };
-      if (t.id) await loyaltyApi.updateTier(t.id, payload);
+      if (draft.id) await loyaltyApi.updateTier(draft.id, payload);
       else await loyaltyApi.createTier(payload);
-      toast.success('Tier saved');
+      toast.success(t('tierSaved'));
       onSaved();
-    } catch (e) { toast.error(apiErrorMessage(e, 'Could not save the tier')); }
+    } catch (e) { toast.error(apiErrorMessage(e, t('couldNotSaveTier'))); }
     finally { setBusy(false); }
   }
 
   return (
-    <Modal open onClose={onClose} title={t.id ? 'Edit tier' : 'Add tier'} size="sm"
+    <Modal open onClose={onClose} title={draft.id ? t('editTier') : t('addTier')} size="sm"
       footer={<>
-        <button className="btn btn-secondary" onClick={onClose} type="button">Cancel</button>
-        <button className="btn btn-primary" onClick={save} disabled={busy} type="button">{busy ? 'Saving…' : 'Save'}</button>
+        <button className="btn btn-secondary" onClick={onClose} type="button">{t('common:actions.cancel')}</button>
+        <button className="btn btn-primary" onClick={save} disabled={busy} type="button">{busy ? t('common:state.saving') : t('common:actions.save')}</button>
       </>}>
-      <div style={{ display: 'grid', gap: 12, gridTemplateColumns: '1fr 1fr' }}>
-        <FormField label="Name"><input className="form-input" value={t.name} onChange={set('name')} /></FormField>
-        <FormField label="Slug" hint="Stable key (e.g. silver)."><input className="form-input" value={t.slug} onChange={set('slug')} disabled={!!t.id} /></FormField>
-        <FormField label="Rank" hint="Low = entry tier."><input className="form-input" type="number" value={t.rank} onChange={set('rank')} /></FormField>
-        <FormField label="Discount %"><input className="form-input" type="number" step="0.01" value={t.discount_percent} onChange={set('discount_percent')} /></FormField>
-        <FormField label="Min points" hint="Blank = not required."><input className="form-input" type="number" value={t.min_points ?? ''} onChange={set('min_points')} /></FormField>
-        <FormField label="Min spend" hint="Blank = not required."><input className="form-input" type="number" step="0.001" value={t.min_spend ?? ''} onChange={set('min_spend')} /></FormField>
+      <div className="form-grid form-grid--2">
+        <FormField label={t('common:labels.name')}><input className="form-input" value={draft.name} onChange={set('name')} /></FormField>
+        <FormField label={t('slug')} hint={t('stableKeyEGSilver')}><input className="form-input" value={draft.slug} onChange={set('slug')} disabled={!!draft.id} /></FormField>
+        <FormField label={t('rank')} hint={t('lowEntryTier')}><input className="form-input" type="number" value={draft.rank} onChange={set('rank')} /></FormField>
+        <FormField label={t('discount')}><input className="form-input" type="number" step="0.01" value={draft.discount_percent} onChange={set('discount_percent')} /></FormField>
+        <FormField label={t('minPoints')} hint={t('blankNotRequired')}><input className="form-input" type="number" value={draft.min_points ?? ''} onChange={set('min_points')} /></FormField>
+        <FormField label={t('minSpend')} hint={t('blankNotRequired')}><input className="form-input" type="number" step="0.001" value={draft.min_spend ?? ''} onChange={set('min_spend')} /></FormField>
       </div>
-      <FormField label="Benefits"><textarea className="form-textarea" rows={2} value={t.benefits || ''} onChange={set('benefits')} /></FormField>
+      <FormField label={t('benefits')}><textarea className="form-textarea" rows={2} value={draft.benefits || ''} onChange={set('benefits')} /></FormField>
       <div style={{ display: 'flex', gap: 18, marginTop: 4 }}>
-        <Toggle label="Priority booking" checked={!!t.priority_booking} onChange={set('priority_booking')} />
-        <Toggle label="Active" checked={t.is_active !== false} onChange={set('is_active')} />
+        <Toggle label={t('priorityBooking')} checked={!!draft.priority_booking} onChange={set('priority_booking')} />
+        <Toggle label={t('common:state.active')} checked={draft.is_active !== false} onChange={set('is_active')} />
       </div>
     </Modal>
   );

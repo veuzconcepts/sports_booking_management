@@ -1,9 +1,12 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ChevronLeft, ChevronRight } from 'lucide-react';
+import { useTranslation } from 'react-i18next';
 
 import { bookingsApi } from '../../services/bookingsService.js';
 import { formatTime, useTimeFormat } from '../../services/timeformat.jsx';
-import { isInactive, legendFor, statusClass, statusLabel } from './bookingStatus.js';
+import { isInactive, statusClass, statusLabel } from './bookingStatus.js';
+import { BookingPeek } from './BookingPeek.jsx';
+import { CalendarRail } from './CalendarRail.jsx';
 
 // --------------------------------------------------------------------------- //
 // Dates. Everything here is LOCAL calendar arithmetic on `YYYY-MM-DD` strings,
@@ -18,6 +21,19 @@ export const iso = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStar
 const addDays = (d, n) => { const x = new Date(d); x.setDate(x.getDate() + n); return x; };
 export const startOfWeek = (d) => addDays(d, -d.getDay());          // weeks start Sunday
 const sameDay = (a, b) => iso(a) === iso(b);
+
+/** How many bookings fall on this day, for the "1 booking / Free" header. */
+const countFor = (byDay, day) => (byDay.get(iso(day)) || []).length;
+
+/** ISO week number, so the toolbar can say which week is on screen. */
+function weekNumber(date) {
+  const d = new Date(Date.UTC(date.getFullYear(), date.getMonth(), date.getDate()));
+  // Thursday decides the week's year, which is what makes this ISO rather than
+  // an approximation that drifts around New Year.
+  d.setUTCDate(d.getUTCDate() + 4 - (d.getUTCDay() || 7));
+  const yearStart = new Date(Date.UTC(d.getUTCFullYear(), 0, 1));
+  return Math.ceil((((d - yearStart) / 86400000) + 1) / 7);
+}
 
 /** Minutes past midnight for "HH:MM[:SS]"; null when unparseable. */
 export function minutesOf(value) {
@@ -64,13 +80,17 @@ export function assignLanes(items) {
 // --------------------------------------------------------------------------- //
 
 const MODES = [
-  { key: 'day', label: 'Day' },
-  { key: 'week', label: 'Week' },
-  { key: 'month', label: 'Month' },
+  { key: 'day', labelKey: 'calendar.day' },
+  { key: 'week', labelKey: 'calendar.week' },
+  { key: 'month', labelKey: 'calendar.month' },
 ];
 
 const HOUR_PX = 56;            // height of one hour band in the time grid
 const GUTTER = 62;             // width of the hour column
+// A day column below this is unreadable: the time, the customer and the
+// facility all wrap to one word per line. Past it the grid scrolls sideways
+// inside itself rather than squeezing every day into the space left over.
+const MIN_DAY_PX = 116;
 
 /**
  * Bookings on a calendar: day and week as a time grid (as in the reference),
@@ -80,13 +100,19 @@ const GUTTER = 62;             // width of the hour column
  * Fetches its own range rather than reusing the paginated list: a calendar must
  * show every booking in view, not the first page of them.
  */
-export function BookingCalendar({ filters, onOpen, reloadKey }) {
+export function BookingCalendar({ filters, onOpen, reloadKey, onReschedule, onReviewInList }) {
+  const { t } = useTranslation('bookings');
   const [mode, setMode] = useState('week');
   const [anchor, setAnchor] = useState(() => new Date());
   const [rows, setRows] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [expanded, setExpanded] = useState(null);   // month cell showing all chips
+  const [peek, setPeek] = useState(null);           // booking shown in the popover
+  // Rail filters. These hide rows already fetched rather than re-querying: the
+  // range is one request and the counts must stay stable while you toggle.
+  const [hiddenStatuses, setHiddenStatuses] = useState([]);
+  const [hiddenClubs, setHiddenClubs] = useState([]);
   const { format24 } = useTimeFormat();
   const gridRef = useRef(null);
 
@@ -139,16 +165,35 @@ export function BookingCalendar({ filters, onOpen, reloadKey }) {
     return cancel;
   }, [load, reloadKey]);
 
+  const statusCounts = useMemo(() => {
+    const seen = new Map();
+    rows.forEach((r) => seen.set(r.status, (seen.get(r.status) || 0) + 1));
+    return [...seen.entries()].map(([status, count]) => ({ status, count }));
+  }, [rows]);
+
+  const clubCounts = useMemo(() => {
+    const seen = new Map();
+    rows.forEach((r) => {
+      const name = r.club_name || '';
+      if (name) seen.set(name, (seen.get(name) || 0) + 1);
+    });
+    return [...seen.entries()].map(([name, count]) => ({ name, count }));
+  }, [rows]);
+
+  const visible = useMemo(() => rows.filter(
+    (r) => !hiddenStatuses.includes(r.status) && !hiddenClubs.includes(r.club_name || ''),
+  ), [rows, hiddenStatuses, hiddenClubs]);
+
   // Bookings bucketed by day, so each column only walks its own.
   const byDay = useMemo(() => {
     const map = new Map();
-    rows.forEach((r) => {
+    visible.forEach((r) => {
       const key = r.scheduled_date;
       if (!map.has(key)) map.set(key, []);
       map.get(key).push(r);
     });
     return map;
-  }, [rows]);
+  }, [visible]);
 
   // The hour window actually worth showing: tight around real bookings, with a
   // sensible default when the range is empty.
@@ -204,38 +249,64 @@ export function BookingCalendar({ filters, onOpen, reloadKey }) {
     return `${MONTHS[anchor.getMonth()]} ${anchor.getFullYear()}`;
   })();
 
-  const legend = legendFor(rows);
+
+  const toggle = (list, setList, value) => setList(
+    list.includes(value) ? list.filter((x) => x !== value) : [...list, value],
+  );
 
   return (
     <div className="bk-cal">
       <div className="bk-cal__bar">
         <div className="bk-cal__nav">
-          <button className="icon-btn" onClick={() => step(-1)} aria-label="Previous">
+          <button className="icon-btn" onClick={() => step(-1)} aria-label={t('calendar.previous')}>
             <ChevronLeft size={16} />
           </button>
-          <button className="btn btn-secondary" onClick={() => setAnchor(new Date())}>Today</button>
-          <button className="icon-btn" onClick={() => step(1)} aria-label="Next">
+          <button className="btn btn-secondary" onClick={() => setAnchor(new Date())}>{t('calendar.today')}</button>
+          <button className="icon-btn" onClick={() => step(1)} aria-label={t('calendar.next')}>
             <ChevronRight size={16} />
           </button>
         </div>
         <h3 className="bk-cal__title">{title}</h3>
-        <div style={{ marginLeft: 'auto' }}>
-          <div className="bk-views" role="group" aria-label="Calendar range">
+        <span className="bk-cal__summary">
+          {mode === 'week' && `${t('calendar.weekNo', { number: weekNumber(days[0]) })} · `}
+          {t('calendar.inRange', { count: visible.length })}
+        </span>
+        <div style={{ marginInlineStart: 'auto' }}>
+          <div className="bk-views" role="group" aria-label={t('calendar.range')}>
             {MODES.map((m) => (
               <button key={m.key} className={mode === m.key ? 'is-on' : ''}
                 aria-pressed={mode === m.key}
-                onClick={() => setMode(m.key)}>{m.label}</button>
+                onClick={() => setMode(m.key)}>{t(m.labelKey)}</button>
             ))}
           </div>
         </div>
       </div>
 
       {error && (
-        <div className="bk-cal__empty">Could not load the calendar. Try again.</div>
+        <div className="bk-cal__empty">{t('calendar.loadFailed')}</div>
       )}
 
-      {!error && isTimeGrid && (
+      {!error && (
+      <div className="bk-cal__split">
+      <CalendarRail
+        anchor={anchor}
+        onAnchor={(d) => setAnchor(d)}
+        rows={rows}
+        days={days}
+        today={today}
+        statuses={statusCounts}
+        hiddenStatuses={hiddenStatuses}
+        onToggleStatus={(v) => toggle(hiddenStatuses, setHiddenStatuses, v)}
+        clubs={clubCounts}
+        hiddenClubs={hiddenClubs}
+        onToggleClub={(v) => toggle(hiddenClubs, setHiddenClubs, v)}
+        onReviewInList={onReviewInList}
+      />
+
+      <div className="bk-cal__main">
+      {isTimeGrid && (
         <TimeGrid
+          t={t}
           gridRef={gridRef}
           days={days}
           hours={hours}
@@ -243,12 +314,13 @@ export function BookingCalendar({ filters, onOpen, reloadKey }) {
           byDay={byDay}
           today={today}
           format24={format24}
-          onOpen={onOpen}
+          onOpen={setPeek}
         />
       )}
 
-      {!error && !isTimeGrid && (
+      {!isTimeGrid && (
         <MonthGrid
+          t={t}
           days={days}
           month={anchor.getMonth()}
           byDay={byDay}
@@ -260,17 +332,26 @@ export function BookingCalendar({ filters, onOpen, reloadKey }) {
         />
       )}
 
-      {!error && !loading && rows.length === 0 && (
-        <div className="bk-cal__empty">No bookings in this range.</div>
+      {!loading && visible.length === 0 && (
+        <div className="bk-cal__empty">{t('calendar.noneInRange')}</div>
+      )}
+      </div>
+      </div>
       )}
 
-      {legend.length > 0 && (
-        <div className="bk-cal__legend">
-          {legend.map((l) => (
-            <span key={l.status} className={`bk-cal__legend-item ${l.className}`}>{l.label}</span>
-          ))}
+      {/* The popover is anchored to the grid, not the clicked block: a block
+          near the bottom of a scrolled column would otherwise open off-screen. */}
+      {peek && (
+        <div className="bk-peek__scrim" onClick={() => setPeek(null)}>
+          <BookingPeek
+            row={peek}
+            onClose={() => setPeek(null)}
+            onOpen={(r) => { setPeek(null); onOpen(r); }}
+            onReschedule={onReschedule}
+          />
         </div>
       )}
+
     </div>
   );
 }
@@ -278,8 +359,8 @@ export function BookingCalendar({ filters, onOpen, reloadKey }) {
 // --------------------------------------------------------------------------- //
 // Day / week: absolute-positioned blocks over an hour grid.
 // --------------------------------------------------------------------------- //
-function TimeGrid({ gridRef, days, hours, hourFrom, byDay, today, format24, onOpen }) {
-  const columns = `${GUTTER}px repeat(${days.length}, minmax(0, 1fr))`;
+function TimeGrid({ t, gridRef, days, hours, hourFrom, byDay, today, format24, onOpen }) {
+  const columns = `${GUTTER}px repeat(${days.length}, minmax(${MIN_DAY_PX}px, 1fr))`;
   const height = hours.length * HOUR_PX;
   const top = (minutes) => ((minutes - hourFrom * 60) / 60) * HOUR_PX;
 
@@ -295,7 +376,14 @@ function TimeGrid({ gridRef, days, hours, hourFrom, byDay, today, format24, onOp
           <div key={iso(d)}
             className={`bk-cal__day${sameDay(d, today) ? ' bk-cal__day--today' : ''}`}>
             <div className="bk-cal__day-name">{DAY_NAMES[d.getDay()]}</div>
-            <div className="bk-cal__day-num">{d.getDate()}</div>
+            <div className="bk-cal__day-line">
+              <span className="bk-cal__day-num">{d.getDate()}</span>
+              <span className="bk-cal__day-load">
+                {countFor(byDay, d)
+                  ? t('calendar.dayCount', { count: countFor(byDay, d) })
+                  : t('calendar.dayFree')}
+              </span>
+            </div>
           </div>
         ))}
       </div>
@@ -331,7 +419,15 @@ function TimeGrid({ gridRef, days, hours, hourFrom, byDay, today, format24, onOp
               ))}
 
               {isToday && showNow && (
-                <div className="bk-cal__now" style={{ top: top(nowMinutes) }} />
+                <div className="bk-cal__now" style={{ top: top(nowMinutes) }}>
+                  <span className="bk-cal__now-time">
+                    {formatTime(
+                      `${String(now.getHours()).padStart(2, '0')}:`
+                      + `${String(now.getMinutes()).padStart(2, '0')}`,
+                      { format24 },
+                    )}
+                  </span>
+                </div>
               )}
 
               {items.map((it) => {
@@ -359,14 +455,20 @@ function TimeGrid({ gridRef, days, hours, hourFrom, byDay, today, format24, onOp
                       + `${r.customer_label || ''}`}
                     onClick={() => onOpen(r)}
                   >
-                    <div className="bk-cal__event-title">
-                      {r.facility_type_name || r.reference}
-                    </div>
-                    <div className="bk-cal__event-sub">
+                    <div className="bk-cal__event-when">
+                      <span className="bk-cal__event-pip" aria-hidden="true" />
                       {formatTime(r.scheduled_time, { format24 })}
                       {r.end_time ? ` - ${formatTime(r.end_time, { format24 })}` : ''}
                     </div>
-                    <div className="bk-cal__event-sub">{r.customer_label}</div>
+                    <div className="bk-cal__event-title">
+                      {r.customer_label || r.reference}
+                    </div>
+                    <div className="bk-cal__event-sub">
+                      {r.facility_name || r.facility_type_name || ''}
+                    </div>
+                    <span className={`bk-cal__event-chip ${statusClass(r.status)}`}>
+                      {statusLabel(r.status)}
+                    </span>
                   </button>
                 );
               })}
@@ -383,9 +485,10 @@ function TimeGrid({ gridRef, days, hours, hourFrom, byDay, today, format24, onOp
 // --------------------------------------------------------------------------- //
 const MONTH_CHIP_LIMIT = 3;
 
-function MonthGrid({ days, month, byDay, today, format24, expanded, setExpanded, onOpen }) {
+function MonthGrid({ days, month, byDay, today, format24, expanded, setExpanded, onOpen, t }) {
   return (
     <div className="bk-cal__grid">
+      {/* responsive-ok: a week has seven columns; the grid scrolls on a phone. */}
       <div className="bk-cal__head" style={{ gridTemplateColumns: 'repeat(7, minmax(0, 1fr))' }}>
         {DAY_NAMES.map((n) => (
           <div key={n} className="bk-cal__day"><div className="bk-cal__day-name">{n}</div></div>
@@ -421,12 +524,12 @@ function MonthGrid({ days, month, byDay, today, format24, expanded, setExpanded,
 
               {hidden > 0 && (
                 <button className="bk-cal__mmore" onClick={() => setExpanded(key)}>
-                  +{hidden} more
+                  {t('calendar.more', { count: hidden })}
                 </button>
               )}
               {isOpen && dayRows.length > MONTH_CHIP_LIMIT && (
                 <button className="bk-cal__mmore" onClick={() => setExpanded(null)}>
-                  Show less
+                  {t('calendar.showLess')}
                 </button>
               )}
             </div>

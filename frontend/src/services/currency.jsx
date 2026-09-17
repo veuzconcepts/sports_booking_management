@@ -25,12 +25,21 @@ const GLYPH_FONT_CODES = { AED: 'aed-symbol' };
 export const CURRENCY_OPTIONS = Object.keys(SYMBOLS).map((c) => ({ value: c, label: c }));
 
 // Module-level singleton so the plain formatMoney() works outside React too.
-let _code = 'USD';
+//
+// Deliberately empty until the organization's currency arrives. Defaulting to
+// USD meant money rendered with a dollar sign for the first paint of every
+// session, which is simply wrong for an organization that trades in anything
+// else. A bare number for a moment is honest; the wrong currency is not.
+let _code = '';
 let _symbols = { ...SYMBOLS };
 let _decimals = { ...DECIMALS };
 
 export function currencySymbol(code) {
-  return _symbols[code] || _symbols[_code] || '$';
+  // An explicitly requested currency shows ITS symbol, or its own code when we
+  // have no symbol for it. Falling through to the active currency would label a
+  // record in one currency with the symbol of another.
+  if (code) return _symbols[code] || code;
+  return _symbols[_code] || _code || '';
 }
 
 // Decimal places for a currency (default 2; e.g. BHD/KWD/OMR -> 3).
@@ -51,7 +60,7 @@ export function formatMoney(amount, codeOverride) {
   const n = Number(amount || 0).toLocaleString(undefined, {
     minimumFractionDigits: d, maximumFractionDigits: d,
   });
-  return `${sym} ${n}`;
+  return sym ? `${sym} ${n}` : n;
 }
 
 /**
@@ -94,7 +103,8 @@ export function CurrencyProvider({ children }) {
       _code = d.currency || _code;
       setCode(_code);           // re-render the app subtree with the new currency
     } catch {
-      /* keep the USD fallback if the user can't read settings */
+      /* no currency yet: amounts render bare rather than in a currency
+         nobody chose. See the note on _code above. */
     }
   }, []);
 
@@ -105,6 +115,14 @@ export function CurrencyProvider({ children }) {
       {children}
     </CurrencyContext.Provider>
   );
+}
+
+/**
+ * Set the active currency directly. Tests only: the application learns its
+ * currency from the organization, and nothing else may assert one.
+ */
+export function setCurrencyForTests(code) {
+  _code = code;
 }
 
 export function useCurrency() {

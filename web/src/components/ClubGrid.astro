@@ -1,0 +1,56 @@
+---
+/**
+ * Club and venue discovery.
+ *
+ * Reads the live club list from Operations (only active clubs are published),
+ * so a venue opened in the admin appears here without a deployment and a closed
+ * one disappears. Each card deep-links into the booking wizard with that club
+ * already chosen.
+ */
+const { clubs = [], sports = [] } = Astro.props;
+
+/** Initials for the card mark, so a club with no logo still has an identity. */
+function initials(name) {
+  return (name || '')
+    .split(/\s+/)
+    .filter(Boolean)
+    .slice(0, 2)
+    .map((word) => word[0].toUpperCase())
+    .join('') || 'CB';
+}
+
+// Sports are shown as tags on every card: the public API does not say which
+// facility types a club actually runs, so presenting them per club would be a
+// guess. These are the sports bookable across the organization.
+const tags = sports.slice(0, 4);
+---
+<div class="clubs">
+  {clubs.map((club) => (
+    <article class="club">
+      <div class="club__top">
+        <span class="club__mark" aria-hidden="true">{initials(club.name)}</span>
+        <div>
+          <h3 class="club__name">{club.name}</h3>
+          <p class="club__where">
+            {[club.city, club.address].filter(Boolean).join(' - ') || 'Location on request'}
+          </p>
+        </div>
+      </div>
+
+      {tags.length > 0 && (
+        <div class="club__tags">
+          {tags.map((s) => <span class="club__tag">{s.name}</span>)}
+        </div>
+      )}
+
+      <div class="club__foot">
+        {club.phone
+          ? <a class="muted" href={`tel:${club.phone}`}>{club.phone}</a>
+          : <span class="muted">Book online</span>}
+        <a class="club__link" href={`/book?club=${club.id}&step=1`}>
+          Check availability &rsaquo;
+        </a>
+      </div>
+    </article>
+  ))}
+</div>

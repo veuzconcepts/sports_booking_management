@@ -1,0 +1,19 @@
+{
+  "activeBookings": "الحجوزات النشطة",
+  "booking": "حجز",
+  "bookingMix": "توزيع الحجوزات",
+  "completed": "مكتمل",
+  "customers": "العملاء",
+  "dashboard": "لوحة المعلومات",
+  "inProgress": "قيد التنفيذ",
+  "latestActivityAcrossAllClubs": "أحدث النشاطات في جميع النوادي.",
+  "liveOverviewBookingsAcrossEvery": "نظرة مباشرة على الحجوزات في كل نادٍ.",
+  "netRevenueAllTime": "صافي الإيرادات (منذ البداية)",
+  "netRevenueLast14Days": "صافي الإيرادات (آخر ١٤ يوماً)",
+  "noBookingsYet": "لا توجد حجوزات بعد.",
+  "paidLessRefundsAcrossAll": "المدفوع مطروحاً منه المستردات عبر جميع القنوات.",
+  "recentBookings": "أحدث الحجوزات",
+  "repeatRate": "معدل التكرار",
+  "shareBookingsStage": "نسبة الحجوزات حسب المرحلة.",
+  "viewAll": "عرض الكل"
+}

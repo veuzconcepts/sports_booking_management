@@ -33,6 +33,7 @@ const ReportsPage = lazy(() => import('./pages/reports/ReportsPage.jsx'));
 const NotificationsPage = lazy(() => import('./pages/notifications/NotificationsPage.jsx'));
 const AuditLogsPage = lazy(() => import('./pages/auditlogs/AuditLogsPage.jsx'));
 const SettingsPage = lazy(() => import('./pages/settings/SettingsPage.jsx'));
+const LanguagesPage = lazy(() => import('./pages/settings/LanguagesPage.jsx'));
 const BookingConfigPage = lazy(() => import('./pages/settings/BookingConfiguration.jsx'));
 const OrganizationInfoPage = lazy(() => import('./pages/organization/OrganizationInfoPage.jsx'));
 const LoyaltyConfigPage = lazy(() => import('./pages/settings/LoyaltyConfiguration.jsx'));
@@ -45,6 +46,7 @@ const RoleDetailPage = lazy(() => import('./pages/roles/RoleDetailPage.jsx'));
 const WebsiteDashboard = lazy(() => import('./pages/website/WebsiteDashboard.jsx'));
 const CmsResourcePage = lazy(() => import('./pages/website/CmsResourcePage.jsx'));
 const MediaLibraryPage = lazy(() => import('./pages/website/MediaLibraryPage.jsx'));
+const CampaignsPage = lazy(() => import('./pages/website/CampaignsPage.jsx'));
 const FooterSettingsPage = lazy(() => import('./pages/website/FooterSettingsPage.jsx'));
 
 export default function App() {
@@ -143,6 +145,14 @@ export default function App() {
           }
         />
         <Route
+          path="/languages"
+          element={
+            <ProtectedRoute perm="settings.view">
+              <LanguagesPage />
+            </ProtectedRoute>
+          }
+        />
+        <Route
           path="/booking-config"
           element={
             <ProtectedRoute perm="settings.manage">
@@ -195,6 +205,9 @@ export default function App() {
         <Route path="/website" element={<ProtectedRoute perm="website.view"><WebsiteDashboard /></ProtectedRoute>} />
         <Route path="/website/media" element={<ProtectedRoute perm="website.view"><MediaLibraryPage /></ProtectedRoute>} />
         <Route path="/website/footer" element={<ProtectedRoute perm="website.view"><FooterSettingsPage /></ProtectedRoute>} />
+        {/* Declared before the :resource catch-all, which would otherwise
+            swallow it and render an unknown CMS collection. */}
+        <Route path="/website/campaigns" element={<ProtectedRoute perm="website.view"><CampaignsPage /></ProtectedRoute>} />
         <Route path="/website/:resource" element={<ProtectedRoute perm="website.view"><CmsResourcePage /></ProtectedRoute>} />
       </Route>
 

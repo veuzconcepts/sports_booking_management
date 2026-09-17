@@ -72,6 +72,30 @@
   --space-8: 40px;
   --space-10: 64px;
 
+  /* Theme-driven surfaces. These are the names the Organization theme writes;
+     the values here are the shipped defaults and the fallback if branding
+     cannot be loaded. See theme/tokens.js for the token to variable mapping. */
+  --sidebar-bg:          #ffffff;
+  --sidebar-text:        #1c1a36;
+  --sidebar-hover-bg:    #efeef6;
+  --sidebar-active-bg:   #ece2f6;
+  --sidebar-active-text: #593c80;
+  --submenu-bg:          #eef1f8;
+  --header-bg:           #201b50;
+  --header-text:         #ffffff;
+
+  --btn-primary-text:    #ffffff;
+  --color-focus:         #8460b4;
+  --color-link:          #6f4a9e;
+  --color-link-hover:    #593c80;
+
+  --table-header-bg:     #fafbfd;
+  --table-row-hover:     #f5f1fa;
+  --table-row-selected:  #ece2f6;
+
+  /* A neutral surface one step off the card, for toolbars and empty states. */
+  --color-surface-2:     #f7f8fa;
+
   /* Layout */
   --sidebar-rail-width: 86px;
   --sidebar-panel-width: 240px;

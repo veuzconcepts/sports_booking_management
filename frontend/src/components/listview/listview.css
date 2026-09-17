@@ -1,0 +1,566 @@
+/* The global listing system: toolbar, table, grouping, bulk bar.
+   Compact by design - the aim is more records on screen without the row
+   becoming hard to read or hard to hit. */
+
+/* ================================================================ table == */
+.lt tbody td {
+  height: 40px;                  /* was 52px: compact enterprise list density */
+  padding: 6px 14px;
+}
+.lt thead th {
+  height: 36px;
+  padding: 0 14px;
+  position: relative;
+}
+
+/* The header stays put while a long list scrolls. */
+.lt-wrapper { max-height: 68vh; overflow: auto; }
+.lt thead th {
+  position: sticky;
+  top: 0;
+  z-index: 3;
+  background: var(--table-header-bg);
+}
+.lt thead th.col-sticky-right { z-index: 4; }
+
+.lt tbody tr { transition: background .12s ease; }
+.lt tbody tr:hover { background: var(--table-row-hover); }
+.lt tbody tr.is-selected { background: var(--table-row-selected); }
+.lt tbody tr.is-selected:hover { background: var(--table-row-selected); }
+
+/* Sorting -------------------------------------------------------------- */
+.lt-sort {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  letter-spacing: inherit;
+  text-transform: inherit;
+  cursor: pointer;
+}
+.lt-sort:hover { color: var(--color-text); }
+.lt-sort:focus-visible {
+  outline: 2px solid var(--color-primary-500);
+  outline-offset: 2px;
+  border-radius: 3px;
+}
+.lt-sort-idle { opacity: .35; }
+.lt-head-label { display: inline-block; }
+
+/* Resize handle -------------------------------------------------------- */
+.lt-resize {
+  position: absolute;
+  top: 0;
+  inset-inline-end: 0;
+  width: 9px;
+  height: 100%;
+  cursor: col-resize;
+  user-select: none;
+}
+.lt-resize::after {
+  content: "";
+  position: absolute;
+  top: 25%;
+  inset-inline-end: 4px;
+  width: 1px;
+  height: 50%;
+  background: var(--color-border);
+}
+.lt-resize:hover::after { background: var(--color-primary-500); width: 2px; }
+body.lt-resizing { cursor: col-resize; user-select: none; }
+
+/* Reorder -------------------------------------------------------------- */
+.lt thead th[draggable="true"] { cursor: grab; }
+.lt-col-dragging { opacity: .5; }
+.lt-col-over { box-shadow: inset 2px 0 0 var(--color-primary-600); }
+
+/* Selection ------------------------------------------------------------ */
+.lt-select { width: 40px; padding-inline: 12px !important; }
+.lt-select input { cursor: pointer; }
+
+/* Row actions ---------------------------------------------------------- */
+.lt-actions { width: 48px; text-align: center; }
+.lt-menu { position: relative; display: inline-flex; }
+.lt-menu__pop {
+  /* Portalled to <body>: the table wrapper scrolls, and an absolutely
+     positioned menu inside it was clipped on the last rows. */
+  position: fixed;
+  z-index: 1100;
+  min-width: 172px;
+  padding: 4px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-surface);
+  box-shadow: var(--shadow-lg);
+}
+.lt-menu__item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 7px 10px;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: none;
+  color: var(--color-text);
+  font: inherit;
+  font-size: 13px;
+  text-align: start;
+  cursor: pointer;
+}
+.lt-menu__item:hover:not(:disabled) { background: var(--color-border-soft); }
+.lt-menu__item:disabled { opacity: .45; cursor: not-allowed; }
+.lt-menu__item--danger { color: var(--color-danger-600); }
+
+/* Grouping ------------------------------------------------------------- */
+.lt-group__head { cursor: pointer; background: var(--color-bg); }
+.lt-group__head:hover { background: var(--color-border-soft); }
+.lt-group__head td {
+  height: 36px !important;
+  border-top: 1px solid var(--color-border);
+  border-bottom: 1px solid var(--color-border-soft);
+  font-size: 13px;
+}
+.lt-group__toggle { display: inline-flex; align-items: center; gap: 7px; }
+.lt-group__count { color: var(--color-text-muted); font-size: 12.5px; }
+.lt-group__loading {
+  padding: 12px 14px !important;
+  color: var(--color-text-muted);
+  font-size: 12.5px;
+}
+
+/* States --------------------------------------------------------------- */
+.lt-state { padding: 44px 24px; text-align: center; }
+.lt-state h3 { margin: 0 0 4px; font-size: 15px; }
+.lt-state p { margin: 0 0 14px; color: var(--color-text-muted); font-size: 13px; }
+.lt-state__icon { margin-bottom: 10px; }
+.lt-state__icon--error { color: var(--color-danger-600); }
+
+.lt-skeleton-row td { height: 40px; }
+.lt-skeleton {
+  display: block;
+  height: 10px;
+  border-radius: 4px;
+  background: linear-gradient(90deg,
+    var(--color-border-soft) 25%, var(--color-border) 50%, var(--color-border-soft) 75%);
+  background-size: 200% 100%;
+  animation: lt-shimmer 1.3s ease-in-out infinite;
+}
+@keyframes lt-shimmer {
+  from { background-position: 200% 0; }
+  to { background-position: -200% 0; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .lt-skeleton { animation: none; }
+  .lt tbody tr { transition: none; }
+}
+
+/* Footer --------------------------------------------------------------- */
+.table-foot-size {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12.5px;
+}
+.lt-size-select {
+  padding: 3px 6px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  background: var(--color-surface);
+  font: inherit;
+  font-size: 12.5px;
+}
+
+/* ============================================================== toolbar == */
+.lv-toolbar { display: grid; gap: 8px; margin-bottom: 12px; }
+.lv-toolbar__row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+.lv-toolbar__spacer { flex: 1 1 auto; }
+
+.lv-search {
+  position: relative;
+  display: flex;
+  align-items: center;
+  flex: 1 1 280px;
+  max-width: 420px;
+}
+.lv-search__icon {
+  position: absolute;
+  inset-inline-start: 11px;
+  color: var(--color-text-muted);
+  pointer-events: none;
+}
+.lv-search__input {
+  width: 100%;
+  height: 36px;
+  padding-inline: 34px 30px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-surface);
+  font: inherit;
+  font-size: 13.5px;
+}
+.lv-search__input:focus {
+  outline: none;
+  border-color: var(--color-focus);
+  box-shadow: 0 0 0 3px var(--color-primary-50);
+}
+.lv-search__input::-webkit-search-cancel-button { display: none; }
+.lv-search__clear {
+  position: absolute;
+  inset-inline-end: 8px;
+  display: grid;
+  place-items: center;
+  width: 20px;
+  height: 20px;
+  border: 0;
+  border-radius: 50%;
+  background: none;
+  color: var(--color-text-muted);
+  cursor: pointer;
+}
+.lv-search__clear:hover { background: var(--color-border-soft); color: var(--color-text); }
+
+/* Dropdowns ------------------------------------------------------------ */
+.lv-drop { position: relative; }
+.lv-drop__btn { height: 36px; gap: 6px; }
+.lv-drop__btn.is-open { border-color: var(--color-primary-500); }
+.lv-drop__label { white-space: nowrap; }
+.lv-drop__badge {
+  display: inline-grid;
+  place-items: center;
+  min-width: 17px;
+  height: 17px;
+  padding: 0 5px;
+  border-radius: 999px;
+  background: var(--color-primary-600);
+  color: #fff;
+  font-size: 10.5px;
+  font-weight: 700;
+}
+.lv-drop__pop {
+  position: absolute;
+  top: calc(100% + 5px);
+  inset-inline-start: 0;
+  z-index: 25;
+  min-width: 250px;
+  max-height: 60vh;
+  overflow-y: auto;
+  padding: 8px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-surface);
+  box-shadow: var(--shadow-lg);
+}
+.lv-drop__title {
+  padding: 2px 4px 7px;
+  font-size: 10.5px;
+  font-weight: 700;
+  letter-spacing: .05em;
+  text-transform: uppercase;
+  color: var(--color-text-muted);
+}
+.lv-drop__hint {
+  margin: 0 0 6px;
+  padding-inline-start: 4px;
+  font-size: 11.5px;
+  color: var(--color-text-muted);
+}
+.lv-drop__item {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  width: 100%;
+  padding: 6px 8px;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: none;
+  color: var(--color-text);
+  font: inherit;
+  font-size: 13px;
+  text-align: start;
+  cursor: pointer;
+}
+.lv-drop__item:hover { background: var(--color-border-soft); }
+.lv-drop__item.is-on { color: var(--color-primary-700); font-weight: 600; }
+.lv-drop__tick {
+  display: inline-grid;
+  place-items: center;
+  width: 14px;
+  flex: none;
+}
+.lv-drop__action {
+  width: 100%;
+  margin-top: 6px;
+  padding: 7px 8px;
+  border: 0;
+  border-top: 1px solid var(--color-border-soft);
+  background: none;
+  color: var(--color-primary-600);
+  font: inherit;
+  font-size: 12.5px;
+  font-weight: 600;
+  text-align: start;
+  cursor: pointer;
+}
+.lv-drop__action:hover { text-decoration: underline; }
+
+.lv-filter { margin-bottom: 10px; }
+.lv-filter__label {
+  display: block;
+  margin-bottom: 4px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--color-text-muted);
+}
+.lv-filter .form-input { width: 100%; font-size: 13px; }
+.lv-range { display: flex; align-items: center; gap: 6px; }
+.lv-range .form-input { flex: 1 1 0; min-width: 0; }
+
+.lv-reset { height: 36px; gap: 6px; }
+
+/* Chips ---------------------------------------------------------------- */
+.lv-chips { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.lv-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 9px;
+  border: 1px solid var(--color-primary-200);
+  border-radius: 999px;
+  background: var(--color-primary-50);
+  color: var(--color-primary-700);
+  font: inherit;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.lv-chip:hover { background: var(--color-primary-100); }
+.lv-chip--group {
+  border-color: var(--color-border);
+  background: var(--color-border-soft);
+  color: var(--color-text-muted);
+}
+.lv-chip-clear {
+  border: 0;
+  background: none;
+  color: var(--color-text-muted);
+  font: inherit;
+  font-size: 12px;
+  font-weight: 600;
+  text-decoration: underline;
+  cursor: pointer;
+}
+.lv-chip-clear:hover { color: var(--color-danger-600); }
+
+/* Bulk bar ------------------------------------------------------------- */
+.lv-bulk {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 10px;
+  padding: 8px 12px;
+  border: 1px solid var(--color-primary-200);
+  border-radius: var(--radius-md);
+  background: var(--color-primary-50);
+}
+.lv-bulk__count { font-size: 13px; font-weight: 650; color: var(--color-primary-700); }
+.lv-bulk__btn { height: 32px; font-size: 12.5px; gap: 6px; }
+.lv-bulk__clear {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin-inline-start: auto;
+  border: 0;
+  background: none;
+  color: var(--color-text-muted);
+  font: inherit;
+  font-size: 12.5px;
+  cursor: pointer;
+}
+.lv-bulk__clear:hover { color: var(--color-text); }
+
+/* ============================================================ responsive = */
+/* Breakpoints follow the shared scale in styles/responsive.css. */
+
+/* Low-priority columns are the first to go: a laptop keeps the table readable
+   without sideways scrolling. */
+@media (max-width: 1280px) {
+  .lt-priority-low { display: none; }
+}
+
+/* Tablet landscape and below: medium-priority columns go too, and the toolbar
+   buttons drop their text labels. */
+@media (max-width: 1024px) {
+  .lt-priority-medium { display: none; }
+  .lt-wrapper { max-height: none; }
+  .lt thead th { position: static; }        /* sticky fights momentum scroll */
+}
+
+@media (max-width: 768px) {
+  .lv-search { flex: 1 1 100%; max-width: none; }
+  .lv-drop__label { display: none; }        /* icon-only buttons */
+  .lv-reset .lv-drop__label { display: none; }
+  .lv-toolbar__row { row-gap: 8px; }
+  .lv-toolbar__spacer { display: none; }    /* wrapping already separates them */
+  .table-foot { justify-content: center; row-gap: 10px; }
+}
+
+/* Phone: the table keeps its own horizontal scroll inside the card, the page
+   itself never moves sideways. */
+@media (max-width: 640px) {
+  .lv-drop__pop {
+    min-width: min(260px, calc(100vw - 32px));
+    max-width: calc(100vw - 32px);
+  }
+  .lt-wrapper { overflow-x: auto; }
+  .lt tbody td { padding: 6px 10px; }
+  .lt thead th { padding: 0 10px; }
+  .lt-select { width: 34px; padding-inline: 8px !important; }
+  .lv-bulk { padding: 8px 10px; }
+  .lv-bulk__clear { margin-inline-start: 0; }
+  .table-foot-info { width: 100%; text-align: center; }
+}
+
+@media (max-width: 480px) {
+  .lv-chips { gap: 5px; }
+  .lv-chip { font-size: 11.5px; padding: 3px 8px; }
+  .page-btn { min-width: 28px; height: 28px; }
+}
+
+/* ====================================================== full-page listing ==
+   A listing is a workspace, not a card on a page. The heading, the toolbar,
+   the table and the paging controls share one gutter and one surface, so a
+   column heading lines up with the title above it and the row count below it.
+   The table takes the height that is left and scrolls inside itself, which
+   keeps the toolbar and the paging controls reachable in a long list.
+
+   Every colour here is a theme token; the gutter is the table's own cell
+   padding, so the alignment holds at any density. */
+.lv-page {
+  --lv-gutter: 14px;                /* = .lt cell padding: columns line up */
+  display: flex;
+  flex-direction: column;
+  min-height: calc(100vh - var(--topbar-height));
+  /* Cancel the shell's page padding exactly. --app-gutter is published by
+     .app-content, so this stays correct when that padding changes. */
+  margin: calc(var(--app-gutter, 0px) * -1);
+  background: var(--color-surface);
+}
+
+/* A page whose body is not a single table (a tab holding forms) keeps the
+   alignment but scrolls with the document instead of trapping content. */
+.lv-page--flow { min-height: 0; }
+
+.lv-page__head {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: var(--space-3);
+  padding: 14px var(--lv-gutter);
+  border-bottom: 1px solid var(--color-border);
+}
+.lv-page__titles { min-width: 0; }
+.lv-page__title { margin: 0; font-size: 18px; line-height: 1.25; }
+.lv-page__subtitle {
+  margin: 2px 0 0;
+  font-size: 13px;
+  color: var(--color-text-muted);
+}
+.lv-page__actions { display: flex; flex-wrap: wrap; gap: 8px; }
+
+/* Tabs belong to the header block, so switching one does not move the title. */
+.lv-page > .page-tabs {
+  padding-inline: var(--lv-gutter);
+  border-bottom: 1px solid var(--color-border);
+}
+
+/* ListView's own root: the flex column that lets the table claim the rest. */
+.lv { display: flex; flex-direction: column; flex: 1; min-height: 0; }
+
+/* The table surface. On its own it still looks like a card, so a ListView used
+   outside a ListPage is unaffected; inside one it gives up its edges to the
+   workspace. */
+.lv-surface {
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-xs);
+  overflow: hidden;
+}
+.lv-page .lv-surface {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+  border: 0;
+  border-radius: 0;
+  box-shadow: none;
+}
+
+.lv-page .lv-toolbar {
+  margin-bottom: 0;
+  padding: 10px var(--lv-gutter);
+  border-bottom: 1px solid var(--color-border-soft);
+}
+.lv-page .lv-bulk {
+  margin: 0;
+  padding-inline: var(--lv-gutter);
+  border-bottom: 1px solid var(--color-border-soft);
+  border-radius: 0;
+}
+.lv-page .lt-wrapper { flex: 1; min-height: 0; max-height: none; }
+.lv-page .table-foot {
+  margin-top: auto;
+  padding-inline: var(--lv-gutter);
+  border-top: 1px solid var(--color-border);
+}
+/* An empty, loading or failed listing still fills the workspace rather than
+   leaving the paging bar floating halfway up the screen. */
+.lv-page .lt-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  flex: 1;
+}
+
+/* A body the page renders itself (a card grid, a calendar) scrolls in the same
+   region the table would have used. */
+.lv-page .lv-altbody {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding: var(--space-4) var(--lv-gutter);
+}
+
+@media (max-width: 1024px) {
+  .lv-page__title { font-size: 17px; }
+}
+
+/* Below a tablet the workspace stops owning the viewport height: a nested
+   scroller under a mobile browser's collapsing chrome is worse than the page
+   simply scrolling. The alignment and the full-bleed surface stay. */
+@media (max-width: 768px) {
+  .lv-page { min-height: 0; }
+  .lv-page .lv-surface { flex: none; }
+  .lv-page .lt-wrapper { flex: none; max-height: none; }
+  .lv-page .lv-altbody { overflow: visible; flex: none; }
+}
+
+@media (max-width: 640px) {
+  .lv-page { --lv-gutter: 10px; }
+  .lv-page__head { padding-block: 12px; }
+  .lv-page__actions { width: 100%; }
+  .lv-page__actions .btn { flex: 1; justify-content: center; }
+}

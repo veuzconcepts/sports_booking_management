@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import toast from 'react-hot-toast';
 import { ShieldCheck, LogOut } from 'lucide-react';
+import { useTranslation } from 'react-i18next';
 
 import { FormField } from './FormField.jsx';
 import { useAuth } from '../hooks/useAuth.jsx';
@@ -15,6 +16,7 @@ import { apiErrorMessage } from '../utils/apiError';
  * decide first. The setup/confirm endpoints are allow-listed server-side.
  */
 export function MfaEnrolGate() {
+  const { t } = useTranslation('auth');
   const { logout, refreshUser } = useAuth();
   const [setup, setSetup] = useState(null);   // { qr, secret }
   const [code, setCode] = useState('');
@@ -26,7 +28,7 @@ export function MfaEnrolGate() {
     setBusy(true);
     setErr('');
     try { setSetup(await accountApi.mfaSetup()); }
-    catch (e) { setErr(apiErrorMessage(e, 'Unable to start multi-factor setup. Please try again.')); }
+    catch (e) { setErr(apiErrorMessage(e, t('unableStartMultiFactorSetup'))); }
     finally { setBusy(false); }
   }
 
@@ -41,10 +43,10 @@ export function MfaEnrolGate() {
     setBusy(true);
     try {
       await accountApi.mfaConfirm(code);
-      toast.success('MFA enabled');
+      toast.success(t('mfaEnabled'));
       await refreshUser();   // mfa_enabled now true -> ProtectedRoute clears the gate
     } catch (e) {
-      toast.error(apiErrorMessage(e, 'The verification code is invalid. Please try again.'));
+      toast.error(apiErrorMessage(e, t('verificationCodeInvalidPleaseTry')));
     } finally {
       setBusy(false);
     }
@@ -60,7 +62,7 @@ export function MfaEnrolGate() {
         <div className="card-header">
           <h3 className="card-title">
             <ShieldCheck size={16} style={{ marginRight: 6, verticalAlign: 'text-bottom' }} />
-            Multi-factor authentication required
+            {t('multiFactorAuthenticationRequired')}
           </h3>
         </div>
         <div className="card-body" style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
@@ -75,30 +77,30 @@ export function MfaEnrolGate() {
                 padding: '10px 12px', borderRadius: 8, fontSize: 13,
                 background: 'rgba(220,38,38,0.08)', color: '#b91c1c', border: '1px solid rgba(220,38,38,0.25)',
               }}>{err}</div>
-              <button className="btn btn-primary" onClick={begin} disabled={busy}>Try again</button>
+              <button className="btn btn-primary" onClick={begin} disabled={busy}>{t('common:actions.retry')}</button>
             </>
           ) : !setup ? (
             <p className="muted">Preparing your setup…</p>
           ) : (
             <>
               <div style={{ textAlign: 'center' }}>
-                <img src={setup.qr} alt="MFA QR code" style={{ width: 180, height: 180 }} />
+                <img src={setup.qr} alt={t('mfaQrCode')} style={{ width: 180, height: 180 }} />
               </div>
-              <FormField label="Manual entry key" hint="If you can't scan the QR code.">
+              <FormField label={t('manualEntryKey')} hint={t('manualEntryKeyHint')}>
                 <input className="form-input" readOnly value={setup.secret} onFocus={(e) => e.target.select()} />
               </FormField>
-              <FormField label="Enter the 6-digit code">
+              <FormField label={t('enter6DigitCode')}>
                 <input className="form-input" inputMode="numeric" placeholder="123456"
                        value={code} onChange={(e) => setCode(e.target.value)} autoFocus />
               </FormField>
               <button className="btn btn-primary" onClick={confirm} disabled={busy || code.length < 6}>
-                {busy ? 'Verifying…' : 'Confirm & continue'}
+                {busy ? t('verifying') : t('confirmContinue')}
               </button>
             </>
           )}
 
           <button className="btn btn-ghost" onClick={signOut} style={{ alignSelf: 'flex-start' }}>
-            <LogOut size={15} /> Sign out
+            <LogOut size={15} /> {t('signOut')}
           </button>
         </div>
       </div>

@@ -1,4 +1,5 @@
 import { Fragment } from 'react';
+import { useTranslation } from 'react-i18next';
 
 import { StatusBadge } from './StatusBadge.jsx';
 
@@ -13,11 +14,12 @@ import { StatusBadge } from './StatusBadge.jsx';
  *   baseline:     optional Set (role defaults) - shows +/- override badges (user-edit)
  */
 export function PermissionMatrix({ sections = [], basicColumns = [], dataAdminColumns = [], value, onChange, readOnly = false, baseline }) {
+  const { t } = useTranslation('roles');
   const cols = basicColumns.length ? basicColumns
-    : [{ key: 'read', label: 'Read' }, { key: 'create', label: 'Create' },
-       { key: 'edit', label: 'Edit' }, { key: 'delete', label: 'Delete' }];
+    : [{ key: 'read', label: t('read') }, { key: 'create', label: t('common:actions.create') },
+       { key: 'edit', label: t('common:actions.edit') }, { key: 'delete', label: t('common:actions.delete') }];
   const dcols = dataAdminColumns.length ? dataAdminColumns
-    : [{ key: 'view_all', label: 'View All' }, { key: 'modify_all', label: 'Modify All' }];
+    : [{ key: 'view_all', label: t('viewAll') }, { key: 'modify_all', label: t('modifyAll') }];
   const spanCols = cols.length + dcols.length + 2;
 
   const has = (code) => value.has(code);
@@ -52,14 +54,14 @@ export function PermissionMatrix({ sections = [], basicColumns = [], dataAdminCo
         <table className="table">
           <thead>
             <tr>
-              <th rowSpan={2} style={{ minWidth: 170 }}>Feature</th>
+              <th rowSpan={2} style={{ minWidth: 170 }}>{t('feature')}</th>
               <th colSpan={cols.length} style={{ textAlign: 'center', background: 'rgba(124,58,237,0.06)' }}>
-                Basic Access
+                {t('basicAccess')}
               </th>
               <th colSpan={dcols.length} style={{ textAlign: 'center', background: 'rgba(2,132,199,0.08)' }}>
-                Data Administration
+                {t('dataAdministration')}
               </th>
-              <th rowSpan={2}>Advanced</th>
+              <th rowSpan={2}>{t('advanced')}</th>
             </tr>
             <tr>
               {cols.map((c) => (

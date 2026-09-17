@@ -1,188 +1,89 @@
 # CLAUDE.md
 
-This file defines mandatory rules for Claude when working in this repository.
+This file defines mandatory rules for Claude when working in this repository. These rules apply to every task unless I explicitly override a specific rule.
 
-These rules apply to every task unless I explicitly override a specific rule for that task.
+# 1. Core Working Rule
 
-# MOST IMPORTANT RULE
+Do not treat a request as permission to immediately write code.
 
-Do not treat my instruction as permission to immediately write code.
+Before any meaningful change:
+1. Inspect the existing implementation.
+2. Understand architecture, dependencies, permissions, data scope, APIs, models, frontend usage, tests, and side effects.
+3. Search for an existing implementation that can be reused or extended.
+4. Plan the smallest safe change.
+5. Implement only after the above is understood.
 
-First inspect the existing implementation, understand how the feature currently works, identify reusable code, dependencies, security implications, and potential side effects. Then make the smallest clean change that satisfies the requirement.
+Never create a second implementation simply because it is easier than understanding the existing one.
 
-Never add secrets, credentials, API keys, database dumps, generated reports, local uploads, virtual environments, node_modules, build outputs, cache files, or IDE-specific files to Git. Before any Git commit, review staged files and verify that no sensitive or generated files are included.
+# 2. Project Boundary
 
-# PROJECT WORKING PRINCIPLES
+Work only inside this repository/project.
 
-## 1. Understand Before Implementing
+Never:
+- Access, read, modify, or copy code from another project.
+- Access or modify another project's database or `.env`.
+- Modify unrelated repositories or global system configuration.
+- Deploy or make live-server changes unless explicitly approved.
 
-Before writing, modifying, deleting, or refactoring code:
+If something requires access outside this project, stop and report it.
 
-- Inspect the existing codebase first.
-- Understand the current architecture.
-- Search for existing implementations.
-- Check whether a similar feature already exists.
-- Identify dependencies and side effects.
-- Understand related models, APIs, services, frontend components, permissions, and workflows.
-- Reuse existing patterns where appropriate.
+# 3. No Duplicate Sources of Truth
 
-Never start implementation based only on assumptions.
-
-Do not create a new implementation until you have confirmed that the required functionality does not already exist.
-
----
-
-# 2. NEVER CREATE DUPLICATE SOURCES OF TRUTH
-
-This is a critical rule.
-
-Never create duplicate:
-
-- Models
-- Tables
-- Services
-- Business logic
-- API endpoints
-- Utilities
-- Constants
-- Settings
-- Permissions
-- Validation logic
-- Components
-- Hooks
-- State stores
-- Configuration
-- Schedule engines
-- Pricing engines
-- Booking logic
-
-If functionality already exists, extend or refactor the existing source instead of creating another parallel implementation.
+Reuse or refactor existing models, tables, services, APIs, utilities, components, hooks, stores, settings, validation, permissions, constants, schedule engines, pricing engines, and booking logic.
 
 There must be one authoritative source for each business rule.
 
-For example:
+Do not duplicate logic across:
+- Frontend and backend
+- Multiple APIs
+- Different modules
+- Organization, Club, and Facility implementations
 
-Do not calculate booking availability separately in:
+The backend is authoritative for business-critical logic.
 
-- Backend
-- Frontend
-- Different APIs
-- Different facility modules
+# 4. Architecture and Code Quality
 
-The backend should remain the authoritative source for business-critical logic.
-
----
-
-# 3. DRY PRINCIPLE
-
-Follow DRY: Don't Repeat Yourself.
-
-Before creating a new:
-
-- Function
-- Class
-- Component
-- Utility
-- Hook
-- Serializer
-- Service
-- API
-- Validation
-- Query
-
-search for an existing reusable implementation.
-
-If two modules perform almost the same task, consider extracting shared logic instead of duplicating code.
-
-Do not over-abstract simple logic, but avoid obvious duplication.
-
----
-
-# 4. ENTERPRISE-QUALITY CODE STRUCTURE
-
-Write code as if multiple developers will maintain this project for years.
+Follow the existing project architecture and conventions unless there is a strong reason not to.
 
 Code must be:
-
 - Clear
-- Predictable
-- Modular
 - Maintainable
-- Readable
+- Modular
 - Testable
 - Secure
-- Extensible
-- Consistent with the existing architecture
+- Predictable
+- Easy for another developer to understand
 
-Prefer simple, explicit architecture over clever or overly complex solutions.
+Prefer simple, explicit solutions over clever or over-engineered abstractions.
 
-Avoid unnecessary abstraction.
+Keep responsibilities separated. Complex business logic should not live directly in React presentation components, views, or serializers when the project already uses services/hooks for those concerns.
 
-Avoid tightly coupled code.
+Use meaningful names. Avoid vague names such as `data`, `temp`, `obj`, or `result2` when a clearer name is possible.
 
-Keep responsibilities clearly separated.
+Comments should explain why, constraints, business rules, or security reasoning, not obvious code behavior.
 
----
+# 5. Security Is Mandatory
 
-# 5. FOLLOW EXISTING PROJECT ARCHITECTURE
-
-Do not introduce a completely different coding style or architecture without a strong reason.
-
-Before implementing a feature:
-
-- Identify existing app/module structure.
-- Follow existing service patterns.
-- Follow existing API conventions.
-- Follow existing serializer patterns.
-- Follow existing frontend component conventions.
-- Follow existing state management.
-- Follow existing permission architecture.
-- Follow existing error response formats.
-
-Consistency is more important than introducing a new pattern unnecessarily.
-
-If the existing architecture has a serious design problem, explain it before making a major structural change.
-
----
-
-# 6. SECURITY MUST NEVER BE BYPASSED
-
-Never bypass or weaken security to make a feature work.
-
-Never disable or circumvent:
-
+Never bypass or weaken:
 - Authentication
 - Authorization
-- Role validation
-- Permission checks
+- Roles and permissions
 - Object-level permissions
-- Organization boundaries
-- Club boundaries
-- Facility boundaries
-- CSRF protection
-- CORS rules
-- API validation
+- Organization / Club / Facility isolation
+- Ownership checks
+- CSRF / CORS protections
 - Input validation
 - Rate limiting
-- Audit logging
-- Ownership checks
-- Tenant isolation
 - File validation
+- Audit requirements
 
-Never implement frontend-only security for protected actions.
+Frontend permission checks are UX only. Protected actions must be enforced by the backend.
 
-All important authorization must be enforced by the backend.
+Treat all client input as untrusted. Validate IDs, foreign keys, dates, times, amounts, statuses, files, query parameters, and scope server-side.
 
-Frontend permission checks are for UX only, not security.
+# 6. Data Isolation
 
----
-
-# 7. STRICT DATA ISOLATION
-
-Always respect data ownership and scope.
-
-For this project, carefully maintain boundaries between:
-
+Always maintain correct boundaries between:
 - Organization
 - Club
 - Facility
@@ -190,1133 +91,483 @@ For this project, carefully maintain boundaries between:
 - Customer
 - Booking
 
-Never allow records from one scope to leak into another.
+Never trust frontend-provided IDs without validating ownership and permission scope.
 
-Every query must be reviewed for correct filtering.
+Every query must be reviewed for correct tenant/scope filtering.
 
-Never trust IDs coming from the frontend without validating that the current user has permission to access the related object.
+# 7. Secrets and Environment Safety
 
----
-
-# 8. DO NOT TRUST CLIENT INPUT
-
-Treat all frontend and API input as untrusted.
-
-Validate:
-
-- IDs
-- Dates
-- Times
-- Amounts
-- Status values
-- File uploads
-- Foreign keys
-- Permissions
-- User-supplied text
-- Query parameters
-
-Do not rely only on frontend validation.
-
-Backend validation is mandatory.
-
----
-
-# 9. NO HARDCODED SECRETS
-
-Never hard-code:
-
+Never hard-code or expose:
 - API keys
-- Database passwords
+- Passwords
 - Tokens
 - Secret keys
 - SMTP credentials
-- Third-party credentials
 - Cloud credentials
+- Database credentials
 
 Use environment variables.
 
-Never expose sensitive `.env` values in logs, responses, screenshots, documentation, or code.
+Never expose `.env` values in logs, responses, screenshots, docs, or frontend bundles.
 
----
+Do not modify production/server `.env` without explicit confirmation.
 
-# 10. .ENV SAFETY
+For new environment variables, document name, purpose, and example format only.
 
-Do not modify production or server `.env` files without my explicit confirmation.
+# 8. Git Safety
 
-For local development:
-
-- Reuse existing environment variable conventions.
-- Do not rename environment variables unnecessarily.
-- Do not create duplicate variables for the same purpose.
-
-If a new variable is required, document:
-
-- Name
-- Purpose
-- Example value format
-
-Never reveal its real secret value.
-
----
-
-# 11. DATABASE SAFETY
-
-Never perform destructive database actions without explicit confirmation.
-
-Do not:
-
-- Drop databases
-- Drop tables
-- Truncate tables
-- Delete production data
-- Reset production databases
-- Modify production records manually
-- Run destructive SQL
-
-Before changing models:
-
-- Inspect existing models.
-- Inspect relationships.
-- Inspect migration history.
-- Check existing data assumptions.
-- Check APIs and frontend dependencies.
-
-Do not create duplicate tables for functionality already represented by an existing model.
-
----
-
-# 12. MIGRATION SAFETY
-
-Never run migrations on a production/live server without my explicit confirmation.
-
-Before generating a migration:
-
-- Review whether the schema change is actually required.
-- Check whether an existing field/model can be reused.
-- Avoid unnecessary schema changes.
-- Consider backward compatibility.
-- Consider existing records.
-
-Never edit old applied migrations casually.
-
-Never rewrite migration history without a clear reason and explicit approval where destructive.
-
----
-
-# 13. GIT SAFETY
-
-Never perform any Git write operation without my explicit confirmation for that specific action.
-
-This includes:
-
-- git commit
-- git push
-- git merge
-- git rebase
-- git reset
-- git reset --hard
-- git cherry-pick
-- git revert
+Never perform Git write operations without explicit confirmation for that specific action, including:
+- commit
+- push
+- merge
+- rebase
+- reset
+- cherry-pick
+- revert
 - branch deletion
 - force push
 - tag creation
 - history rewriting
 
-You may use read-only Git commands such as:
+Read-only commands such as `git status`, `git diff`, `git log`, `git branch`, and `git show` are allowed when needed.
 
-- git status
-- git diff
-- git log
-- git branch
-- git show
+Before any approved commit, review staged files and ensure no secrets, `.env`, database dumps, generated reports, uploads, virtual environments, `node_modules`, build outputs, caches, or IDE files are included.
 
-when needed to understand the project.
+# 9. Database and Migration Safety
 
-Do not assume approval from a previous Git operation.
-
-Each commit or push requires fresh confirmation.
-
----
-
-# 14. SERVER PROTECTION
-
-Never modify or deploy to a live server without explicit confirmation.
+Never perform destructive database actions without explicit confirmation.
 
 Do not:
+- Drop databases or tables
+- Truncate tables
+- Reset production data
+- Run destructive SQL
+- Modify production records manually
 
-- Deploy
-- Restart services
-- Restart containers
-- Modify Nginx
-- Modify Apache
-- Modify systemd
-- Modify firewall rules
-- Modify DNS
+Before model/schema changes:
+- Inspect existing models and relationships.
+- Inspect migration history.
+- Check existing data assumptions.
+- Check API/frontend dependencies.
+- Reuse existing schema where practical.
+
+Never run production migrations without explicit confirmation.
+Never casually edit applied migrations or rewrite migration history.
+
+Use database constraints where appropriate: foreign keys, unique constraints, checks, and non-null constraints.
+
+# 10. Server Protection
+
+Never without explicit confirmation:
+- Deploy to production
+- Restart production services/containers
+- Modify Nginx, Apache, systemd, DNS, firewall, or production dependencies
 - Modify production environment variables
-- Run production database migrations
-- Update production dependencies
+- Run production migrations
 
-without manual approval.
+# 11. Backend Is Authoritative
 
----
+Business-critical rules must be enforced in the backend, including:
+- Availability
+- Booking validation
+- Pricing
+- Promo eligibility
+- Subscription/package entitlement
+- Payment validation
+- Conflict detection
+- Status transitions
+- Permission checks
+- Facility access
+- Schedule resolution
 
-# 15. STRICT PROJECT BOUNDARY
+Frontend logic may assist UX but must not be the only enforcement layer.
 
-Work only inside this repository/project.
+# 12. Availability Authority
 
-Never:
+Facility availability is the authoritative gate for every booking flow.
 
-- Access another project
-- Modify another project
-- Read another project's source code
-- Change another project's database
-- Copy code from unrelated projects
-- Modify global system configuration unless explicitly required
+Business hours, holidays, special-date schedules, breaks, closures, maintenance blocks, and existing bookings determine whether a slot is available.
 
-If something appears to require access outside the current project, stop and report it.
+Pricing rules, promo codes, subscriptions, memberships, packages, and credits may affect price or entitlement only. They must never create or bypass unavailable slots.
 
----
+Every booking entry point must use the same backend availability engine and revalidate availability immediately before saving.
 
-# 16. NEVER USE EM DASH
+Do not trust a slot simply because it appeared available earlier.
 
-Never use the em dash character in:
+# 13. Concurrency and Transaction Safety
 
-- UI text
-- Labels
-- Buttons
-- Messages
-- Documentation
-- Comments
-- Generated content
+Use transactions for operations that must succeed or fail together, especially:
+- Booking creation
+- Payment + booking update
+- Slot reservation
+- Multi-record status changes
+- Resource allocation
 
-Use:
+Prevent double booking and race conditions. Revalidate availability before final creation and use locking/constraints where appropriate.
 
-- Hyphen
-- Colon
-- Parentheses
-- Comma
+# 14. Date, Time, and Money
 
-instead.
+Use timezone-aware datetimes. Do not treat browser time as authoritative.
 
-This is a permanent project rule.
+Use configured Organization/Club timezone where applicable. Handle overnight schedules, date boundaries, UTC conversion, and DST where relevant.
 
----
+Never use floating-point arithmetic for money. Use Decimal/proper monetary fields and consistent rounding, tax, discount, refund, and currency handling.
 
-# 17. RESPONSIVE DESIGN IS MANDATORY
+# 15. APIs, Queries, and Performance
 
-Every frontend feature must be designed for:
+APIs must be consistent, validated, permission-protected, and backward-compatible where practical.
 
-- Desktop
-- Laptop
-- Tablet
-- Mobile
+Avoid duplicate APIs for nearly identical operations.
 
-Do not build desktop-only pages.
+For large datasets:
+- Use backend search/filter/sort/grouping where appropriate.
+- Use pagination.
+- Avoid loading entire datasets into the browser.
+- Avoid N+1 queries.
+- Use `select_related` / `prefetch_related` where appropriate.
+- Avoid repeated queries inside loops and unbounded scans.
 
-Check:
+Do not optimize trivial code prematurely, but do not introduce obvious performance problems.
 
-- Table overflow
-- Form layout
-- Modal size
-- Drawer behavior
-- Navigation
-- Button wrapping
-- Touch targets
-- Long text
-- Empty states
+# 16. Global Table / Listing Standard
 
-Responsive behavior is part of feature completion.
+All existing and future listing pages must use the shared global table/listing system wherever possible.
 
----
+Use consistent support, where relevant, for:
+- Sorting by sortable column header
+- Resizable columns
+- Drag/reorder columns
+- Column visibility
+- Row hover/selection
+- Bulk actions
+- Search
+- Page-specific filters
+- Group By
+- Pagination
+- Loading, empty, and error states
+- Responsive behavior
+- Permission-aware actions
+- Persistent user preferences where appropriate
 
-# 18. REUSE EXISTING UI COMPONENTS
+Search, Filter, Group By, sorting, column sizing/reordering, and styling should be implemented through shared components/utilities, not rebuilt per page.
 
-Before creating a new UI component, inspect existing shared components.
+# 17. Responsive UI Standard
 
-Reuse existing:
+All existing and future frontend pages must be responsive and mobile-friendly.
 
+Before considering UI work complete, verify desktop, tablet, and mobile.
+
+Reuse shared responsive layouts/components. Avoid fixed widths/heights that cause overflow.
+
+Forms, tables, drawers, modals, page headers, toolbars, cards, navigation, schedules, and settings must adapt to smaller screens.
+
+Do not create desktop-only implementations or duplicate mobile versions unless there is a genuine reason.
+
+Use the shared breakpoint scale documented in `frontend/src/styles/responsive.css`: 1280, 1024, 768, 640, 480. Do not introduce another width.
+
+Do not put a fixed multi-column `gridTemplateColumns` in an inline style: an inline style cannot carry a media query, so it can never collapse. Use the `.form-grid` utilities.
+
+Horizontal scrolling belongs inside a controlled container (a table wrapper, a calendar grid), never on the page itself.
+
+`npm run test:responsive` runs the browser checks for these rules; `npm test` includes the static guards.
+
+# 18. Global Theme Standard
+
+All frontend pages must use the centralized Organization theme/design-token system where applicable.
+
+Do not hard-code branding colors inside individual pages/components.
+
+Reuse global theme variables/components so Organization branding changes apply consistently across the application.
+
+Preserve accessibility, contrast, responsive behavior, RTL compatibility, and safe fallback defaults.
+
+The token catalogue is defined once, in `backend/apps/settings_app/theme.py`. Adding a themeable colour means adding it there and mapping it in `frontend/src/theme/tokens.js`; nothing else needs to know a theme exists.
+
+Components read CSS variables (`var(--color-primary-600)`). No component branches on the active theme.
+
+A stored theme is validated server-side against the catalogue before it is saved, and resolved over the shipped defaults when read, so a partial or corrupt theme can never leave the interface unstyled.
+
+# 19. Internationalization Standard
+
+Use the project's centralized `react-i18next` architecture for user-facing static frontend text.
+
+Do not hard-code reusable UI text when the localization system is available.
+
+Use meaningful translation keys and reuse common keys where appropriate.
+
+Do not translate internal IDs, status codes, API identifiers, user-entered data, or database values unless the feature explicitly supports multilingual content.
+
+Support RTL/LTR through the global direction system, not page-specific hacks. Use logical CSS properties where practical.
+
+Never store translated status text as business data. Store stable identifiers and translate display labels.
+
+# 20. UI and UX Consistency
+
+Before creating a UI component, inspect and reuse existing shared:
 - Buttons
 - Inputs
 - Selects
+- Tables
 - Modals
 - Drawers
-- Tables
-- Date pickers
-- Time pickers
-- Alerts
+- Date/time pickers
 - Toasts
+- Alerts
 - Cards
 - Layouts
 - Loaders
 - Empty states
 
-Do not create visually inconsistent duplicate components.
+Maintain consistent spacing, typography, icons, form behavior, validation, loading states, and interaction patterns.
 
----
+Keep common workflows simple. Use progressive disclosure for advanced options.
 
-# 19. UI CONSISTENCY
+# 21. Accessibility
 
-Maintain consistent:
+Use proper labels, form associations, keyboard/focus behavior, button semantics, and error descriptions.
 
-- Spacing
-- Typography
-- Button styles
-- Form controls
-- Table design
-- Colors
-- Modal behavior
-- Drawers
-- Icons
-- Validation messages
-- Loading states
-- Empty states
+Do not use clickable `<div>` elements when a semantic button/link is appropriate.
 
-Do not introduce isolated styling patterns unless necessary.
-
----
-
-# 20. UX SHOULD BE SIMPLE
-
-Do not expose all advanced controls at once.
-
-Prefer:
-
-- Progressive disclosure
-- Expandable sections
-- Drawers
-- Context menus
-- Tabs
-- Clear defaults
-
-Make common tasks fast.
-
-Advanced options should not make normal workflows complicated.
-
----
-
-# 21. NO SILENT BUSINESS LOGIC CHANGES
-
-Never change important business behavior silently.
-
-Examples:
-
-- Booking rules
-- Cancellation rules
-- Pricing
-- Availability
-- Payment behavior
-- Permissions
-- Status transitions
-
-If a requested UI change requires business logic changes, identify them explicitly.
-
-Do not assume the user wants behavior changed just because the UI is changing.
-
----
-
-# 22. BACKEND IS AUTHORITATIVE
-
-Business-critical logic must live in the backend.
-
-Examples:
-
-- Availability
-- Pricing
-- Permission checks
-- Booking validation
-- Conflict detection
-- Status transitions
-- Payment validation
-- Facility access
-- Schedule resolution
-
-Frontend may display or assist with these rules but should not be the only place enforcing them.
-
----
-
-# 23. API DESIGN
-
-APIs must be:
-
-- Predictable
-- Consistent
-- Properly validated
-- Permission protected
-- Backward compatible where practical
-- Clear in error responses
-
-Do not create multiple APIs that perform nearly identical operations without a valid reason.
-
-Prefer extending an existing API when appropriate.
-
----
-
-# 24. QUERY PERFORMANCE
-
-Avoid unnecessary database queries.
-
-Watch for:
-
-- N+1 queries
-- Repeated queries inside loops
-- Unbounded queries
-- Large table scans
-- Missing select_related
-- Missing prefetch_related
-- Repeated aggregate queries
-
-Optimize where justified.
-
-Do not prematurely optimize trivial code, but do not introduce obvious performance problems.
-
----
-
-# 25. PAGINATION
-
-Large datasets must not be loaded completely into the UI or API unnecessarily.
-
-Use pagination for:
-
-- Customers
-- Bookings
-- Clubs
-- Facilities
-- Transactions
-- Logs
-- Reports
-
-Reuse existing pagination conventions.
-
----
-
-# 26. FILTERING AND SEARCH
-
-Filtering should primarily happen through backend APIs for large datasets.
-
-Avoid downloading all data to the browser just to filter locally.
-
-Respect permission and organization scopes in all filters.
-
----
-
-# 27. TRANSACTION SAFETY
-
-Use database transactions for operations that must succeed or fail together.
-
-Examples:
-
-- Booking creation
-- Payment + booking update
-- Slot reservation
-- Multi-record status changes
-- Inventory/resource allocation
-
-Avoid partial state.
-
----
-
-# 28. CONCURRENCY SAFETY
-
-Booking systems are sensitive to race conditions.
-
-For availability and booking flows:
-
-- Do not trust a slot simply because it looked available earlier.
-- Revalidate before final booking creation.
-- Prevent double booking.
-- Use appropriate transactions or locking where required.
-- Consider concurrent requests.
-
-Never rely only on frontend availability checks.
-
----
-
-# 29. DATE AND TIME SAFETY
-
-Use timezone-aware date/time handling.
-
-Do not assume browser timezone is authoritative.
-
-Use configured organization/club timezone where applicable.
-
-Handle:
-
-- Overnight schedules
-- DST where applicable
-- Date boundaries
-- UTC conversion
-- Local display time
-
-Avoid naive datetime usage.
-
----
-
-# 30. MONEY HANDLING
-
-Never use floating-point arithmetic for monetary calculations.
-
-Use:
-
-- Decimal
-- Proper currency fields
-
-Handle:
-
-- Rounding
-- Taxes
-- Discounts
-- Currency
-- Refunds
-
-consistently.
-
----
-
-# 31. STATUS MANAGEMENT
-
-Do not scatter raw string statuses throughout the code.
-
-Use centralized enums/constants where the project supports them.
-
-Example:
-
-Avoid:
-
-`status == "confirmed"`
-
-in many unrelated locations if a central enum already exists.
-
-Use one authoritative definition.
-
----
-
-# 32. CONSTANTS AND ENUMS
-
-Do not duplicate literal values.
-
-Centralize:
-
-- Statuses
-- Types
-- Permission codes
-- System constants
-- Booking states
-- Payment states
-
-where appropriate.
-
-Do not over-centralize UI-only text unnecessarily.
-
----
-
-# 33. ERROR HANDLING
+# 22. Error Handling, Logging, and Auditing
 
 Do not hide errors.
 
-Handle errors intentionally.
+Backend errors must be safe and useful. Frontend errors must be understandable.
 
-Backend should return useful, safe responses.
+Never expose stack traces, SQL, secrets, internal paths, or sensitive internals to end users.
 
-Frontend should show understandable messages.
+Log meaningful errors, security events, payment events, critical workflow failures, and third-party failures. Do not log passwords, tokens, secrets, full payment data, or unnecessary sensitive personal data.
 
-Do not expose:
+Where auditing already exists, record meaningful business changes, not every UI interaction.
 
-- Stack traces
-- Secrets
-- SQL
-- Internal server paths
-- Sensitive internal details
+# 23. File Upload Safety
 
-to end users.
+Validate file type, size, extension, MIME type where appropriate, permissions, and storage path.
 
----
+Never trust user-provided filenames.
 
-# 34. LOGGING
+# 24. Third-Party and AI Safety
 
-Use meaningful logging.
+Reuse existing integrations. Keep secrets server-side. Handle timeouts, failures, retries, and rate limits. Avoid unnecessary expensive calls.
 
-Log important:
+AI features must remain user-controlled.
 
-- Errors
-- Payment events
-- Security events
-- Critical workflow failures
-- External API failures
+AI may suggest, analyze, draft, highlight, or recommend, but must not silently save data, send communication, change pricing, cancel bookings, change permissions, or approve transactions.
 
-Do not log:
+For read-only AI reporting, expose only approved read-only reporting tools/services. Never give AI unrestricted SQL or write-capable business tools.
 
-- Passwords
-- Tokens
-- Secret keys
-- Full payment details
-- Sensitive personal information unnecessarily
+# 25. High-Impact Actions and Existing Bookings
 
-Avoid excessive debug logging in production paths.
+Require confirmation for destructive/high-impact actions such as delete, cancel, refund, permission changes, bulk updates, facility closures, or destructive schedule changes.
 
----
+If a configuration change conflicts with existing bookings:
+- Detect affected bookings.
+- Show them to the authorized user.
+- Do not silently cancel, refund, move, or delete them.
 
-# 35. AUDIT LOGS
-
-Where the project already supports auditing, capture meaningful business changes.
-
-Examples:
-
-- Booking status changed
-- Facility schedule changed
-- Pricing changed
-- Permission changed
-- Refund processed
-- Facility disabled
-
-Do not audit every mouse click or UI interaction.
-
----
-
-# 36. DELETE SAFELY
+# 26. Delete, Refactor, and Compatibility Safety
 
 Before deleting code:
-
 1. Search all references.
-2. Check imports.
-3. Check APIs.
-4. Check frontend usage.
-5. Check tests.
-6. Check background jobs.
-7. Check documentation.
-8. Confirm it is truly unused.
+2. Check imports, APIs, frontend usage, tests, jobs, and docs.
+3. Confirm it is truly unused.
 
-Never delete based only on file name.
+Do not remove working features simply because the current task does not use them.
 
----
+Keep refactors focused. Do not combine unrelated large refactors with a small feature unless necessary.
 
-# 37. REFACTOR SAFELY
+Before changing API payloads, field names, URLs, statuses, model behavior, or response structures, check all consumers and preserve compatibility where practical.
 
-Do not combine large unrelated refactors with a small feature unless necessary.
+# 27. State, Status, Constants
 
-Prefer focused changes.
+Do not introduce a second state-management library if one already exists.
 
-If a large refactor is required:
+Avoid storing the same state in multiple places without reason.
 
-- Explain why.
-- Identify affected areas.
-- Preserve behavior.
-- Validate after changes.
+Use centralized enums/constants for stable statuses, types, permission codes, booking states, payment states, and system constants where appropriate.
 
----
+Do not scatter raw status strings throughout the codebase.
 
-# 38. BACKWARD COMPATIBILITY
+# 28. Async UI States
 
-Before changing:
-
-- API payloads
-- Field names
-- URLs
-- Model behavior
-- Status values
-- Response structures
-
-check existing consumers.
-
-Do not break existing functionality unnecessarily.
-
----
-
-# 39. DO NOT REMOVE WORKING FEATURES WITHOUT CONFIRMATION
-
-If an existing feature appears unnecessary, do not remove it merely because the current task does not use it.
-
-Confirm whether it is:
-
-- Obsolete
-- Still used
-- Planned
-- Shared
-
-before deleting it.
-
----
-
-# 40. TEST WHAT YOU CHANGE
-
-Every meaningful change should be validated.
-
-Run applicable:
-
-- Django checks
-- Unit tests
-- API tests
-- Frontend build
-- Type checks
-- Lint
-- Existing automated tests
-
-Do not claim something works unless it has actually been checked where practical.
-
----
-
-# 41. TEST EDGE CASES
-
-Do not test only the happy path.
-
-Consider:
-
-- Missing values
-- Invalid input
-- Unauthorized user
-- Wrong organization
-- Wrong club
-- Wrong facility
-- Duplicate submissions
-- Concurrent requests
-- Empty datasets
-- Large datasets
-- Timezone differences
-- Overnight schedules
-- API failures
-- Network failure
-
----
-
-# 42. DO NOT HIDE PRE-EXISTING ERRORS
-
-If checks fail because of existing project issues, report them separately.
-
-Clearly distinguish:
-
-- Pre-existing issue
-- Issue introduced by current change
-- Issue fixed during current task
-
-Do not silently modify unrelated code just to make all tests green.
-
----
-
-# 43. COMMENTS
-
-Write comments only where they provide useful context.
-
-Do not add obvious comments such as:
-
-`# Increment counter`
-
-Prefer explaining:
-
-- Why something unusual exists
-- Business rule reasoning
-- Compatibility constraints
-- Security concerns
-
----
-
-# 44. NAMING
-
-Use clear names.
-
-Avoid vague names such as:
-
-- data
-- temp
-- item
-- obj
-- result2
-- test123
-
-when a meaningful name can be used.
-
-Names should make the code understandable without excessive comments.
-
----
-
-# 45. SMALL FUNCTIONS AND CLEAR RESPONSIBILITIES
-
-Avoid giant methods or components.
-
-Functions should ideally have one clear responsibility.
-
-If a function:
-
-- Validates
-- Queries
-- Transforms
-- Saves
-- Sends notifications
-- Logs
-
-all at once, consider separating concerns.
-
-Do not split code into tiny meaningless functions either.
-
-Use judgment.
-
----
-
-# 46. SERVICE LAYER
-
-For meaningful business logic, prefer the project's existing service layer rather than placing complex logic inside:
-
-- Views
-- Serializers
-- React components
-
-Keep controllers/views thin where practical.
-
-Do not create a service layer if the project intentionally follows another established pattern.
-
-Follow the existing architecture first.
-
----
-
-# 47. SERIALIZER / SCHEMA RESPONSIBILITY
-
-Serializers and request schemas should handle:
-
-- Data shape
-- Basic validation
-- Input/output conversion
-
-Complex business logic should not be duplicated across serializers.
-
-Use existing project conventions.
-
----
-
-# 48. FRONTEND COMPONENT RESPONSIBILITY
-
-Do not put:
-
-- API logic
-- Large business rules
-- Complex transformations
-- Permission algorithms
-
-directly inside presentation components if the project has services/hooks for those concerns.
-
-Keep components understandable.
-
----
-
-# 49. STATE MANAGEMENT
-
-Do not introduce another state management library if the project already has one.
-
-Reuse the current approach.
-
-Avoid storing the same state in multiple places.
-
-Do not duplicate:
-
-- API data
-- Form state
-- Global state
-
-without reason.
-
----
-
-# 50. LOADING AND ERROR STATES
-
-Any asynchronous frontend feature must consider:
-
+All asynchronous frontend features must handle:
 - Loading
 - Empty
 - Success
 - Error
 - Retry where appropriate
 
-Do not leave users with blank pages during failures.
+Do not leave blank or ambiguous UI states.
 
----
+# 29. Soft Delete and Historical Integrity
 
-# 51. ACCESSIBILITY
+Where the project already uses soft delete/archive patterns, continue using them consistently for business records that require history.
 
-Use proper:
+Do not introduce hard delete where it would damage historical/audit integrity.
 
-- Labels
-- Form associations
-- Keyboard support
-- Focus behavior
-- Button semantics
-- Error descriptions
+# 30. Parallel Development Safety
 
-Avoid clickable `<div>` elements where actual buttons should be used.
+Parallel work is allowed only for genuinely independent tasks.
 
----
+When another IDE/session is working in parallel:
+- Keep this task inside its assigned files/modules.
+- Do not modify unrelated shared files.
+- Before changing a shared/core file, stop and report why it is required.
+- Avoid simultaneous migrations or overlapping changes to global settings, routes, theme providers, shared components, global CSS, or project rules.
+- Keep changes isolated and easy to review/merge.
 
-# 52. FILE UPLOAD SECURITY
+Read-only analysis may happen in parallel, but conflicting implementation should not.
 
-For file uploads validate:
+# 31. No Em Dash
 
-- File type
-- File size
-- Allowed extensions
-- MIME type where appropriate
-- Storage path
-- Permissions
+Never use the em dash character in UI text, labels, buttons, messages, comments, documentation, translation resources, or generated project content.
 
-Never trust filenames supplied by users.
+Use a hyphen, colon, comma, or parentheses instead.
 
----
+# 32. Implementation Workflow
 
-# 53. THIRD-PARTY API SAFETY
-
-When using external APIs:
-
-- Reuse existing integrations where possible.
-- Never expose secret keys.
-- Handle timeouts.
-- Handle failures.
-- Avoid infinite retries.
-- Log failures safely.
-- Respect rate limits.
-
-Do not call expensive APIs unnecessarily.
-
----
-
-# 54. AI FEATURE SAFETY
-
-Any AI feature must remain user-controlled.
-
-AI may:
-
-- Suggest
-- Analyze
-- Draft
-- Highlight
-- Recommend
-
-AI must not silently:
-
-- Save business data
-- Send communication
-- Change pricing
-- Cancel bookings
-- Modify permissions
-- Approve transactions
-
-without an explicit user action.
-
----
-
-# 55. USER CONFIRMATION FOR HIGH-IMPACT ACTIONS
-
-Use confirmation for actions such as:
-
-- Delete
-- Cancel booking
-- Refund
-- Close facility
-- Bulk update
-- Permission change
-- Destructive schedule changes
-
-Where existing bookings may be affected, warn the user before applying the change.
-
----
-
-# 56. DO NOT AUTO-CANCEL EXISTING BOOKINGS
-
-Configuration changes must not silently cancel existing reservations.
-
-If a schedule, facility, or availability change conflicts with existing bookings:
-
-- Detect conflicts.
-- Show affected bookings.
-- Require explicit user decision.
-
----
-
-# 57. SOFT DELETE
-
-Where the existing project uses soft delete, continue using it consistently.
-
-Do not introduce hard delete for entities that should retain history.
-
-Examples may include:
-
-- Customers
-- Facilities
-- Bookings
-- Transactions
-
-Follow existing architecture.
-
----
-
-# 58. DATABASE INTEGRITY
-
-Use database constraints where appropriate.
-
-Examples:
-
-- Unique constraints
-- Foreign keys
-- Check constraints
-- Non-null fields
-
-Do not rely exclusively on UI validation for critical integrity.
-
----
-
-# 59. DOCUMENT IMPORTANT ARCHITECTURAL CHANGES
-
-If you introduce:
-
-- New model
-- New service
-- New API
-- New permission
-- New environment variable
-- New background job
-
-document it clearly.
-
-Do not produce unnecessary documentation for trivial changes.
-
----
-
-# 60. DO NOT OVERWRITE MANUAL CUSTOMIZATION
-
-Before changing existing UI, config, templates, or code, inspect whether there are manual customizations.
-
-Preserve intentional custom behavior.
-
-Do not replace working custom code with a generic implementation without understanding why it exists.
-
----
-
-# 61. IMPLEMENTATION PROCESS
-
-For every substantial task, use this workflow:
+For every substantial task:
 
 ## Step 1 - Inspect
-
-Understand relevant code and dependencies.
+Understand the existing implementation and dependencies.
 
 ## Step 2 - Plan
-
-Determine:
-
-- What needs to change
-- What should be reused
-- Risks
-- Dependencies
-- Security impact
-- Database impact
+Determine what to reuse, what must change, risks, security impact, database impact, and affected consumers.
 
 ## Step 3 - Implement
-
-Make focused changes.
+Make focused, minimal, architecture-consistent changes.
 
 ## Step 4 - Validate
-
-Run appropriate checks and tests.
+Run relevant checks/tests/builds.
 
 ## Step 5 - Review
-
-Check:
-
-- Duplication
-- Security
-- Permissions
-- Responsiveness
-- Edge cases
-- Naming
-- Dead code
+Check duplication, security, permissions, data isolation, responsiveness, RTL/i18n, naming, performance, edge cases, and dead code.
 
 ## Step 6 - Report
+Summarize files changed, main implementation, model/API changes, security considerations, tests actually performed, pre-existing issues, and known limitations.
 
-Summarize:
+# 33. Testing Rules
 
-- Files changed
-- Main implementation
-- Models/API changes
-- Security considerations
-- Tests performed
-- Known limitations
+Test what you change and relevant edge cases.
 
----
+Run applicable:
+- Django checks
+- Unit/API tests
+- Frontend build
+- Type checks
+- Lint
+- Existing automated tests
 
-# 62. WHEN REQUIREMENTS ARE AMBIGUOUS
+Consider invalid input, unauthorized users, wrong Organization/Club/Facility scope, duplicate submissions, concurrency, empty/large datasets, timezone differences, overnight schedules, API/network failure, and responsive layouts.
+
+Clearly distinguish:
+- Pre-existing issues
+- Issues introduced by the current task
+- Issues fixed during the current task
+
+Never claim something was tested, verified, working, or passed unless the relevant check was actually performed.
+
+# 34. Ambiguous Requirements
 
 Do not invent major business rules.
 
-Use the existing project behavior as the first reference.
+Use existing project behavior as the first reference.
 
-If an important requirement is genuinely unclear and implementing the wrong interpretation could affect:
-
-- Data
-- Security
-- Booking logic
-- Pricing
-- Payments
-- Permissions
-
-stop and ask before making the high-impact change.
+If ambiguity could materially affect data, security, booking logic, pricing, payments, permissions, or destructive behavior, stop and ask before implementing that part.
 
 For minor implementation details, use sound engineering judgment.
 
----
+# 35. Documentation
 
-# 63. NEVER CLAIM SOMETHING WAS VERIFIED IF IT WAS NOT
+Document meaningful architectural additions such as new models, services, APIs, permissions, environment variables, background jobs, or major shared components.
 
-Do not say:
+Do not create unnecessary documentation for trivial changes.
 
-- Tested
-- Working
-- Verified
-- Passed
+# 36. Listing Page Layout Standard
 
-unless the relevant check was actually performed.
+A listing is a full-page workspace, not a card floating on a padded page.
 
-If something could not be tested, state that clearly.
+Build every listing page with `ListPage` from `components/listview`:
 
----
+```jsx
+<ListPage title={...} subtitle={...} actions={...} tabs={...}>
+  <ListView ... />
+</ListPage>
+```
 
-# 64. Global Table / Listing Standard
+`ListPage` supplies the workspace; `ListView` supplies the behaviour. Do not
+reintroduce `PageHeader` beside a `ListView`, and do not wrap a listing in
+`.card`.
 
-All existing and future listing pages must use one shared, reusable table/listing system wherever possible. Do not create separate table behavior per page.
+Rules:
 
-Standard features should include, where applicable:
+- The heading, toolbar, table and pagination share one gutter (`--lv-gutter`),
+  so a column heading lines up with the page title above it and the row count
+  below it.
+- The workspace cancels the shell's page padding through `--app-gutter`, which
+  `.app-content` publishes. Never hard-code that number in a second place.
+- The table takes the height that is left and scrolls inside itself, so the
+  toolbar and the paging controls stay reachable in a long list. Below the 768
+  breakpoint the workspace releases the viewport height and the page scrolls
+  normally: a nested scroller under a mobile browser's collapsing chrome is
+  worse than no scroller at all.
+- A body the page renders itself (a card grid, a calendar, a kanban) goes in
+  `.lv-altbody` so it occupies the same region the table would have.
+- A page with tabs passes them as `tabs` and uses the shared `PageTabs`
+  component. Do not write another inline tab style.
+- `wide` opts a page out of the fixed-height workspace when its body is not a
+  single table.
 
-- Consistent global table styling
-- Column sorting by clicking sortable column headers
-- Resizable columns
-- Drag/reorder columns similar to Odoo
-- Clean row hover effects
-- Row selection and bulk actions where relevant
-- Global/page search
-- Search menu with page-relevant filters
-- Group By options based on the page data
-- Clear active filter/group indicators
-- Pagination
-- Loading, empty, and error states
-- Responsive behavior
-- Permission-aware actions
-- Persistent column preferences where appropriate
+All existing table behaviour is unchanged: sorting, resizing, reordering,
+column visibility, grouping, selection, bulk actions, filters, search,
+pagination, saved preferences, permission-aware actions, and the loading, empty
+and error states.
 
-Search, Filter, Group By, sorting, column sizing/reordering, and table styling should be implemented through shared global components/utilities so improvements apply consistently across the project.
+`npm test` enforces this standard in `components/listview/layout.test.js`.
 
-Before creating any new listing page, reuse the existing global table standard.
+# 37. Website Campaign Standard
 
-# 65. FINAL QUALITY CHECK
+Website campaigns and popups are presentation and marketing features only.
 
-Before considering a task complete, ask:
+They may promote holidays, offers, promo codes, memberships, facilities or
+events, but they must reuse existing business logic for availability, pricing,
+discounts, booking and payments. A campaign references those systems; it never
+reimplements them. A campaign record must never carry a discount, a price, an
+entitlement or a slot.
 
-- Did I inspect existing code first?
-- Did I reuse existing functionality?
-- Did I create any duplicate source of truth?
-- Did I preserve security?
-- Did I respect permissions?
-- Did I preserve data isolation?
-- Is the implementation understandable by another developer?
-- Is it responsive?
-- Did I consider edge cases?
-- Did I introduce unnecessary complexity?
-- Did I run appropriate checks?
-- Did I accidentally use an em dash?
-- Did I perform any prohibited Git/server/database operation?
+Campaign visibility is resolved on the backend: publication, enablement, the
+configured start/end in the organization's timezone, placement, scope, audience
+and priority. The browser is told only which campaigns it may show, and decides
+how often from the campaign's frequency, because that depends on what this
+visitor has already dismissed.
 
-If any answer is problematic, fix it before completing the task.
+Only the highest-priority eligible campaign opens. Others queue; popups never
+stack.
 
+The public payload lists what may go out rather than stripping what may not.
+Internal notes, draft rows, engagement figures and scope never reach a visitor.
 
+Cached eligibility is invalidated on every campaign write, so a campaign that is
+switched off stops appearing at once.
+
+Do not create duplicate promotion, CMS, popup, preview or analytics systems when
+existing infrastructure can be reused.
+
+# 38. Final Quality Check
+
+Before considering a task complete, confirm:
+- Existing code was inspected first.
+- Existing functionality was reused where possible.
+- No duplicate source of truth was introduced.
+- Security and permissions were preserved.
+- Organization/Club/Facility isolation is correct.
+- Backend remains authoritative for business logic.
+- Responsive behavior was considered.
+- Theme and localization standards were followed where applicable.
+- Edge cases and performance were considered.
+- Relevant checks/tests were actually run.
+- No prohibited Git/server/database action was performed.
+- No secret/generated file was introduced into Git.
+- No em dash was added.
+
+If any item is not satisfied, fix or clearly report it before completing the task.

@@ -5,7 +5,7 @@ export const auditApi = {
   get:  (id)     => api.get(`/auditlogs/${id}/`).then((r) => r.data),
 };
 
-export const AUDIT_METHODS = [
+export const auditMethods = (t) => [
   { value: 'POST',   label: 'POST' },
   { value: 'PUT',    label: 'PUT' },
   { value: 'PATCH',  label: 'PATCH' },

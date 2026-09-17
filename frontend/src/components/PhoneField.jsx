@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import { usePhoneInput, defaultCountries, parseCountry, FlagImage } from 'react-international-phone';
 import 'react-international-phone/style.css';
 import { getExampleNumber, isValidPhoneNumber, parsePhoneNumber } from 'libphonenumber-js/max';
@@ -29,6 +30,7 @@ function examplePhone(iso2) {
  * Info -> Country) unless `defaultCountry` is passed explicitly.
  */
 export function PhoneField({ value, onChange, defaultCountry, invalid = false }) {
+  const { t } = useTranslation('common');
   const orgCountry = useDefaultPhoneCountry();
   const startCountry = defaultCountry || orgCountry;
   const { inputValue, country, setCountry, handlePhoneValueChange, inputRef } = usePhoneInput({
@@ -73,7 +75,7 @@ export function PhoneField({ value, onChange, defaultCountry, invalid = false })
   return (
     <div className={`pf${invalid ? ' pf--invalid' : ''}`} ref={wrap}>
       <button type="button" className="pf-btn" onClick={() => { setOpen((o) => !o); setQuery(''); }}
-        aria-label="Select country">
+        aria-label={t('selectCountry')}>
         <FlagImage iso2={country.iso2} size="22px" />
         <span className="pf-dial">+{country.dialCode}</span>
         <span className="pf-caret" aria-hidden="true">▾</span>
@@ -82,7 +84,7 @@ export function PhoneField({ value, onChange, defaultCountry, invalid = false })
         onChange={handlePhoneValueChange} placeholder={examplePhone(country.iso2)} />
       {open && (
         <div className="pf-pop">
-          <input className="pf-search" autoFocus placeholder="Search country…"
+          <input className="pf-search" autoFocus placeholder={t('searchCountry')}
             value={query} onChange={(e) => setQuery(e.target.value)} />
           <ul className="pf-list">
             {list.map((c) => (
@@ -95,7 +97,7 @@ export function PhoneField({ value, onChange, defaultCountry, invalid = false })
                 </button>
               </li>
             ))}
-            {list.length === 0 && <li className="pf-empty">No country found</li>}
+            {list.length === 0 && <li className="pf-empty">{t('noCountryFound')}</li>}
           </ul>
         </div>
       )}

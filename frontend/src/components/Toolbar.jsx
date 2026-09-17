@@ -1,4 +1,5 @@
 import { Search } from 'lucide-react';
+import { useTranslation } from 'react-i18next';
 
 import { Select2 } from './Select2.jsx';
 
@@ -13,10 +14,11 @@ import { Select2 } from './Select2.jsx';
 export function Toolbar({
   searchValue,
   onSearchChange,
-  searchPlaceholder = 'Search…',
+  searchPlaceholder,
   filters = [],
   right,
 }) {
+  const { t } = useTranslation('table');
   return (
     <div
       style={{
@@ -39,18 +41,18 @@ export function Toolbar({
           className="form-input"
           style={{ paddingLeft: 36 }}
           value={searchValue || ''}
-          placeholder={searchPlaceholder}
+          placeholder={searchPlaceholder || t('table:search')}
           onChange={(e) => onSearchChange(e.target.value)}
         />
       </div>
 
       {filters.map((f, i) => (
-        <div key={i} style={{ width: 200 }}>
+        <div key={i} style={{ flex: '1 1 160px', minWidth: 0, maxWidth: 200 }}>
           <Select2
             options={f.options}
             value={f.value || ''}
             onChange={(v) => f.onChange(v || null)}
-            placeholder={f.placeholder || 'All'}
+            placeholder={f.placeholder || t('table:filterAll')}
             clearable
           />
         </div>

@@ -1,4 +1,5 @@
 import { createContext, useCallback, useContext, useRef, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 
 import { Modal } from './Modal.jsx';
 import { FormField } from './FormField.jsx';
@@ -12,6 +13,7 @@ const PromptCtx = createContext(() => Promise.resolve(null));
  * Resolves to the entered string, or null if cancelled.
  */
 export function PromptProvider({ children }) {
+  const { t } = useTranslation('common');
   const [opts, setOpts] = useState(null);
   const [value, setValue] = useState('');
   const resolver = useRef(null);
@@ -35,7 +37,7 @@ export function PromptProvider({ children }) {
         title={opts?.title || 'Enter a value'}
         onClose={() => finish(null)}
         footer={<>
-          <button className="btn btn-secondary" type="button" onClick={() => finish(null)}>Cancel</button>
+          <button className="btn btn-secondary" type="button" onClick={() => finish(null)}>{t('common:actions.cancel')}</button>
           <button className="btn btn-primary" type="button" onClick={() => finish(value)}>
             {opts?.confirmLabel || 'OK'}
           </button>

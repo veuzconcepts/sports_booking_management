@@ -1,0 +1,211 @@
+/* ==========================================================================
+   Shared responsive layer.
+
+   One breakpoint scale for the whole application. Every media query in the
+   project uses one of these five widths, so a change in behaviour happens at
+   the same place everywhere and a reviewer can predict it without reading the
+   stylesheet:
+
+     --bp-xl  1280px   large desktop
+     --bp-lg  1024px   laptop / tablet landscape
+     --bp-md   768px   tablet portrait
+     --bp-sm   640px   mobile landscape
+     --bp-xs   480px   mobile portrait
+
+   CSS custom properties cannot be used inside a media query condition, so the
+   numbers are written out. The list above is the contract; do not invent a
+   sixth width.
+
+   The utilities below exist so pages stop hand-rolling fixed grids. Prefer
+   `.form-grid` over an inline `gridTemplateColumns`, because an inline style
+   cannot carry a media query and therefore can never collapse.
+   ========================================================================== */
+
+/* --------------------------------------------------------- overflow guard */
+/* A single stray wide element should degrade to a scrollable region, never to
+   a page that slides sideways under the user's thumb. */
+html {
+  overflow-x: hidden;
+}
+body {
+  overflow-x: clip;
+}
+
+/* Long unbroken strings (emails, slugs, URLs, reference codes) are the usual
+   cause of a blown-out layout at 375px. */
+.app-content,
+.card,
+.modal-body,
+.lt td {
+  overflow-wrap: anywhere;
+}
+
+/* ------------------------------------------------------------- form grids */
+/* Auto-fitting form row: as many columns as fit, one when nothing does.
+   `minmax(0, 1fr)` rather than `1fr` so a long value cannot force overflow. */
+.form-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(220px, 100%), 1fr));
+  gap: var(--space-3);
+}
+.form-grid--wide {
+  grid-template-columns: repeat(auto-fit, minmax(min(280px, 100%), 1fr));
+}
+.form-grid--narrow {
+  grid-template-columns: repeat(auto-fit, minmax(min(150px, 100%), 1fr));
+}
+/* Explicit column counts that still collapse. Use when the pairing is
+   meaningful (from/to, label/value) rather than merely decorative. */
+.form-grid--2 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.form-grid--3 { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.form-grid--4 { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+.form-grid > * { min-width: 0; }
+
+@media (max-width: 768px) {
+  .form-grid--3,
+  .form-grid--4 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+@media (max-width: 640px) {
+  .form-grid--2,
+  .form-grid--3,
+  .form-grid--4 { grid-template-columns: minmax(0, 1fr); }
+}
+
+/* Row of actions that wraps instead of overflowing, and goes full width on a
+   phone so the buttons stay thumb-sized. */
+.action-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+}
+@media (max-width: 480px) {
+  .action-row--stack { flex-direction: column; align-items: stretch; }
+  .action-row--stack > .btn { width: 100%; }
+}
+
+/* A region that is allowed to scroll sideways, unlike the page. */
+.scroll-x {
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
+/* Visibility helpers, named after the scale so the intent is readable. */
+@media (max-width: 768px) { .hide-md-down { display: none !important; } }
+@media (max-width: 640px) { .hide-sm-down { display: none !important; } }
+@media (min-width: 769px) { .show-md-down { display: none !important; } }
+
+/* --------------------------------------------------- shell and page frame */
+@media (max-width: 768px) {
+  .app-content { padding: var(--space-4); }
+  .page-title { font-size: 19px; }
+}
+@media (max-width: 480px) {
+  .app-content { padding: var(--space-3); }
+  .card-header,
+  .card-body { padding: var(--space-4); }
+}
+
+/* The page header keeps its actions reachable rather than pushing them off. */
+@media (max-width: 640px) {
+  .page-header { align-items: stretch; }
+  .page-header > * { min-width: 0; }
+}
+
+/* ---------------------------------------------------------------- tables */
+/* The listing framework already hides low-priority columns; below the mobile
+   breakpoint the remaining table scrolls inside its own card. */
+@media (max-width: 640px) {
+  .table-wrapper,
+  .lt-wrapper { -webkit-overflow-scrolling: touch; }
+  .table thead th,
+  .lt thead th { font-size: 11px; }
+}
+
+/* ------------------------------------------------------- modals & drawers */
+.modal-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: var(--space-5);
+  background: rgba(15, 23, 42, 0.45);
+  backdrop-filter: blur(2px);
+}
+.modal-dialog {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  max-height: 90vh;
+  overflow: hidden;
+  background: var(--color-surface);
+  border-radius: var(--radius-lg);
+  box-shadow: 0 20px 50px rgba(15, 23, 42, 0.25);
+}
+.modal-dialog--sm { max-width: 380px; }
+.modal-dialog--md { max-width: 520px; }
+.modal-dialog--lg { max-width: 720px; }
+.modal-dialog--xl { max-width: 960px; }
+
+.drawer-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  display: flex;
+  justify-content: flex-end;
+}
+.drawer-scrim {
+  position: absolute;
+  inset: 0;
+  background: rgba(15, 23, 42, 0.45);
+  backdrop-filter: blur(2px);
+}
+.drawer-panel {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  height: 100%;
+  background: var(--color-surface);
+  box-shadow: -20px 0 50px rgba(15, 23, 42, 0.25);
+}
+
+@media (max-width: 640px) {
+  /* Full-bleed on a phone: a centred dialog with margins wastes the only
+     space there is, and the footer buttons must stay reachable. */
+  .modal-backdrop { padding: 0; align-items: flex-end; }
+  .modal-dialog {
+    max-width: none;
+    max-height: 96vh;
+    max-height: 96dvh;
+    border-radius: var(--radius-lg) var(--radius-lg) 0 0;
+  }
+  .modal-foot { flex-wrap: wrap; }
+  .modal-foot > .btn { flex: 1 1 140px; }
+  .drawer-panel { max-width: none !important; }
+}
+
+/* --------------------------------------------------------------- RTL trim */
+/* Direction-specific shadows; everything else uses logical properties. */
+[dir="rtl"] .drawer-panel { box-shadow: 20px 0 50px rgba(15, 23, 42, 0.25); }
+[dir="rtl"] .drawer-backdrop { justify-content: flex-start; }
+
+/* ------------------------------------------- membership entitlement rows */
+/* Six controls in a line is a laptop layout; below that it becomes two
+   columns and then a single stack, so each control keeps a usable width. */
+.ent-row {
+  display: grid;
+  grid-template-columns: 1.1fr 1.4fr 1fr 0.7fr 1fr auto;
+  gap: var(--space-2);
+  margin-bottom: var(--space-2);
+  align-items: center;
+}
+@media (max-width: 1024px) {
+  .ent-row { grid-template-columns: repeat(2, minmax(0, 1fr)); align-items: stretch; }
+  .ent-row > :last-child { grid-column: 1 / -1; justify-self: end; }
+}
+@media (max-width: 480px) {
+  .ent-row { grid-template-columns: minmax(0, 1fr); }
+}

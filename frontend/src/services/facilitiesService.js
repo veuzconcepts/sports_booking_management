@@ -64,59 +64,59 @@ export const pricingRulesApi = {
   preview: (data)   => api.post('/facilities/pricing-rules/preview/', data).then((r) => r.data),
 };
 
-export const BADGE_STATUSES = [
-  { value: 'hide', label: 'Hide' },
-  { value: 'show', label: 'Show' },
+export const badgeStatuses = (t) => [
+  { value: 'hide', label: t('facilities:hide') },
+  { value: 'show', label: t('facilities:show') },
 ];
 
-export const FACILITY_BADGES = [
-  { value: 'premium',     label: 'Premium' },
-  { value: 'recommended', label: 'Recommended' },
-  { value: 'bestseller',  label: 'Bestseller' },
+export const facilityBadges = (t) => [
+  { value: 'premium',     label: t('facilities:premium') },
+  { value: 'recommended', label: t('facilities:recommended') },
+  { value: 'bestseller',  label: t('facilities:bestseller') },
 ];
 
 /** Broad nature of a facility category (mirrors facilities.FacilityKind). */
-export const FACILITY_KINDS = [
-  { value: 'outdoor_court', label: 'Outdoor Court' },
-  { value: 'indoor_court',  label: 'Indoor Court' },
-  { value: 'pitch',         label: 'Pitch / Field' },
-  { value: 'aquatic',       label: 'Aquatic' },
-  { value: 'hall',          label: 'Hall' },
-  { value: 'meeting_room',  label: 'Meeting Room' },
-  { value: 'other',         label: 'Other' },
+export const facilityKinds = (t) => [
+  { value: 'outdoor_court', label: t('facilities:outdoorCourt') },
+  { value: 'indoor_court',  label: t('facilities:indoorCourt') },
+  { value: 'pitch',         label: t('facilities:pitchField') },
+  { value: 'aquatic',       label: t('facilities:aquatic') },
+  { value: 'hall',          label: t('facilities:hall') },
+  { value: 'meeting_room',  label: t('facilities:meetingRoom') },
+  { value: 'other',         label: t('facilities:other') },
 ];
 
-export const RULE_TYPES = [
-  { value: 'club',       label: 'Club Pricing' },
-  { value: 'membership', label: 'Membership Discount' },
-  { value: 'promo',      label: 'Promo Pricing' },
-  { value: 'date_range', label: 'Date Range Pricing' },
-  { value: 'weekend',    label: 'Weekend Pricing' },
-  { value: 'peak_hour',  label: 'Peak Hour Pricing' },
-  { value: 'custom',     label: 'Custom Pricing' },
+export const ruleTypes = (t) => [
+  { value: 'club',       label: t('facilities:clubPricing') },
+  { value: 'membership', label: t('facilities:membershipDiscount') },
+  { value: 'promo',      label: t('facilities:promoPricing') },
+  { value: 'date_range', label: t('facilities:dateRangePricing') },
+  { value: 'weekend',    label: t('facilities:weekendPricing') },
+  { value: 'peak_hour',  label: t('facilities:peakHourPricing') },
+  { value: 'custom',     label: t('facilities:customPricing') },
 ];
 
-export const ADJUSTMENT_TYPES = [
-  { value: 'fixed_increase',   label: 'Fixed Amount Increase' },
-  { value: 'fixed_discount',   label: 'Fixed Amount Discount' },
-  { value: 'percent_increase', label: 'Percentage Increase' },
-  { value: 'percent_discount', label: 'Percentage Discount' },
-  { value: 'override',         label: 'Override Price' },
+export const adjustmentTypes = (t) => [
+  { value: 'fixed_increase',   label: t('facilities:fixedAmountIncrease') },
+  { value: 'fixed_discount',   label: t('facilities:fixedAmountDiscount') },
+  { value: 'percent_increase', label: t('facilities:percentageIncrease') },
+  { value: 'percent_discount', label: t('facilities:percentageDiscount') },
+  { value: 'override',         label: t('facilities:overridePrice') },
 ];
 
-export const DAYS_OF_WEEK = [
-  { value: 0, label: 'Monday' },
-  { value: 1, label: 'Tuesday' },
-  { value: 2, label: 'Wednesday' },
-  { value: 3, label: 'Thursday' },
-  { value: 4, label: 'Friday' },
-  { value: 5, label: 'Saturday' },
-  { value: 6, label: 'Sunday' },
+export const daysOfWeek = (t) => [
+  { value: 0, label: t('facilities:monday') },
+  { value: 1, label: t('facilities:tuesday') },
+  { value: 2, label: t('facilities:wednesday') },
+  { value: 3, label: t('facilities:thursday') },
+  { value: 4, label: t('facilities:friday') },
+  { value: 5, label: t('facilities:saturday') },
+  { value: 6, label: t('facilities:sunday') },
 ];
 
-export const CUSTOMER_TYPES = [
-  { value: 'bronze',   label: 'Bronze' },
-  { value: 'silver',   label: 'Silver' },
-  { value: 'gold',     label: 'Gold' },
-  { value: 'platinum', label: 'Platinum' },
+export const customerTypes = (t) => [
+  { value: 'bronze',   label: t('facilities:bronze') },
+  { value: 'silver',   label: t('facilities:silver') },
+  { value: 'gold',     label: t('facilities:gold') },
+  { value: 'platinum', label: t('facilities:platinum') },
 ];

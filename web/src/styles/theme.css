@@ -1,3 +1,8 @@
+/* Base stylesheet for the customer website.
+   The palette lives in tokens.css; everything below reads a token, so a
+   branding change repaints the site without touching a component. */
+@import './tokens.css';
+
 /* New UAE Dirham symbol - the font renders the text "AED" as the glyph.
    Apply `.aed-symbol` to a span containing "AED" to show it. */
 @font-face {
@@ -7,115 +12,6 @@
   font-weight: normal; font-style: normal; font-display: swap;
 }
 .aed-symbol { font-family: "aed", sans-serif; }
-
-/* Brand theme - navy/indigo + gold accent, dark by default
-   with a light theme. Everything is driven by the tokens below: switching the
-   `data-theme` attribute on <html> re-skins the whole site, no per-component work.
-
-   • Brand constants (navy/indigo/amber + text-on-accent) stay the same in both
-     themes - they're the identity (gradients, CTAs, footer).
-   • Semantic tokens (surfaces, ink, lines, soft tints, states) flip per theme. */
-:root {
-  /* Brand identity - navy + amber are constant; indigo accents brighten in dark
-     (below) so accent text/icons/borders stay legible on dark surfaces. */
-  --navy: #211b4e;
-  --navy-700: #2a2360;
-  --amber: #ffc100;
-  --amber-600: #ff9c00;
-  /* Indigo accent - bright in dark (default) */
-  --indigo: #7c63c8;
-  --indigo-600: #9b7ff0;
-  --on-accent: #14122b;        /* dark text on amber / white pills (= original ink) */
-  --plate: #ffffff;            /* light plate behind logos */
-
-  /* Sizing / type - constant */
-  --radius: 16px;
-  --radius-sm: 10px;
-  --container: 1200px;
-  --font: 'Poppins', system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
-
-  /* ---- Dark theme (default) - deep midnight navy, layered gold + purple glow ---- */
-  color-scheme: dark;
-  --bg: #0a0a1c;
-  --bg-image:
-    radial-gradient(1000px 520px at 6% -8%, rgba(255, 193, 0, 0.10), transparent 58%),
-    radial-gradient(900px 680px at 102% -2%, rgba(111, 74, 158, 0.26), transparent 55%),
-    radial-gradient(760px 760px at 50% 118%, rgba(91, 75, 158, 0.16), transparent 60%);
-  --bg-soft: #0f0e26;
-  --surface: #16142f;
-  --surface-2: #211d40;
-  --glass: rgba(26, 22, 56, 0.62);
-  --header-bg: rgba(10, 10, 26, 0.72);
-  --ink: #f4f3fb;
-  --text: #c7c5dd;
-  --muted: #9491b3;
-  --line: rgba(255, 255, 255, 0.10);
-  --track: #2a2550;
-  --soft-accent: rgba(124, 92, 196, 0.20);
-  --soft-active: rgba(124, 92, 196, 0.30);
-  --faq-open-bg: rgba(124, 92, 196, 0.16);
-  --placeholder: #6f6c8e;
-  --disabled: #4c4870;
-  --shadow: 0 18px 50px rgba(0, 0, 0, 0.50);
-  --shadow-sm: 0 6px 22px rgba(0, 0, 0, 0.35);
-  --excl-bg: rgba(214, 120, 80, 0.10);
-  --excl-border: rgba(214, 120, 80, 0.24);
-  --err-bg: rgba(210, 59, 59, 0.14);
-  --err-border: rgba(210, 59, 59, 0.40);
-  --err-ink: #ff8f8f;
-  /* Gradient used for clipped-text price figures - gold in dark so prices glow
-     against dark surfaces; navy→indigo in light. */
-  --price-grad: linear-gradient(135deg, #ffd76a, var(--amber-600));
-  /* Premium gold "float" used on hover for selectable cards/rows. */
-  --hover-glow: 0 18px 42px rgba(255, 193, 0, 0.20), 0 10px 26px rgba(0, 0, 0, 0.38);
-  --hover-border: rgba(255, 193, 0, 0.85);
-  /* Brand "trusted by" logos: a premium dark glass plate matching the theme (not
-     white); the logo image is left untouched (no filter) so it stays visible. */
-  --logo-plate: var(--glass);
-  --logo-filter: none;
-  --logo-filter-hover: none;
-  --logo-op: 1;
-}
-
-/* ---- Light theme ---- */
-[data-theme="light"] {
-  color-scheme: light;
-  /* Original (deeper) indigo accent reads best on light surfaces. */
-  --indigo: #5b4b9e;
-  --indigo-600: #6f4a9e;
-  --bg: #ffffff;
-  --bg-image: none;            /* light is the finalized plain-white background */
-  --bg-soft: #f6f6fb;
-  --surface: #ffffff;
-  --surface-2: #e7e7ef;
-  --glass: rgba(255, 255, 255, 0.70);
-  --header-bg: rgba(255, 255, 255, 0.92);
-  --ink: #14122b;
-  --text: #2b2b3a;
-  --muted: #6b7280;
-  --line: #e7e7ef;
-  --track: #eceaf3;
-  --soft-accent: #f0eefa;
-  --soft-active: #f4f1fc;
-  --faq-open-bg: #f1ecfb;
-  --placeholder: #9a9aac;
-  --disabled: #c4c4d0;
-  --shadow: 0 18px 50px rgba(33, 27, 78, 0.12);
-  --shadow-sm: 0 6px 22px rgba(33, 27, 78, 0.05);
-  --excl-bg: #fbf5f3;
-  --excl-border: #f1ddd6;
-  --err-bg: #fdecec;
-  --err-border: #f5c2c2;
-  --err-ink: #b3261e;
-  --price-grad: linear-gradient(135deg, var(--navy-700), var(--indigo));
-  /* Light theme is finalized - hover stays the original indigo accent (the gold
-     "float" tokens above are used only by the dark-scoped rules). */
-  /* Light keeps the original white logo plate with full-colour logos. */
-  --logo-plate: #ffffff;
-  --logo-filter: none;
-  --logo-filter-hover: none;
-  --logo-op: 1;
-}
 
 * { box-sizing: border-box; }
 html { scroll-behavior: smooth; }
@@ -157,9 +53,9 @@ p { margin: 0 0 1rem; }
 .eyebrow {
   display: inline-flex; align-items: center; gap: 10px;
   text-transform: uppercase; letter-spacing: 0.14em; font-size: 0.78rem;
-  font-weight: 700; color: var(--amber-600);
+  font-weight: 700; color: var(--eyebrow-ink);
 }
-.eyebrow::before { content: ''; width: 26px; height: 2px; background: var(--amber); }
+.eyebrow::before { content: ''; width: 26px; height: 2px; background: var(--accent-strong); }
 .muted { color: var(--muted); }
 
 /* Buttons */
@@ -169,10 +65,11 @@ p { margin: 0 0 1rem; }
   cursor: pointer; border: 1.5px solid transparent; transition: transform .15s ease, box-shadow .15s ease, background .15s ease;
 }
 .btn:hover { transform: translateY(-1px); }
-.btn-primary { background: linear-gradient(135deg, var(--navy-700), var(--indigo-600)); color: #fff; }
-.btn-amber { background: var(--amber); color: var(--on-accent); }
-.btn-amber:hover { background: var(--amber-600); }
-.btn-ghost { border-color: rgba(255, 255, 255, 0.4); color: #fff; }
+.btn-primary { background: var(--brand-deep); color: var(--on-brand); }
+.btn-primary:hover { background: var(--brand); }
+.btn-amber { background: var(--accent); color: var(--on-accent); }
+.btn-amber:hover { background: var(--accent-strong); }
+.btn-ghost { border-color: rgba(255, 255, 255, 0.45); color: var(--on-brand); }
 .btn-outline { border-color: var(--line); color: var(--ink); background: var(--surface); }
 
 /* Grid helpers */
@@ -190,3 +87,16 @@ p { margin: 0 0 1rem; }
 
 .section-head { max-width: 720px; margin-bottom: 40px; }
 .section-head--center { margin-left: auto; margin-right: auto; text-align: center; }
+
+/* Visible to a screen reader, not on screen. Used where a control's purpose is
+   obvious by sight but would otherwise reach assistive technology unlabelled. */
+.sr-only {
+  position: absolute;
+  width: 1px; height: 1px;
+  margin: -1px; padding: 0;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  clip-path: inset(50%);
+  white-space: nowrap;
+  border: 0;
+}

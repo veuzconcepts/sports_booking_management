@@ -22,7 +22,37 @@ export const websiteApi = {
   brands:      crud('brands'),
   faqs:        crud('faqs'),
   seo:         crud('seo'),
+  campaigns:   crud('campaigns'),
 };
+
+/** Campaign type / frequency / placement vocabularies, translated for display.
+ *  The values are the backend's stable codes and are never translated. */
+export const campaignTypes = (t) => [
+  'offer', 'holiday', 'ramadan', 'eid', 'national_day', 'event', 'tournament',
+  'membership', 'new_facility', 'announcement', 'maintenance', 'marketing', 'custom',
+].map((value) => ({ value, label: t(`website:campaigns.types.${value}`) }));
+
+export const campaignFrequencies = (t) => [
+  'session', 'every_visit', 'daily', 'once', 'until_closed',
+].map((value) => ({ value, label: t(`website:campaigns.frequency.${value}`) }));
+
+export const campaignPlacements = (t) => [
+  'home', 'booking', 'all',
+].map((value) => ({ value, label: t(`website:campaigns.placement.${value}`) }));
+
+export const campaignAudiences = (t) => [
+  'everyone', 'guests', 'members',
+].map((value) => ({ value, label: t(`website:campaigns.audience.${value}`) }));
+
+export const campaignPriorities = (t) => [
+  { value: 30, label: t('website:campaigns.priority.high') },
+  { value: 20, label: t('website:campaigns.priority.normal') },
+  { value: 10, label: t('website:campaigns.priority.low') },
+];
+
+export const campaignStatuses = (t) => [
+  'draft', 'scheduled', 'active', 'expired', 'disabled',
+].map((value) => ({ value, label: t(`website:campaigns.status.${value}`) }));
 
 // Media Library - uploads are multipart (file + metadata).
 export const mediaApi = {
@@ -45,26 +75,26 @@ export const footerApi = {
   update: (data) => api.patch('/website/footer/', data).then((r) => r.data),
 };
 
-export const MEDIA_KINDS = [
-  { value: 'image', label: 'Image' },
-  { value: 'icon', label: 'Icon' },
-  { value: 'logo', label: 'Logo' },
-  { value: 'video', label: 'Video' },
+export const mediaKinds = (t) => [
+  { value: 'image', label: t('website:image') },
+  { value: 'icon', label: t('website:icon') },
+  { value: 'logo', label: t('website:logo') },
+  { value: 'video', label: t('website:video') },
 ];
 
-export const SECTION_KEYS = [
-  { value: 'hero', label: 'Hero' },
-  { value: 'how_it_works', label: 'How It Works' },
-  { value: 'why_choose_us', label: 'Why Choose Us' },
-  { value: 'services', label: 'Services' },
-  { value: 'packages', label: 'Packages' },
-  { value: 'membership', label: 'Membership Highlights' },
-  { value: 'projects', label: 'Latest Projects' },
-  { value: 'stats', label: 'Stats' },
-  { value: 'brands', label: 'Trusted Brands' },
-  { value: 'testimonials', label: 'Testimonials' },
+export const sectionKeys = (t) => [
+  { value: 'hero', label: t('website:hero') },
+  { value: 'how_it_works', label: t('website:howItWorks') },
+  { value: 'why_choose_us', label: t('website:whyChooseUs') },
+  { value: 'services', label: t('website:services') },
+  { value: 'packages', label: t('website:packages') },
+  { value: 'membership', label: t('website:membershipHighlights') },
+  { value: 'projects', label: t('website:latestProjects') },
+  { value: 'stats', label: t('website:stats') },
+  { value: 'brands', label: t('website:trustedBrands') },
+  { value: 'testimonials', label: t('website:testimonials') },
   { value: 'faq', label: 'FAQ' },
-  { value: 'cta_band', label: 'Call To Action' },
-  { value: 'app_promo', label: 'App Promo' },
+  { value: 'cta_band', label: t('website:callAction') },
+  { value: 'app_promo', label: t('website:appPromo') },
 ];
 

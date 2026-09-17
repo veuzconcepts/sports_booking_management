@@ -1,7 +1,9 @@
 import { useCallback, useEffect, useState } from 'react';
-import { AlertTriangle, Eye, EyeOff } from 'lucide-react';
+import { Eye, EyeOff } from 'lucide-react';
+import { useTranslation } from 'react-i18next';
 
 import { EffectiveSchedule, ScheduleEditor, WeeklyTimeline } from './ScheduleEditor.jsx';
+import { ScheduleImpactNotice } from './ScheduleImpactNotice.jsx';
 import { scheduleApi } from '../services/scheduleService.js';
 import { useTimeFormat } from '../services/timeformat.jsx';
 import './schedule.css';
@@ -31,6 +33,7 @@ export function ScheduleScopePanel({
   onBuffers,
   canEdit = true,
 }) {
+  const { t } = useTranslation('schedule');
   const { format24 } = useTimeFormat();
   const [effective, setEffective] = useState(null);
   const [impact, setImpact] = useState(null);
@@ -57,15 +60,15 @@ export function ScheduleScopePanel({
           <input type="checkbox" checked={!custom} disabled={!canEdit}
             onChange={(e) => onCustom(!e.target.checked)} />
           <span className="sch-source__text">
-            Use <strong>{parentLabel}</strong> schedule
+            {t('useParent', { parent: parentLabel })}
           </span>
         </label>
         <span className="sch-source__text muted" style={{ fontSize: 12.5 }}>
           {custom
-            ? overriddenDays
-              ? `${overriddenDays} day${overriddenDays > 1 ? 's' : ''} customised, the rest follow ${parentLabel}.`
-              : `Nothing customised yet, so every day still follows ${parentLabel}.`
-            : `This ${scope} follows ${parentLabel} exactly. Changes there apply here automatically.`}
+            ? (overriddenDays
+              ? t('daysCustomised', { count: overriddenDays, parent: parentLabel })
+              : t('nothingCustomised', { parent: parentLabel }))
+            : t('followsParent', { scope, parent: parentLabel })}
         </span>
 
         <div className="sch-bar__spacer" />
@@ -73,30 +76,12 @@ export function ScheduleScopePanel({
           <button type="button" className="btn btn-secondary"
             onClick={() => setShowEffective((v) => !v)}>
             {showEffective ? <EyeOff size={14} /> : <Eye size={14} />}
-            {showEffective ? 'Hide effective' : 'Effective schedule'}
+            {showEffective ? t('hideEffective') : t('effectiveSchedule')}
           </button>
         )}
       </div>
 
-      {impact && impact.count > 0 && (
-        <div className="sch-impact">
-          <AlertTriangle size={16} />
-          <span>
-            This schedule no longer covers <strong>{impact.count} existing
-            booking{impact.count > 1 ? 's' : ''}</strong>. Nothing has been
-            cancelled - review and move them yourself.
-          </span>
-          <ul className="sch-impact__list">
-            {impact.bookings.slice(0, 5).map((b) => (
-              <li key={b.id}>
-                {b.reference} - {b.date} {b.time}
-                {b.facility ? ` - ${b.facility}` : ''} ({b.reason})
-              </li>
-            ))}
-            {impact.count > 5 && <li>and {impact.count - 5} more</li>}
-          </ul>
-        </div>
-      )}
+      <ScheduleImpactNotice impact={impact} />
 
       {custom && (
         <>
@@ -117,7 +102,7 @@ export function ScheduleScopePanel({
           <div>
             <button type="button" className="btn btn-secondary"
               onClick={() => setShowTimeline((v) => !v)}>
-              {showTimeline ? 'Hide timeline' : 'Weekly timeline'}
+              {showTimeline ? t('hideTimeline') : t('weeklyTimeline')}
             </button>
           </div>
           {showTimeline && inherited && (
@@ -129,12 +114,11 @@ export function ScheduleScopePanel({
       {showEffective && inherited && (
         <div>
           <div className="sch-detail__title" style={{ marginBottom: 6 }}>
-            Effective schedule
+            {t('effectiveSchedule')}
           </div>
           <EffectiveSchedule week={inherited} format24={format24} />
           <p className="muted" style={{ fontSize: 12, marginTop: 6 }}>
-            What the booking engine will actually use, after inheritance and any
-            special dates. Save your changes to see them reflected here.
+            {t('effectiveHint')}
           </p>
         </div>
       )}

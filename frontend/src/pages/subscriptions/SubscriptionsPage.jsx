@@ -1,8 +1,10 @@
 import { useCallback, useEffect, useState } from 'react';
 import { Plus, RefreshCw, Trash2 } from 'lucide-react';
+import { useTranslation } from 'react-i18next';
 import toast from 'react-hot-toast';
 
 import { PageHeader } from '../../components/PageHeader.jsx';
+import { PageTabs } from '../../components/PageTabs.jsx';
 import { DataTable } from '../../components/DataTable.jsx';
 import { StatusBadge } from '../../components/StatusBadge.jsx';
 import { Modal } from '../../components/Modal.jsx';
@@ -17,25 +19,18 @@ import { customersApi } from '../../services/customersService.js';
 import { facilityTypesApi, facilityCategoriesApi, addonsApi } from '../../services/facilitiesService.js';
 import { clubsApi } from '../../services/clubsService.js';
 import {
-  MEMBERSHIP_INTERVALS, VALIDITY_MODES, ENTITLEMENT_TARGETS, ENTITLEMENT_LIMITS,
-  ENTITLEMENT_PERIODS, MEMBERSHIP_STATUS_TONE, MEMBERSHIP_STATUS_LABELS,
-  MEMBERSHIP_PAYMENT_METHODS, membershipPlansApi, membershipsApi,
+  membershipIntervals, validityModes, entitlementTargets, entitlementLimits,
+  entitlementPeriods, MEMBERSHIP_STATUS_TONE, membershipStatusLabels,
+  membershipPaymentMethods, membershipPlansApi, membershipsApi,
 } from '../../services/subscriptionsService.js';
 import { apiErrorMessage } from '../../utils/apiError';
 
-const TABS = [
-  { key: 'memberships', label: 'Memberships' },
-  { key: 'plans',       label: 'Plans' },
+const tabs = (t) => [
+  { key: 'memberships', label: t('memberships') },
+  { key: 'plans',       label: t('plans') },
 ];
 
-const tabBtnStyle = (active) => ({
-  padding: '8px 14px', border: 'none', background: 'transparent',
-  borderBottom: active ? '2px solid var(--color-primary-600)' : '2px solid transparent',
-  color: active ? 'var(--color-text)' : 'var(--color-text-muted)',
-  fontWeight: 600, fontSize: 13.5, cursor: 'pointer',
-});
-
-const intervalLabel = (v) => (MEMBERSHIP_INTERVALS.find((i) => i.value === v)?.label || v);
+const intervalLabel = (t, v) => (membershipIntervals(t).find((i) => i.value === v)?.label || v);
 
 // Friendly labels for the subscription activity timeline (audit events).
 const EVENT_LABELS = {
@@ -48,8 +43,9 @@ const EVENT_LABELS = {
 const eventLabel = (e) => EVENT_LABELS[e] || (e || '').replace(/_/g, ' ');
 
 function ActivityTimeline({ rows }) {
+  const { t } = useTranslation('subscriptions');
   if (!rows) return <p className="muted" style={{ fontSize: 13 }}>Loading…</p>;
-  if (rows.length === 0) return <p className="muted" style={{ fontSize: 13 }}>No activity yet.</p>;
+  if (rows.length === 0) return <p className="muted" style={{ fontSize: 13 }}>{t('noActivityYet')}</p>;
   return (
     <div style={{ maxHeight: 200, overflow: 'auto' }}>
       {rows.map((r) => {
@@ -76,18 +72,15 @@ function ActivityTimeline({ rows }) {
 }
 
 export default function SubscriptionsPage() {
+  const { t } = useTranslation('subscriptions');
   const [tab, setTab] = useTabParam('memberships');
   return (
     <>
       <PageHeader
-        title="Subscriptions"
-        subtitle="Membership plans (entitlements) and the customer subscriptions issued against them."
+        title={t('subscriptions')}
+        subtitle={t('membershipPlansEntitlementsCustomerSubscriptions')}
       />
-      <div style={{ display: 'flex', gap: 4, borderBottom: '1px solid var(--color-border)', marginBottom: 18 }}>
-        {TABS.map((t) => (
-          <button key={t.key} style={tabBtnStyle(tab === t.key)} onClick={() => setTab(t.key)}>{t.label}</button>
-        ))}
-      </div>
+      <PageTabs tabs={tabs(t)} active={tab} onChange={setTab} label={t('subscriptions')} />
       {tab === 'memberships' && <MembershipsTab />}
       {tab === 'plans' && <PlansTab />}
     </>
@@ -96,6 +89,7 @@ export default function SubscriptionsPage() {
 
 /* --------------------------- Memberships tab --------------------------- */
 function MembershipsTab() {
+  const { t } = useTranslation('subscriptions');
   const { hasPerm } = useAuth();
   const [issueOpen, setIssueOpen] = useState(false);
   const [detailId, setDetailId] = useState(null);
@@ -103,13 +97,13 @@ function MembershipsTab() {
   const { rows, loading, reload } = useApiList(fetcher);
 
   const columns = [
-    { key: 'number', header: 'Membership', render: (r) => <span style={{ fontWeight: 600 }}>{r.number || '-'}</span> },
-    { key: 'customer', header: 'Customer', render: (r) => r.customer_name },
-    { key: 'plan', header: 'Plan', render: (r) => r.plan_name },
-    { key: 'period', header: 'Period', render: (r) => `${new Date(r.start_date).toLocaleDateString()} - ${new Date(r.end_date).toLocaleDateString()}` },
-    { key: 'status', header: 'Status', render: (r) => (
+    { key: 'number', header: t('membership'), render: (r) => <span style={{ fontWeight: 600 }}>{r.number || '-'}</span> },
+    { key: 'customer', header: t('common:labels.customer'), render: (r) => r.customer_name },
+    { key: 'plan', header: t('plan'), render: (r) => r.plan_name },
+    { key: 'period', header: t('period'), render: (r) => `${new Date(r.start_date).toLocaleDateString()} - ${new Date(r.end_date).toLocaleDateString()}` },
+    { key: 'status', header: t('common:labels.status'), render: (r) => (
       <StatusBadge tone={MEMBERSHIP_STATUS_TONE[r.status] || 'muted'}
-        label={MEMBERSHIP_STATUS_LABELS[r.status] || r.status} />
+        label={membershipStatusLabels(t)[r.status] || r.status} />
     ) },
   ];
 
@@ -117,25 +111,26 @@ function MembershipsTab() {
     <>
       {hasPerm('subscriptions.assign') && (
         <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 12 }}>
-          <button className="btn btn-primary" onClick={() => setIssueOpen(true)}><Plus size={15} /> Issue membership</button>
+          <button className="btn btn-primary" onClick={() => setIssueOpen(true)}><Plus size={15} /> {t('issueMembership')}</button>
         </div>
       )}
       <DataTable
         loading={loading}
         rows={rows}
         onRowClick={(r) => setDetailId(r.id)}
-        emptyTitle="No memberships yet"
-        emptyHint="Issue a membership to a customer from a plan."
+        emptyTitle={t('noMembershipsYet')}
+        emptyHint={t('issueMembershipCustomerPlan')}
         columns={columns}
       />
       <IssueMembershipModal open={issueOpen} onClose={() => setIssueOpen(false)}
-        onDone={() => { setIssueOpen(false); toast.success('Membership issued'); reload(); }} />
+        onDone={() => { setIssueOpen(false); toast.success(t('membershipIssued')); reload(); }} />
       <MembershipDetailModal id={detailId} onClose={() => setDetailId(null)} onChanged={reload} />
     </>
   );
 }
 
 function MembershipDetailModal({ id, onClose, onChanged }) {
+  const { t } = useTranslation('subscriptions');
   const { hasPerm } = useAuth();
   const [m, setM] = useState(null);
   const [usage, setUsage] = useState([]);
@@ -159,7 +154,7 @@ function MembershipDetailModal({ id, onClose, onChanged }) {
   async function act(fn, okMsg) {
     setBusy(true);
     try { await fn(); toast.success(okMsg); load(); onChanged?.(); }
-    catch (e) { toast.error(apiErrorMessage(e, 'Action failed. Please try again.')); }
+    catch (e) { toast.error(apiErrorMessage(e, t('actionFailedPleaseTryAgain'))); }
     finally { setBusy(false); }
   }
   // Ask before running a state-changing action; `run` fires only on confirm.
@@ -179,12 +174,12 @@ function MembershipDetailModal({ id, onClose, onChanged }) {
     <>
       <Modal open={Boolean(id)} onClose={onClose} size="lg"
         title={m ? `Membership ${m.number}` : 'Membership'}
-        footer={<button className="btn btn-secondary" type="button" onClick={onClose}>Close</button>}>
+        footer={<button className="btn btn-secondary" type="button" onClick={onClose}>{t('common:actions.close')}</button>}>
         {!m ? <p className="muted">Loading…</p> : (
           <>
             <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 10 }}>
               <StatusBadge tone={MEMBERSHIP_STATUS_TONE[m.status] || 'muted'}
-                label={MEMBERSHIP_STATUS_LABELS[m.status] || m.status} />
+                label={membershipStatusLabels(t)[m.status] || m.status} />
               <span className="muted" style={{ fontSize: 13 }}>
                 {m.customer_name} · {m.plan_name} · {new Date(m.start_date).toLocaleDateString()} - {new Date(m.end_date).toLocaleDateString()}
               </span>
@@ -198,8 +193,8 @@ function MembershipDetailModal({ id, onClose, onChanged }) {
                   const url = URL.createObjectURL(blob);
                   const a = document.createElement('a'); a.href = url; a.download = `${m.number}.pdf`; a.click();
                   URL.revokeObjectURL(url);
-                } catch (e) { toast.error(apiErrorMessage(e, 'Unable to download the card.')); }
-              }}>Download card</button>
+                } catch (e) { toast.error(apiErrorMessage(e, t('unableDownloadCard'))); }
+              }}>{t('downloadCard')}</button>
               {canEdit && (() => {
                 // Warn harder when the membership is still active well before
                 // expiry - renewing now charges another full term immediately.
@@ -209,25 +204,25 @@ function MembershipDetailModal({ id, onClose, onChanged }) {
                 return (
                   <button className="btn btn-secondary btn-sm" disabled={busy}
                     onClick={() => ask({
-                      title: isEarly ? 'Renew early?' : 'Renew membership?',
+                      title: isEarly ? t('renewEarly') : t('renewMembership'),
                       tone: 'warning', confirmLabel: 'Renew & charge',
                       message: isEarly
                         ? `${m.number} is still active for ${daysLeft} more days (until ${new Date(m.end_date).toLocaleDateString()}). Renewing now charges the plan price again immediately and extends the term. Continue?`
                         : `This charges the plan price to the customer and raises a new invoice + receipt for ${m.number}. Continue?`,
                     }, () => act(() => membershipsApi.renew(m.id, 'card', { confirmEarly: true }), 'Membership renewed'))}>
-                    <RefreshCw size={14} /> Renew</button>
+                    <RefreshCw size={14} /> {t('renew')}</button>
                 );
               })()}
               {canSuspend && m.status === 'active' && <button className="btn btn-secondary btn-sm" disabled={busy}
                 onClick={() => ask({
-                  title: 'Suspend membership?', tone: 'warning', confirmLabel: 'Suspend',
+                  title: t('suspendMembership'), tone: 'warning', confirmLabel: 'Suspend',
                   message: 'The customer keeps the membership but cannot use its benefits until it is resumed.',
-                }, () => act(() => membershipsApi.suspend(m.id, ''), 'Membership suspended'))}>Suspend</button>}
+                }, () => act(() => membershipsApi.suspend(m.id, ''), 'Membership suspended'))}>{t('suspend')}</button>}
               {canSuspend && m.status === 'suspended' && <button className="btn btn-secondary btn-sm" disabled={busy}
                 onClick={() => ask({
-                  title: 'Resume membership?', confirmLabel: 'Resume',
+                  title: t('resumeMembership'), confirmLabel: 'Resume',
                   message: 'Re-activate this membership so its benefits apply again.',
-                }, () => act(() => membershipsApi.resume(m.id), 'Membership resumed'))}>Resume</button>}
+                }, () => act(() => membershipsApi.resume(m.id), 'Membership resumed'))}>{t('resume')}</button>}
               {canEdit && (
                 <span style={{ display: 'inline-flex', gap: 4, alignItems: 'center' }}>
                   <input className="form-input" style={{ width: 64 }} type="number" min="1" value={extendDays}
@@ -235,21 +230,21 @@ function MembershipDetailModal({ id, onClose, onChanged }) {
                   <button className="btn btn-secondary btn-sm" disabled={busy}
                     onClick={() => {
                       const days = Number(extendDays);
-                      if (!days || days < 1) { toast.error('Enter a number of days greater than zero.'); return; }
+                      if (!days || days < 1) { toast.error(t('enterNumberDaysGreaterThan')); return; }
                       ask({
-                        title: 'Extend membership?', confirmLabel: `Extend ${days} day(s)`,
+                        title: t('extendMembership'), confirmLabel: `Extend ${days} day(s)`,
                         message: `Push the end date out by ${days} day(s) for ${m.number}?`,
                       }, () => act(() => membershipsApi.extend(m.id, { days }), 'Membership extended'));
-                    }}>Extend days</button>
+                    }}>{t('extendDays')}</button>
                 </span>
               )}
               {canCancel && m.status !== 'cancelled' && <button className="btn btn-ghost btn-sm" disabled={busy}
-                style={{ color: 'var(--color-danger,#dc2626)' }} onClick={() => { setCancelReason(''); setCancelOpen(true); }}>Cancel</button>}
+                style={{ color: 'var(--color-danger,#dc2626)' }} onClick={() => { setCancelReason(''); setCancelOpen(true); }}>{t('common:actions.cancel')}</button>}
             </div>
 
             {/* Entitlements + balances */}
-            <h4 style={{ margin: '8px 0 6px', fontSize: 13.5 }}>Entitlements</h4>
-            {(m.entitlements || []).length === 0 ? <p className="muted" style={{ fontSize: 13 }}>No entitlements.</p> : (
+            <h4 style={{ margin: '8px 0 6px', fontSize: 13.5 }}>{t('entitlements')}</h4>
+            {(m.entitlements || []).length === 0 ? <p className="muted" style={{ fontSize: 13 }}>{t('noEntitlements')}</p> : (
               <table style={{ width: '100%', fontSize: 13, borderCollapse: 'collapse', marginBottom: 12 }}>
                 <tbody>
                   {m.entitlements.map((e) => {
@@ -268,18 +263,18 @@ function MembershipDetailModal({ id, onClose, onChanged }) {
                           {canAdjust && e.limit_type === 'limited' && consumed > 0 && (
                             <button className="btn btn-ghost btn-sm" disabled={busy}
                               onClick={() => ask({
-                                title: 'Restore one used unit?', confirmLabel: 'Restore 1',
+                                title: t('restoreOneUsedUnit'), confirmLabel: 'Restore 1',
                                 message: `Return 1 consumed unit of "${entLabel(e)}" to the balance.`,
                               }, () => act(() => membershipsApi.adjustUsage(m.id, { entitlement: e.id, units: 1, note: 'Manual restore' }), 'Usage restored'))}>
-                              Restore 1</button>
+                              {t('restore1')}</button>
                           )}
                           {canAdjust && e.limit_type === 'limited' && (
                             <button className="btn btn-ghost btn-sm" disabled={busy}
                               onClick={() => ask({
-                                title: 'Grant a bonus unit?', tone: 'warning', confirmLabel: 'Grant 1',
+                                title: t('grantBonusUnit'), tone: 'warning', confirmLabel: 'Grant 1',
                                 message: `Add 1 extra unit of "${entLabel(e)}" beyond the plan quantity (a free bonus).`,
                               }, () => act(() => membershipsApi.adjustUsage(m.id, { entitlement: e.id, units: 1, grant: true, note: 'Bonus grant' }), 'Bonus unit granted'))}>
-                              Grant 1</button>
+                              {t('grant1')}</button>
                           )}
                         </td>
                       </tr>
@@ -290,8 +285,8 @@ function MembershipDetailModal({ id, onClose, onChanged }) {
             )}
 
             {/* Usage history */}
-            <h4 style={{ margin: '8px 0 6px', fontSize: 13.5 }}>Usage history</h4>
-            {usage.length === 0 ? <p className="muted" style={{ fontSize: 13 }}>No usage yet.</p> : (
+            <h4 style={{ margin: '8px 0 6px', fontSize: 13.5 }}>{t('usageHistory')}</h4>
+            {usage.length === 0 ? <p className="muted" style={{ fontSize: 13 }}>{t('noUsageYet')}</p> : (
               <div style={{ maxHeight: 160, overflow: 'auto', marginBottom: 12 }}>
                 {usage.map((u) => (
                   <div key={u.id} style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12.5, padding: '3px 0' }}>
@@ -303,8 +298,8 @@ function MembershipDetailModal({ id, onClose, onChanged }) {
             )}
 
             {/* Financial history */}
-            <h4 style={{ margin: '8px 0 6px', fontSize: 13.5 }}>Financial history</h4>
-            {(m.invoices || []).length === 0 ? <p className="muted" style={{ fontSize: 13 }}>No invoices.</p> : (
+            <h4 style={{ margin: '8px 0 6px', fontSize: 13.5 }}>{t('financialHistory')}</h4>
+            {(m.invoices || []).length === 0 ? <p className="muted" style={{ fontSize: 13 }}>{t('noInvoices')}</p> : (
               <div>
                 {m.invoices.map((inv) => (
                   <div key={inv.id} style={{ display: 'flex', justifyContent: 'space-between', fontSize: 13, padding: '3px 0' }}>
@@ -321,7 +316,7 @@ function MembershipDetailModal({ id, onClose, onChanged }) {
             )}
 
             {/* Activity timeline - lifecycle + major changes (from the audit trail) */}
-            <h4 style={{ margin: '12px 0 6px', fontSize: 13.5 }}>Activity timeline</h4>
+            <h4 style={{ margin: '12px 0 6px', fontSize: 13.5 }}>{t('activityTimeline')}</h4>
             <ActivityTimeline rows={activity} />
           </>
         )}
@@ -336,11 +331,11 @@ function MembershipDetailModal({ id, onClose, onChanged }) {
       />
 
       <ConfirmDialog
-        open={cancelOpen} busy={busy} tone="danger" title="Cancel membership?" confirmLabel="Cancel membership"
+        open={cancelOpen} busy={busy} tone="danger" title={t('cancelMembership')} confirmLabel={t('cancelMembership2')}
         message={(
           <>
-            Cancel this membership? Future coverage stops. Refund the fee separately via its invoice if needed.
-            <input className="form-input" style={{ marginTop: 10 }} placeholder="Reason (optional)"
+            {t('cancelMembershipFutureCoverageStops')}
+            <input className="form-input" style={{ marginTop: 10 }} placeholder={t('reasonOptional')}
               value={cancelReason} onChange={(e) => setCancelReason(e.target.value)} />
           </>
         )}
@@ -352,6 +347,7 @@ function MembershipDetailModal({ id, onClose, onChanged }) {
 }
 
 function IssueMembershipModal({ open, onClose, onDone }) {
+  const { t } = useTranslation('subscriptions');
   const [customers, setCustomers] = useState([]);
   const [plans, setPlans] = useState([]);
   const [customerId, setCustomerId] = useState('');
@@ -374,33 +370,33 @@ function IssueMembershipModal({ open, onClose, onDone }) {
       await membershipsApi.issue(Number(customerId), Number(planId),
         { method, promo: promo.trim() || undefined });
       onDone?.();
-    } catch (e) { toast.error(apiErrorMessage(e, 'Unable to issue the membership. Please try again.')); }
+    } catch (e) { toast.error(apiErrorMessage(e, t('unableIssueMembershipPleaseTry'))); }
     finally { setBusy(false); }
   }
 
   return (
-    <Modal open={open} onClose={onClose} title="Issue membership" size="sm"
+    <Modal open={open} onClose={onClose} title={t('issueMembership')} size="sm"
       footer={<>
-        <button className="btn btn-secondary" type="button" onClick={onClose}>Cancel</button>
-        <button className="btn btn-primary" onClick={submit} disabled={!customerId || !planId || busy}>Issue</button>
+        <button className="btn btn-secondary" type="button" onClick={onClose}>{t('common:actions.cancel')}</button>
+        <button className="btn btn-primary" onClick={submit} disabled={!customerId || !planId || busy}>{t('issue')}</button>
       </>}>
-      <FormField label="Customer">
+      <FormField label={t('common:labels.customer')}>
         <Select2
           options={customers.map((c) => ({ value: c.id, label: `${c.full_name} (${c.email})` }))}
-          value={customerId} onChange={setCustomerId} placeholder="Choose a customer…"
+          value={customerId} onChange={setCustomerId} placeholder={t('chooseCustomer')}
         />
       </FormField>
-      <FormField label="Plan">
+      <FormField label={t('plan')}>
         <Select2
           options={plans.map((p) => ({ value: p.id, label: `${p.name} - ${fmtMoney(p.price)}` }))}
-          value={planId} onChange={setPlanId} placeholder="Choose a plan…"
+          value={planId} onChange={setPlanId} placeholder={t('choosePlan')}
         />
       </FormField>
-      <FormField label="Payment method" hint="Charges the plan price and raises an invoice + receipt.">
-        <Select2 options={MEMBERSHIP_PAYMENT_METHODS} value={method} onChange={setMethod} />
+      <FormField label={t('paymentMethod')} hint={t('chargesPlanPriceRaisesInvoice')}>
+        <Select2 options={membershipPaymentMethods(t)} value={method} onChange={setMethod} />
       </FormField>
-      <FormField label="Promo code (optional)" hint="Applies a discount to the plan price.">
-        <input className="form-input" value={promo} onChange={(e) => setPromo(e.target.value)} placeholder="e.g. SAVE10" />
+      <FormField label={t('promoCodeOptional')} hint={t('appliesDiscountPlanPrice')}>
+        <input className="form-input" value={promo} onChange={(e) => setPromo(e.target.value)} placeholder={t('eGSave10')} />
       </FormField>
     </Modal>
   );
@@ -408,6 +404,7 @@ function IssueMembershipModal({ open, onClose, onDone }) {
 
 /* ------------------------------ Plans tab ------------------------------ */
 function PlansTab() {
+  const { t } = useTranslation('subscriptions');
   const { hasPerm } = useAuth();
   const [editing, setEditing] = useState(null);   // plan object, or {} for new
   const fetcher = useCallback((q) => membershipPlansApi.list(q), []);
@@ -418,23 +415,23 @@ function PlansTab() {
     <>
       {hasPerm('subscriptions.add') && (
         <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 12 }}>
-          <button className="btn btn-primary" onClick={() => setEditing({})}><Plus size={15} /> New plan</button>
+          <button className="btn btn-primary" onClick={() => setEditing({})}><Plus size={15} /> {t('newPlan')}</button>
         </div>
       )}
       <DataTable
         loading={loading}
         rows={rows}
         onRowClick={canEdit ? (r) => setEditing(r) : undefined}
-        emptyTitle="No plans yet"
-        emptyHint="Create a plan with service / add-on entitlements."
+        emptyTitle={t('noPlansYet')}
+        emptyHint={t('createPlanServiceAddEntitlements')}
         columns={[
-          { key: 'code', header: 'Code', render: (r) => r.code || '-' },
-          { key: 'name', header: 'Plan', render: (r) => <span style={{ fontWeight: 600 }}>{r.name}</span> },
-          { key: 'interval', header: 'Validity', render: (r) => intervalLabel(r.interval) },
-          { key: 'price', header: 'Price', render: (r) => <Money amount={r.price} /> },
-          { key: 'ents', header: 'Entitlements', render: (r) => (r.entitlements?.length ?? 0) },
-          { key: 'group', header: 'Type', render: (r) => <StatusBadge tone={r.is_group ? 'info' : 'muted'} label={r.is_group ? 'Group' : 'Personal'} /> },
-          { key: 'status', header: 'Status', render: (r) => <StatusBadge tone={r.is_active ? 'success' : 'muted'} label={r.is_active ? 'Active' : 'Inactive'} /> },
+          { key: 'code', header: t('code'), render: (r) => r.code || '-' },
+          { key: 'name', header: t('plan'), render: (r) => <span style={{ fontWeight: 600 }}>{r.name}</span> },
+          { key: 'interval', header: t('validity'), render: (r) => intervalLabel(t, r.interval) },
+          { key: 'price', header: t('price'), render: (r) => <Money amount={r.price} /> },
+          { key: 'ents', header: t('entitlements'), render: (r) => (r.entitlements?.length ?? 0) },
+          { key: 'group', header: t('type'), render: (r) => <StatusBadge tone={r.is_group ? 'info' : 'muted'} label={r.is_group ? t('group') : t('personal')} /> },
+          { key: 'status', header: t('common:labels.status'), render: (r) => <StatusBadge tone={r.is_active ? 'success' : 'muted'} label={r.is_active ? t('common:state.active') : t('common:state.inactive')} /> },
         ]}
       />
       <PlanFormModal open={Boolean(editing)} plan={editing} onClose={() => setEditing(null)}
@@ -462,6 +459,7 @@ function planToForm(plan) {
 }
 
 function PlanFormModal({ open, plan, onClose, onDone }) {
+  const { t } = useTranslation('subscriptions');
   const isEdit = Boolean(plan && plan.id);
   const [form, setForm] = useState(planToForm(plan));
   const [items, setItems] = useState([]);
@@ -530,11 +528,11 @@ function PlanFormModal({ open, plan, onClose, onDone }) {
 
   async function submit() {
     if (!form.name || !form.code || form.price === '') {
-      toast.error('Name, code and price are required.'); return;
+      toast.error(t('nameCodePriceRequired')); return;
     }
     for (const e of form.entitlements) {
-      if (!e.target) { toast.error('Each entitlement needs a target.'); return; }
-      if (e.limit_type === 'limited' && !e.quantity) { toast.error('A limited entitlement needs a count.'); return; }
+      if (!e.target) { toast.error(t('eachEntitlementNeedsTarget')); return; }
+      if (e.limit_type === 'limited' && !e.quantity) { toast.error(t('limitedEntitlementNeedsCount')); return; }
     }
     const payload = {
       name: form.name, code: form.code, description: form.description,
@@ -558,41 +556,41 @@ function PlanFormModal({ open, plan, onClose, onDone }) {
     try {
       if (isEdit) await membershipPlansApi.update(plan.id, payload);
       else await membershipPlansApi.create(payload);
-      toast.success(isEdit ? 'Plan updated' : 'Plan created');
+      toast.success(isEdit ? t('planUpdated') : t('planCreated'));
       onDone?.();
-    } catch (e) { toast.error(apiErrorMessage(e, 'Unable to save the plan. Please try again.')); }
+    } catch (e) { toast.error(apiErrorMessage(e, t('unableSavePlanPleaseTry'))); }
     finally { setBusy(false); }
   }
 
   return (
-    <Modal open={open} onClose={onClose} title={isEdit ? 'Edit membership plan' : 'New membership plan'} size="lg"
+    <Modal open={open} onClose={onClose} title={isEdit ? t('editMembershipPlan') : t('newMembershipPlan')} size="lg"
       footer={<>
-        <button className="btn btn-secondary" type="button" onClick={onClose}>Cancel</button>
-        <button className="btn btn-primary" onClick={submit} disabled={busy}>Save plan</button>
+        <button className="btn btn-secondary" type="button" onClick={onClose}>{t('common:actions.cancel')}</button>
+        <button className="btn btn-primary" onClick={submit} disabled={busy}>{t('savePlan')}</button>
       </>}>
       <div className="row">
-        <div className="col"><FormField label="Name">
+        <div className="col"><FormField label={t('common:labels.name')}>
           <input className="form-input" value={form.name} onChange={(e) => set('name')(e.target.value)} />
         </FormField></div>
-        <div className="col"><FormField label="Plan code">
-          <input className="form-input" value={form.code} onChange={(e) => set('code')(e.target.value)} placeholder="GOLD-M" />
+        <div className="col"><FormField label={t('planCode')}>
+          <input className="form-input" value={form.code} onChange={(e) => set('code')(e.target.value)} placeholder={t('goldM')} />
         </FormField></div>
       </div>
       <div className="row">
-        <div className="col"><FormField label="Validity">
-          <Select2 options={MEMBERSHIP_INTERVALS} value={form.interval} onChange={set('interval')} />
+        <div className="col"><FormField label={t('validity')}>
+          <Select2 options={membershipIntervals(t)} value={form.interval} onChange={set('interval')} />
         </FormField></div>
-        <div className="col"><FormField label="Price">
+        <div className="col"><FormField label={t('price')}>
           <input className="form-input" type="number" min="0" step="0.01" value={form.price}
                  onChange={(e) => set('price')(e.target.value)} />
         </FormField></div>
       </div>
       <div className="row">
-        <div className="col"><FormField label="Validity mode">
-          <Select2 options={VALIDITY_MODES} value={form.validity_mode} onChange={set('validity_mode')} />
+        <div className="col"><FormField label={t('validityMode')}>
+          <Select2 options={validityModes(t)} value={form.validity_mode} onChange={set('validity_mode')} />
         </FormField></div>
         {form.interval === 'custom' && (
-          <div className="col"><FormField label="Duration (days)">
+          <div className="col"><FormField label={t('durationDays')}>
             <input className="form-input" type="number" min="1" value={form.duration_days}
                    onChange={(e) => set('duration_days')(e.target.value)} />
           </FormField></div>
@@ -600,29 +598,29 @@ function PlanFormModal({ open, plan, onClose, onDone }) {
       </div>
       {form.validity_mode === 'fixed' && (
         <div className="row">
-          <div className="col"><FormField label="Fixed start">
+          <div className="col"><FormField label={t('fixedStart')}>
             <input className="form-input" type="date" value={form.fixed_start} onChange={(e) => set('fixed_start')(e.target.value)} />
           </FormField></div>
-          <div className="col"><FormField label="Fixed end">
+          <div className="col"><FormField label={t('fixedEnd')}>
             <input className="form-input" type="date" value={form.fixed_end} onChange={(e) => set('fixed_end')(e.target.value)} />
           </FormField></div>
         </div>
       )}
-      <FormField label="Club availability" hint="Leave empty for all clubs.">
+      <FormField label={t('clubAvailability')} hint={t('leaveEmptyAllClubs')}>
         <Select2 multiple options={clubs.map((s) => ({ value: s.id, label: s.name }))}
-                 value={form.available_clubs} onChange={set('available_clubs')} placeholder="All clubs" />
+                 value={form.available_clubs} onChange={set('available_clubs')} placeholder={t('allClubs')} />
       </FormField>
       <div className="row">
-        <div className="col"><FormField label="Group plan">
+        <div className="col"><FormField label={t('groupPlan')}>
           <label style={{ display: 'flex', gap: 8, alignItems: 'center', marginTop: 8 }}>
             <input type="checkbox" checked={form.is_group} onChange={(e) => set('is_group')(e.target.checked)} />
-            <span className="muted" style={{ fontSize: 13 }}>Shared by a family or group</span>
+            <span className="muted" style={{ fontSize: 13 }}>{t('sharedFamilyGroup')}</span>
           </label>
         </FormField></div>
-        <div className="col"><FormField label="Active">
+        <div className="col"><FormField label={t('common:state.active')}>
           <label style={{ display: 'flex', gap: 8, alignItems: 'center', marginTop: 8 }}>
             <input type="checkbox" checked={form.is_active} onChange={(e) => set('is_active')(e.target.checked)} />
-            <span className="muted" style={{ fontSize: 13 }}>Plan is active</span>
+            <span className="muted" style={{ fontSize: 13 }}>{t('planActive')}</span>
           </label>
         </FormField></div>
       </div>
@@ -630,24 +628,24 @@ function PlanFormModal({ open, plan, onClose, onDone }) {
       {/* Entitlements editor */}
       <div style={{ marginTop: 12, borderTop: '1px solid var(--color-border)', paddingTop: 12 }}>
         <div style={{ display: 'flex', alignItems: 'center', marginBottom: 8 }}>
-          <strong style={{ fontSize: 13.5 }}>Entitlements</strong>
+          <strong style={{ fontSize: 13.5 }}>{t('entitlements')}</strong>
           <button className="btn btn-ghost btn-sm" style={{ marginLeft: 'auto' }} onClick={addEnt}>
-            <Plus size={14} /> Add entitlement
+            <Plus size={14} /> {t('addEntitlement')}
           </button>
         </div>
         {form.entitlements.length === 0 && (
-          <p className="muted" style={{ fontSize: 13 }}>No entitlements - add what this plan covers.</p>
+          <p className="muted" style={{ fontSize: 13 }}>{t('noEntitlementsAddWhatPlan')}</p>
         )}
         {form.entitlements.map((e, i) => (
-          <div key={i} style={{ display: 'grid', gridTemplateColumns: '1.1fr 1.4fr 1fr 0.7fr 1fr auto', gap: 8, marginBottom: 8, alignItems: 'center' }}>
-            <Select2 options={ENTITLEMENT_TARGETS} value={e.target_type} onChange={(v) => setEnt(i, 'target_type', v)} />
-            <Select2 options={targetOptions(e.target_type)} value={e.target} onChange={(v) => setEnt(i, 'target', v)} placeholder="Select…" />
-            <Select2 options={ENTITLEMENT_LIMITS} value={e.limit_type} onChange={(v) => setEnt(i, 'limit_type', v)} />
-            <input className="form-input" type="number" min="1" placeholder="Qty"
+          <div key={i} className="ent-row">
+            <Select2 options={entitlementTargets(t)} value={e.target_type} onChange={(v) => setEnt(i, 'target_type', v)} />
+            <Select2 options={targetOptions(e.target_type)} value={e.target} onChange={(v) => setEnt(i, 'target', v)} placeholder={t('select')} />
+            <Select2 options={entitlementLimits(t)} value={e.limit_type} onChange={(v) => setEnt(i, 'limit_type', v)} />
+            <input className="form-input" type="number" min="1" placeholder={t('qty')}
               value={e.limit_type === 'limited' ? e.quantity : ''} disabled={e.limit_type !== 'limited'}
               onChange={(ev) => setEnt(i, 'quantity', ev.target.value)} />
-            <Select2 options={ENTITLEMENT_PERIODS} value={e.period} onChange={(v) => setEnt(i, 'period', v)} />
-            <button className="icon-btn" title="Remove" onClick={() => removeEnt(i)}><Trash2 size={15} /></button>
+            <Select2 options={entitlementPeriods(t)} value={e.period} onChange={(v) => setEnt(i, 'period', v)} />
+            <button className="icon-btn" title={t('common:actions.remove')} onClick={() => removeEnt(i)}><Trash2 size={15} /></button>
           </div>
         ))}
       </div>
@@ -656,7 +654,7 @@ function PlanFormModal({ open, plan, onClose, onDone }) {
 
       {isEdit && (
         <div style={{ marginTop: 12, borderTop: '1px solid var(--color-border)', paddingTop: 12 }}>
-          <strong style={{ fontSize: 13.5 }}>Change timeline</strong>
+          <strong style={{ fontSize: 13.5 }}>{t('changeTimeline')}</strong>
           <div style={{ marginTop: 6 }}><ActivityTimeline rows={activity} /></div>
         </div>
       )}
@@ -665,25 +663,26 @@ function PlanFormModal({ open, plan, onClose, onDone }) {
 }
 
 function PlanValuePanel({ value }) {
+  const { t } = useTranslation('subscriptions');
   if (!value) return null;
   const save = Number(value.savings);
   return (
     <div style={{ marginTop: 12, borderTop: '1px solid var(--color-border)', paddingTop: 12 }}>
-      <strong style={{ fontSize: 13.5 }}>Included value &amp; savings</strong>
+      <strong style={{ fontSize: 13.5 }}>{t('includedValueSavings')}</strong>
       <p className="muted" style={{ fontSize: 12, margin: '2px 0 8px' }}>
         Value of the included facilities / add-ons at standard list price, vs the plan price.
         Informational - excludes promotions and booking pricing rules.
       </p>
       <div style={{
-        display: 'grid', gridTemplateColumns: '1fr 1.3fr', gap: 8,
+        display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(160px, 100%), 1fr))', gap: 8,
         alignItems: 'center', fontSize: 13, padding: '6px 10px',
         background: 'var(--color-surface-2, #f7f8fa)', borderRadius: 8,
       }}>
-        <span>Value: <Money amount={value.included_value} code={value.currency} /></span>
+        <span>{t('value')} <Money amount={value.included_value} code={value.currency} /></span>
         <span style={{ color: save > 0 ? 'var(--color-success, #10b981)' : 'var(--color-text-muted)', fontWeight: 600 }}>
           {save > 0
-            ? <>Save <Money amount={value.savings} code={value.currency} />{value.savings_pct != null ? ` (${value.savings_pct}%)` : ''}</>
-            : (save < 0 ? <>Over by <Money amount={String(Math.abs(save))} code={value.currency} /></> : 'Matches price')}
+            ? <>{t('common:actions.save')} <Money amount={value.savings} code={value.currency} />{value.savings_pct != null ? ` (${value.savings_pct}%)` : ''}</>
+            : (save < 0 ? <>{t('over')} <Money amount={String(Math.abs(save))} code={value.currency} /></> : 'Matches price')}
         </span>
       </div>
       {(value.unlimited || []).length > 0 && (

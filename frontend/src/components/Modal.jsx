@@ -1,29 +1,17 @@
-import { useEffect } from 'react';
+import { useEffect, useId } from 'react';
 import { createPortal } from 'react-dom';
 import { X } from 'lucide-react';
+import { useTranslation } from 'react-i18next';
 
 import { titleCase } from '../utils/titleCase.js';
 
-const backdropStyle = {
-  position: 'fixed', inset: 0,
-  background: 'rgba(15, 23, 42, 0.45)',
-  backdropFilter: 'blur(2px)',
-  display: 'flex', alignItems: 'center', justifyContent: 'center',
-  zIndex: 1000, padding: 20,
-};
-
-const dialogStyle = (size) => ({
-  width: '100%',
-  maxWidth: size === 'lg' ? 720 : size === 'sm' ? 380 : 520,
-  background: '#fff',
-  borderRadius: 14,
-  boxShadow: '0 20px 50px rgba(15, 23, 42, 0.25)',
-  display: 'flex', flexDirection: 'column',
-  maxHeight: '90vh',
-  overflow: 'hidden',
-});
+// Sizing lives in responsive.css: an inline style cannot carry a media query,
+// so it could never go full-bleed on a phone.
+const SIZES = { sm: 'sm', md: 'md', lg: 'lg', xl: 'xl' };
 
 export function Modal({ open, onClose, title, children, footer, size = 'md' }) {
+  const { t } = useTranslation('common');
+  const titleId = useId();
   // Lock background scroll while the modal is open.
   useEffect(() => {
     if (!open) return undefined;
@@ -38,11 +26,18 @@ export function Modal({ open, onClose, title, children, footer, size = 'md' }) {
   // transformed/positioned ancestor and always sits above the header.
   // Clicking the backdrop does NOT close - use the ✕ (or a footer button).
   return createPortal(
-    <div style={backdropStyle}>
-      <div style={dialogStyle(size)} className="modal-dialog fade-in">
+    <div className="modal-backdrop">
+      {/* Announced as a dialog and named by its own heading, so assistive
+          technology reports what opened instead of an unlabelled group. */}
+      <div
+        className={`modal-dialog modal-dialog--${SIZES[size] || 'md'} fade-in`}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby={titleId}
+      >
         <div className="modal-head">
-          <h3 className="modal-title">{titleCase(title)}</h3>
-          <button className="icon-btn modal-close" onClick={onClose} aria-label="Close" type="button">
+          <h3 className="modal-title" id={titleId}>{titleCase(title)}</h3>
+          <button className="icon-btn modal-close" onClick={onClose} aria-label={t('common:actions.close')} type="button">
             <X size={28} strokeWidth={2.25} />
           </button>
         </div>

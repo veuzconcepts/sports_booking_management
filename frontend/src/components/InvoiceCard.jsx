@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import { formatDate } from '../services/timeformat.jsx';
 import {
   FileText, CheckCircle2, Clock, Ban, RotateCcw, ChevronRight, ChevronDown,
@@ -7,13 +8,13 @@ import {
 import { Money } from '../services/currency.jsx';
 
 // Status -> headline + icon tint for the summary card.
-const STATUS_META = {
-  paid:                { title: 'Invoice paid',       tone: 'green',  Icon: CheckCircle2 },
-  issued:              { title: 'Invoice issued',     tone: 'amber',  Icon: Clock },
-  partially_refunded:  { title: 'Partially refunded', tone: 'amber',  Icon: RotateCcw },
-  refunded:            { title: 'Refunded',           tone: 'rose',   Icon: RotateCcw },
-  cancelled:           { title: 'Invoice cancelled',  tone: 'rose',   Icon: Ban },
-};
+const statusMeta = (t) => ({
+  paid:                { title: t('invoicePaid'),       tone: 'green',  Icon: CheckCircle2 },
+  issued:              { title: t('invoiceIssued'),     tone: 'amber',  Icon: Clock },
+  partially_refunded:  { title: t('partiallyRefunded'), tone: 'amber',  Icon: RotateCcw },
+  refunded:            { title: t('refunded'),           tone: 'rose',   Icon: RotateCcw },
+  cancelled:           { title: t('invoiceCancelled'),  tone: 'rose',   Icon: Ban },
+});
 const TINTS = {
   green: { fg: '#059669', bg: '#d1fae5' },
   amber: { fg: '#d97706', bg: '#fef3c7' },
@@ -44,11 +45,12 @@ export function InvoiceCard({
   invoice, onDownloadInvoice, onDownloadReceipt, onDownloadCreditNote,
   onCancel, onCredit, canReverse = false, busy = false, showActions = true,
 }) {
+  const { t } = useTranslation('payments');
   const [open, setOpen] = useState(false);
   const inv = invoice;
   const receipt = inv.receipt;
   const paid = inv.status === 'paid' || Boolean(receipt);
-  const meta = STATUS_META[inv.status] || { title: inv.status_display || inv.status, tone: 'amber', Icon: FileText };
+  const meta = statusMeta(t)[inv.status] || { title: inv.status_display || inv.status, tone: 'amber', Icon: FileText };
   const palette = TINTS[meta.tone] || TINTS.amber;
   const creditNotes = inv.credit_notes || [];
 
@@ -95,19 +97,19 @@ export function InvoiceCard({
       <div style={{ borderTop: '1px solid var(--color-border,#e5e7eb)', margin: '16px 0 8px' }} />
 
       {/* Meta */}
-      <Row label="Invoice number" value={inv.number} />
-      <Row label={paid ? 'Payment date' : 'Issued'} value={fmtDate(receipt?.issued_at || inv.issued_at)} />
-      {paid && <Row label="Payment method" value={methodLabel(receipt?.method)} />}
-      <Row label="Billed to" value={inv.bill_to || inv.customer_name || 'Walk-in customer'} />
+      <Row label={t('invoiceNumber')} value={inv.number} />
+      <Row label={paid ? t('paymentDate') : t('issued2')} value={fmtDate(receipt?.issued_at || inv.issued_at)} />
+      {paid && <Row label={t('paymentMethod')} value={methodLabel(receipt?.method)} />}
+      <Row label={t('billed')} value={inv.bill_to || inv.customer_name || 'Walk-in customer'} />
 
       {open && (
         <>
           <div style={{ borderTop: '1px dashed var(--color-border,#e5e7eb)', margin: '8px 0' }} />
-          <Row label="Subtotal" value={<Money amount={inv.subtotal} code={inv.currency} />} />
+          <Row label={t('subtotal')} value={<Money amount={inv.subtotal} code={inv.currency} />} />
           <Row label={`VAT (${Math.round(Number(inv.tax_rate) * 100)}%)`} value={<Money amount={inv.tax_amount} code={inv.currency} />} />
-          <Row label="Total" value={<Money amount={inv.total} code={inv.currency} />} />
+          <Row label={t('common:labels.total')} value={<Money amount={inv.total} code={inv.currency} />} />
           {Number(inv.refunded_total) > 0 && (
-            <Row label="Refunded" value={<Money amount={inv.refunded_total} code={inv.currency} />} />
+            <Row label={t('refunded')} value={<Money amount={inv.refunded_total} code={inv.currency} />} />
           )}
           {creditNotes.map((cn) => (
             <div key={cn.id} style={{ display: 'flex', justifyContent: 'space-between', gap: 12, fontSize: 13, padding: '3px 0' }}>
@@ -123,11 +125,11 @@ export function InvoiceCard({
       {/* Download buttons */}
       <div style={{ display: 'flex', gap: 10, marginTop: 16 }}>
         <button className="btn btn-secondary" style={{ flex: 1 }} onClick={onDownloadInvoice}>
-          <FileText size={15} /> Download invoice
+          <FileText size={15} /> {t('downloadInvoice')}
         </button>
         {receipt && (
           <button className="btn btn-primary" style={{ flex: 1 }} onClick={onDownloadReceipt}>
-            <FileText size={15} /> Download receipt
+            <FileText size={15} /> {t('downloadReceipt')}
           </button>
         )}
       </div>
@@ -138,13 +140,13 @@ export function InvoiceCard({
           {inv.status === 'issued' && (
             <button className="btn btn-ghost btn-sm" disabled={busy}
               style={{ color: 'var(--color-danger,#dc2626)' }} onClick={onCancel}>
-              <Ban size={14} /> Cancel
+              <Ban size={14} /> {t('common:actions.cancel')}
             </button>
           )}
           {['paid', 'partially_refunded'].includes(inv.status) && (
             <button className="btn btn-ghost btn-sm" disabled={busy}
               style={{ color: 'var(--color-warning,#d97706)' }} onClick={onCredit}>
-              <RotateCcw size={14} /> Refund
+              <RotateCcw size={14} /> {t('refund')}
             </button>
           )}
         </div>
