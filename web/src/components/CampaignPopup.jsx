@@ -1,4 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { useTranslation } from 'react-i18next';
+
+import { I18n } from '../i18n/client.jsx';
 
 /**
  * The promotional card a campaign appears as.
@@ -83,7 +86,12 @@ function count(id, event) {
   }
 }
 
-export default function CampaignPopup({ campaigns = [] }) {
+export default function CampaignPopup({ locale, ...props }) {
+  return <I18n locale={locale}><Popup {...props} /></I18n>;
+}
+
+function Popup({ campaigns = [] }) {
+  const { t } = useTranslation();
   // The queue is fixed on mount: the server already ordered it by priority, and
   // re-sorting here would only risk disagreeing with it.
   const [queue] = useState(() => campaigns.filter(shouldShow));
@@ -182,7 +190,7 @@ export default function CampaignPopup({ campaigns = [] }) {
       >
         {current.dismissible !== false && (
           <button type="button" className="cmp__close" onClick={() => close()}
-            aria-label="Close">
+            aria-label={t('common.close')}>
             <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor"
               strokeWidth="2.4" strokeLinecap="round" aria-hidden="true">
               <path d="M6 6l12 12M18 6L6 18" />

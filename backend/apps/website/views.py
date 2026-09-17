@@ -375,7 +375,12 @@ class PublicClubsView(APIView):
         from apps.clubs.models import Club
         from .serializers import PublicClubSerializer
 
-        clubs = Club.objects.filter(is_active=True).order_by("name")
+        # `facilities__facility_types__category` is prefetched because the
+        # serializer derives each club's real offering from its own facilities,
+        # and without it that is three queries per club.
+        clubs = (Club.objects.filter(is_active=True)
+                 .prefetch_related("facilities__facility_types__categories")
+                 .order_by("name"))
         return Response({
             "clubs": PublicClubSerializer(clubs, many=True, context={"request": request}).data,
         })

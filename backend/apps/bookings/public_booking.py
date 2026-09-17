@@ -10,6 +10,7 @@ pricing via the same `BookingCreateSerializer` the admin uses. Returns
 from datetime import date as date_cls, time as time_cls
 from decimal import Decimal, InvalidOperation
 
+from django.core import signing
 from django.db import transaction
 
 from apps.auditlogs.services import log_event
@@ -252,6 +253,14 @@ def create_public_booking(data, *, request, source="website",
     from apps.notifications.services import notify_booking_created
     notify_booking_created(booking)
 
+    # Payment runs after the booking transaction has committed, so a rollback can
+    # never discard a booking whose card was genuinely charged. A decline leaves
+    # the booking standing and unpaid, exactly like a cash booking, so the
+    # customer keeps their slot while they find another card.
+    payment_result = collect_checkout_payment(
+        booking, d.get("payment"), request=request)
+    booking.refresh_from_db()
+
     return 201, {
         "reference": booking.reference,
         "status": booking.status,
@@ -262,4 +271,217 @@ def create_public_booking(data, *, request, source="website",
         "promo_applied": bool(booking.promo_code_id),
         "currency": booking.currency,
         "booking_id": booking.id,
+        "payment_status": booking.payment_status,
+        "payment": payment_result,
+        # Lets the confirmation screen retry a declined card, or settle later,
+        # without re-posting the booking (which the duplicate guard would reject).
+        "checkout_token": make_checkout_token(booking),
+    }
+
+
+# --------------------------------------------------------------------------- #
+# Checkout payment
+# --------------------------------------------------------------------------- #
+# Signed, short-lived proof that the holder is the person who just made this
+# booking, so they may pay its outstanding balance from the confirmation screen
+# or retry a card that was declined. It carries no card data and no customer
+# details, only the booking it refers to, and it expires with the checkout.
+#
+# A signed token rather than another table: this is a claim about the session
+# that just happened, not a record worth keeping, and the project already trusts
+# `django.core.signing` for exactly this shape of proof (see `contacts`).
+_CHECKOUT_SALT = "bookings.checkout.pay.v1"
+CHECKOUT_TOKEN_MAX_AGE = 60 * 60          # seconds
+
+
+def make_checkout_token(booking) -> str:
+    return signing.dumps({"booking_id": booking.id}, salt=_CHECKOUT_SALT)
+
+
+def read_checkout_token(token):
+    """The booking a checkout token refers to, or None.
+
+    Returns the booking itself rather than an id so every caller goes through the
+    same lookup and none of them can be tempted to trust a client-supplied id.
+    """
+    from apps.bookings.models import Booking
+
+    if not str(token or "").strip():
+        return None
+    try:
+        data = signing.loads(token, salt=_CHECKOUT_SALT, max_age=CHECKOUT_TOKEN_MAX_AGE)
+    except signing.BadSignature:
+        return None
+    return Booking.objects.filter(pk=data.get("booking_id")).first()
+
+
+def _equal_split_participants(total, people, currency, *, organizer_name,
+                              organizer_included, friends):
+    """Turn the organizer's choices into a validated participant list.
+
+    The amounts are computed HERE, on the server, from the booking's own
+    outstanding balance. Whatever figures the browser displayed are ignored: they
+    were only ever a preview of this calculation.
+    """
+    from apps.payments.split import allocate_equal
+
+    amounts = allocate_equal(total, people, currency)
+    rows, index = [], 0
+    if organizer_included:
+        rows.append({"amount": amounts[0], "name": organizer_name,
+                     "is_organizer": True})
+        index = 1
+    for offset in range(index, people):
+        friend = friends[offset - index] if (offset - index) < len(friends) else {}
+        rows.append({
+            "amount": amounts[offset],
+            "name": str(friend.get("name") or "").strip(),
+            "email": str(friend.get("email") or "").strip(),
+            "phone": str(friend.get("phone") or "").strip(),
+        })
+    return rows
+
+
+def _custom_split_participants(entries, organizer_name):
+    """Custom amounts, passed through unchanged for the service to validate.
+
+    Deliberately does NOT adjust anything to make the numbers add up: if the
+    allocation is wrong the organizer must see that and fix it, because silently
+    reshaping their intent is how a friend ends up charged the wrong amount.
+    """
+    rows = []
+    for entry in (entries or []):
+        is_organizer = bool(entry.get("is_organizer"))
+        rows.append({
+            "amount": entry.get("amount"),
+            "name": (organizer_name if is_organizer and not entry.get("name")
+                     else str(entry.get("name") or "").strip()),
+            "email": str(entry.get("email") or "").strip(),
+            "phone": str(entry.get("phone") or "").strip(),
+            "is_organizer": is_organizer,
+        })
+    return rows
+
+
+def collect_checkout_payment(booking, payment_request, *, request=None):
+    """Settle a freshly created booking according to the chosen method.
+
+    Returns the `payment` block for the checkout response. Never raises for a
+    declined card: a decline is an outcome the customer has to see, not a server
+    error, and the booking stays in place so their slot is not lost while they
+    find another card.
+
+    A note for whoever integrates a real provider: the authorisation happens here
+    AFTER the booking transaction has committed, deliberately. Charging inside
+    the booking transaction would mean a rollback could discard the booking while
+    the customer's card had genuinely been charged.
+    """
+    from apps.bookings.services import (
+        PaymentDeclined, booking_outstanding, settle_booking_payment,
+    )
+    from apps.payments.gateway import card_payment_available
+    from apps.website.split_views import read_card
+
+    method = str((payment_request or {}).get("method") or "cash").strip().lower()
+    outstanding = booking_outstanding(booking)
+
+    if method == "cash" or outstanding <= 0:
+        # Unchanged behaviour: nothing is collected online and the booking waits
+        # for the club to confirm it.
+        return {"method": "cash", "status": "due_at_venue",
+                "outstanding": str(outstanding)}
+
+    if not card_payment_available():
+        # No provider is configured. Say so plainly rather than confirming a
+        # booking as paid that nobody has actually paid for.
+        return {"method": method, "status": "unavailable",
+                "detail": "Online payment is not available at the moment. "
+                          "You can still pay at the club.",
+                "outstanding": str(outstanding)}
+
+    if method == "split":
+        return _start_split(booking, payment_request, outstanding, request=request)
+
+    if method != "card":
+        return {"method": method, "status": "unavailable",
+                "detail": "That payment method is not supported.",
+                "outstanding": str(outstanding)}
+
+    card = read_card(payment_request)
+    if card is None:
+        return {"method": "card", "status": "failed",
+                "detail": "Enter your card details to pay.",
+                "code": "missing_card", "outstanding": str(outstanding)}
+    try:
+        payment, invoice = settle_booking_payment(
+            booking, method="card", amount=outstanding, request=request, card=card)
+    except PaymentDeclined as exc:
+        return {"method": "card", "status": "failed", "detail": str(exc),
+                "code": "declined", "outstanding": str(outstanding)}
+    return {
+        "method": "card", "status": "paid",
+        "amount": str(payment.amount), "reference": payment.reference,
+        "invoice": invoice.number,
+        "card_brand": payment.card_brand, "card_last4": payment.card_last4,
+        "outstanding": str(booking_outstanding(booking)),
+    }
+
+
+def _start_split(booking, payment_request, outstanding, *, request=None):
+    """Create the split arrangement, and take the organizer's share if asked."""
+    from apps.payments import split as split_service
+    from apps.website.split_views import read_card, split_payload
+
+    config = (payment_request or {}).get("split") or {}
+    mode = str(config.get("mode") or "equal").strip().lower()
+    organizer_name = booking.customer.full_name if booking.customer_id else ""
+
+    try:
+        if mode == "custom":
+            participants = _custom_split_participants(
+                config.get("participants"), organizer_name)
+        else:
+            people = int(config.get("people") or 0)
+            participants = _equal_split_participants(
+                outstanding, people, booking.currency,
+                organizer_name=organizer_name,
+                organizer_included=bool(config.get("include_me", True)),
+                friends=list(config.get("friends") or []))
+        split, links = split_service.create_split(
+            booking, participants, request=request)
+    except (TypeError, ValueError):
+        return {"method": "split", "status": "failed",
+                "detail": "Check the split details and try again.",
+                "code": "invalid_split", "outstanding": str(outstanding)}
+    except split_service.SplitError as exc:
+        return {"method": "split", "status": "failed", "detail": str(exc),
+                "code": exc.code, "outstanding": str(outstanding)}
+
+    organizer_result = None
+    if config.get("pay_my_share_now"):
+        organizer_share = next(
+            (s for s in split.shares.all() if s.is_organizer), None)
+        if organizer_share is not None and links.get(organizer_share.id):
+            card = read_card(payment_request)
+            try:
+                split_service.pay_share(
+                    links[organizer_share.id], card=card, method="card",
+                    request=request)
+                organizer_result = {"status": "paid"}
+            except split_service.SplitError as exc:
+                # The arrangement still stands: the friends' links work, and the
+                # organizer can retry their own share from the progress page.
+                organizer_result = {"status": "failed", "detail": str(exc),
+                                    "code": exc.code}
+
+    split.refresh_from_db()
+    payload = split_payload(split, links=links)
+    return {
+        "method": "split", "status": "started",
+        "manage_token": links["organizer"],
+        "manage_url": split_service.manage_link(links["organizer"]),
+        "organizer_payment": organizer_result,
+        "links": {str(share_id): split_service.share_link(raw)
+                  for share_id, raw in links.items() if share_id != "organizer"},
+        "split": payload,
     }

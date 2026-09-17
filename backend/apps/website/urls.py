@@ -27,6 +27,12 @@ from .views import (
     WebsiteCampaignViewSet,
     WhyChooseUsPointViewSet,
 )
+from .split_views import (
+    PublicBookingPayView,
+    PublicPaymentConfigView,
+    PublicSplitManageView,
+    PublicSplitShareView,
+)
 
 router = DefaultRouter()
 router.register("media", MediaAssetViewSet, basename="website-media")
@@ -53,6 +59,16 @@ urlpatterns = [
     path("public/contact-precheck/", PublicContactPrecheckView.as_view(), name="website-public-contact-precheck"),
     path("public/contact-verify/", PublicContactVerifyView.as_view(), name="website-public-contact-verify"),
     path("public/quote/", PublicQuoteView.as_view(), name="website-public-quote"),
+    path("public/payment-config/", PublicPaymentConfigView.as_view(),
+         name="website-public-payment-config"),
+    path("public/booking-pay/", PublicBookingPayView.as_view(),
+         name="website-public-booking-pay"),
+    # Bearer-token routes. The token in the path IS the authorisation, so these
+    # deliberately carry no booking or customer id.
+    path("public/split/<str:token>/", PublicSplitShareView.as_view(),
+         name="website-public-split-share"),
+    path("public/split/manage/<str:token>/", PublicSplitManageView.as_view(),
+         name="website-public-split-manage"),
     path("public/campaigns/", PublicCampaignsView.as_view(), name="website-public-campaigns"),
     path("public/campaign-event/", PublicCampaignEventView.as_view(),
          name="website-public-campaign-event"),

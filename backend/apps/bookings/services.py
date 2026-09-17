@@ -19,6 +19,7 @@ from decimal import Decimal
 
 from django.conf import settings
 from django.db import transaction
+from django.db.models import Q
 from django.utils import timezone
 
 logger = logging.getLogger(__name__)
@@ -128,6 +129,52 @@ def _day_blocks(on_date, club=None):
     return list(qs.values_list("facility_id", "start_time", "end_time"))
 
 
+def _facilities_with_own_schedule(on_date, facilities) -> set:
+    """Facility ids whose day can differ from their club's.
+
+    Anything else inherits the club exactly, which is what lets the slot engine
+    resolve one schedule for a whole venue instead of one per court. The
+    facility-scoped exception lookup is a single query for the set.
+    """
+    from datetime import timedelta as _timedelta
+
+    from apps.settings_app.models import ScheduleException
+
+    distinct = {f.id for f in facilities
+                if (f.booking_hours or {}) or f.slot_minutes
+                or f.buffer_before_minutes or f.buffer_after_minutes}
+    # An overnight shift means the previous date can shape this one, so both
+    # dates are considered, exactly as `resolve_for_date` does.
+    previous = on_date - _timedelta(days=1)
+    ids = [f.id for f in facilities]
+    distinct |= set(
+        ScheduleException.objects
+        .filter(is_active=True, facility_id__in=ids, start_date__lte=on_date)
+        .filter(Q(end_date__isnull=True, start_date__gte=previous)
+                | Q(end_date__gte=previous))
+        .values_list("facility_id", flat=True))
+    return distinct
+
+
+def _merge_windows(windows):
+    """Overlapping windows collapsed into the smallest covering set.
+
+    Two courts open 08:00-12:00 and 10:00-18:00 make one bookable 08:00-18:00
+    grid, not two overlapping grids that would offer the same 10:00 twice.
+    """
+    from apps.settings_app import schedule as sched
+
+    ordered = sorted(windows, key=lambda w: (w.start, w.end))
+    merged = []
+    for window in ordered:
+        if merged and window.start <= merged[-1].end:
+            if window.end > merged[-1].end:
+                merged[-1] = sched.Window(merged[-1].start, window.end)
+        else:
+            merged.append(sched.Window(window.start, window.end))
+    return merged
+
+
 def _covers(day, start, end) -> bool:
     """True when this resolved day has the whole [start, end) window open."""
     from apps.settings_app import schedule as sched
@@ -192,7 +239,27 @@ def free_facilities(on_date, at_time, *, duration=None, club=None, facility_type
         _day_blocks(on_date, club=club),
         start, end,
     )
-    return [f for f in candidates if f.id not in taken]
+    # A facility that is not open for this window cannot take the booking, even
+    # though nothing is booked in it. Without this the slot grid and the save
+    # path disagreed: the website correctly hid a morning slot at an
+    # evening-only court, and the booking endpoint accepted it anyway.
+    #
+    # Same inheritance shortcut as the slot engine: only facilities that can
+    # actually differ from their club are resolved individually.
+    start_minutes = start.hour * 60 + start.minute
+    end_minutes = start_minutes + duration
+    open_now = [f for f in candidates if f.id not in taken]
+    if not open_now:
+        return []
+    distinct = _facilities_with_own_schedule(on_date, open_now)
+    shared_day = _resolve_schedule(on_date, club=club or open_now[0].club)
+    free = []
+    for f in open_now:
+        fday = (_resolve_schedule(on_date, club=f.club, facility=f)
+                if f.id in distinct else shared_day)
+        if _covers(fday, start_minutes, end_minutes):
+            free.append(f)
+    return free
 
 
 def capacity_for(on_date=None, at_time=None, club=None, facility_type=None) -> int:
@@ -225,30 +292,43 @@ def available_slots(on_date, club=None, facility_type=None, facility=None) -> li
     from apps.settings_app import schedule as sched
 
     day = _resolve_schedule(on_date, club=club, facility=facility)
-    if not day.is_open:
-        return []                                   # closed, or fully excepted
 
     interval = day.slot_minutes or SLOT_MINUTES
     duration = getattr(facility_type, "duration_minutes", None) or interval
     candidates = list(eligible_facilities(club=club, facility_type=facility_type))
     if facility is not None:
         candidates = [f for f in candidates if f.id == facility.id]
-    capacity = len(candidates)
-    if not capacity:
+    if not candidates:
         return []
 
     bookings = _day_bookings(on_date, club=club)
     blocks = _day_blocks(on_date, club=club)
-    candidate_ids = {f.id for f in candidates}
 
-    # A facility may keep shorter hours than its club, or take its own break.
-    # Resolve each one ONCE here, then test per slot: without this, a club open
-    # until 23:00 would keep offering a court that shuts at 20:00.
-    own_day = {
-        f.id: _resolve_schedule(on_date, club=club, facility=f)
-        for f in candidates
-        if (f.booking_hours or {}) or f.slot_minutes
-    }
+    # Every eligible facility's OWN operating day.
+    #
+    # A facility only differs from its club when it stores its own hours or slot
+    # length, or when a special date names it specifically. Everything else
+    # inherits, so those facilities reuse ONE resolution: resolving per facility
+    # would turn a fixed-cost day into a query per court.
+    # When no specific facility was asked for, `day` IS the club's day, so it
+    # is reused rather than resolved a second time.
+    shared_day = day if facility is None else _resolve_schedule(on_date, club=club)
+    own_day = {}
+    if candidates:
+        distinct = _facilities_with_own_schedule(on_date, candidates)
+        for f in candidates:
+            own_day[f.id] = (_resolve_schedule(on_date, club=club, facility=f)
+                             if f.id in distinct else shared_day)
+
+    # The grid is the union of the hours the facilities that can serve this
+    # booking actually keep, not the club's alone. A court with its own evening
+    # schedule has to offer its evening, and must not offer the club's morning
+    # when it is shut - which is what produced a whole day of slots labelled
+    # "fully booked" at a venue that simply was not open yet.
+    shifts = _merge_windows(
+        [w for fday in own_day.values() if fday.is_open for w in fday.shifts])
+    if not shifts:
+        return []                                   # closed, or fully excepted
 
     now = sched.local_now()
     is_today = on_date == now.date()
@@ -257,7 +337,7 @@ def available_slots(on_date, club=None, facility_type=None, facility=None) -> li
 
     slots = []
     seen = set()
-    for shift in day.shifts:
+    for shift in shifts:
         cursor = shift.start
         # A shift running past midnight only yields slots up to midnight here;
         # the remainder belongs to the next date, where the schedule engine
@@ -274,16 +354,22 @@ def available_slots(on_date, club=None, facility_type=None, facility=None) -> li
             if not (is_past or runs_over or in_break) and label not in seen:
                 seen.add(label)
                 slot_start, slot_end = window
+                # Being shut is not the same as being booked. A facility that
+                # does not open for this window simply is not part of the
+                # slot's capacity; counting it as "booked" was what told
+                # customers a free evening court was fully reserved.
+                open_ids = {
+                    fid for fid, fday in own_day.items()
+                    if _covers(fday, cursor, cursor + duration)
+                }
+                if not open_ids:
+                    cursor += interval
+                    continue                        # nothing here can serve it
                 taken = _taken_ids(
                     bookings, blocks, slot_start, slot_end,
                     buffer_before=day.buffer_before, buffer_after=day.buffer_after,
-                ) & candidate_ids
-                # Facilities whose own schedule does not cover this window are
-                # not available for it, whatever the club's hours say.
-                taken |= {
-                    fid for fid, fday in own_day.items()
-                    if not _covers(fday, cursor, cursor + duration)
-                }
+                ) & open_ids
+                capacity = len(open_ids)
                 booked = len(taken)
                 slots.append({
                     "time": label,
@@ -346,6 +432,29 @@ def slot_is_available(on_date, at_time, club=None, facility_type=None,
 # --------------------------------------------------------------------------- #
 # Booking rules: when a slot may be booked, and when it may still be cancelled
 # --------------------------------------------------------------------------- #
+def _actor_or_none(request):
+    """The signed-in user behind a request, or None.
+
+    A payment can now arrive from the public website, where `request.user` is an
+    AnonymousUser. That is not a `User` row, so handing it to a FK raises; a
+    guest payment simply has no staff actor.
+    """
+    user = getattr(request, "user", None)
+    return user if getattr(user, "is_authenticated", False) else None
+
+
+class PaymentDeclined(Exception):
+    """An online authorisation was refused by the provider.
+
+    Carries the failed `Payment` so the caller can record the attempt against
+    whatever it was settling (a split share, a checkout) without re-querying.
+    """
+
+    def __init__(self, message, *, payment=None):
+        self.payment = payment
+        super().__init__(message)
+
+
 class BookingRuleViolation(Exception):
     """A booking breaks the club's booking policy. Carries the reasons."""
 
@@ -989,15 +1098,28 @@ def sync_booking_payment_status(booking, *, save=True):
 
 @transaction.atomic
 def settle_booking_payment(booking, *, method, amount=None, reference="", notes="",
-                           request=None):
+                           request=None, card=None, payer_label=""):
     """Take a payment and raise its paid invoice + receipt for a booking — the one
-    path used by both manual 'Generate Invoice & Pay' and Complete & Pay.
+    path used by manual 'Generate Invoice & Pay', Complete & Pay, the customer
+    checkout and each split-payment share.
 
     Charges the current OUTSTANDING by default (or an explicit `amount`, which may
     not exceed it). Each call maps one payment to one invoice covering only that
     increment, so later add-ons bill the delta with a fresh invoice and nothing is
-    ever double-charged or duplicated. Returns (payment, invoice)."""
+    ever double-charged or duplicated. Returns (payment, invoice).
+
+    `card` turns this into a real online authorisation through the configured
+    provider instead of recording money already collected; a refusal raises
+    ValueError carrying the provider's reason, and nothing is written. Keeping
+    both modes here is deliberate: there must be exactly one place that decides
+    how much may be taken against a booking and what documents that produces.
+
+    `payer_label` names who actually handed the money over when that is not the
+    booking's own customer (a friend settling their split share). It is recorded
+    on the audit trail only - the Payment still belongs to the booking's customer,
+    because the invoice is raised against the booking."""
     from apps.payments import services as pay
+    from apps.payments.models import PaymentStatus as PayStatus
     from apps.settings_app.currency import format_currency
 
     outstanding = booking_outstanding(booking)
@@ -1008,18 +1130,30 @@ def settle_booking_payment(booking, *, method, amount=None, reference="", notes=
         raise ValueError(
             f"Amount exceeds the outstanding balance ({format_currency(outstanding, booking.currency)}).")
 
-    payment = pay.record_manual_payment(
-        customer=booking.customer, amount=charge, method=method, booking=booking,
-        reference=reference, notes=notes, request=request)
+    if card is not None:
+        payment = pay.charge(
+            booking.customer, charge, method, booking=booking, request=request,
+            card=card)
+        if payment.status != PayStatus.PAID:
+            # The provider refused. The caller gets the reason to show the payer;
+            # the failed Payment row stays as the audit trail of the attempt.
+            raise PaymentDeclined(payment.failure_reason
+                                  or "The payment could not be completed.",
+                                  payment=payment)
+    else:
+        payment = pay.record_manual_payment(
+            customer=booking.customer, amount=charge, method=method, booking=booking,
+            reference=reference, notes=notes, request=request)
     invoice = pay.create_invoice(
         booking=booking, payment=payment, amount=charge, request=request)
     sync_booking_payment_status(booking)
     record_booking_event(
         booking, f"Payment recorded - {method} {format_currency(charge, booking.currency)}"
                  f" (Invoice {invoice.number})",
-        actor=getattr(request, "user", None), event="payment_recorded",
+        actor=_actor_or_none(request), event="payment_recorded",
         meta={"invoice": invoice.number, "amount": str(charge),
               "method": method, "currency": booking.currency,
+              "payer": payer_label or None,
               "amount_paid": str(booking_amount_paid(booking)),
               "outstanding": str(booking_outstanding(booking))})
     return payment, invoice

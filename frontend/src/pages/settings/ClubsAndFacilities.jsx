@@ -281,7 +281,7 @@ function FacilitiesModal({ club, onClose, onChanged }) {
       .catch(() => setTypes([]));
   }, [club]);
 
-  const typeOptions = types.map((t) => ({ value: t.id, label: t.name }));
+  const typeOptions = types.map((type) => ({ value: type.id, label: type.name }));
 
   async function addFacility() {
     if (!label.trim()) return;
@@ -330,10 +330,13 @@ function FacilitiesModal({ club, onClose, onChanged }) {
     <Modal open={Boolean(club)} onClose={onClose} title={club ? `Facilities \u00b7 ${club.name}` : ''} size="md"
       footer={<button className="btn btn-secondary" onClick={onClose}>{t('done')}</button>}>
       <p className="muted" style={{ fontSize: 12.5, marginTop: 0 }}>
-        Each facility is one physical unit. Choose which facility types it can be
-        booked as - a hall that is badminton courts by day and a function room by
-        night is ONE facility with both types, so it can never double-book itself.
-        Leave the types empty to make a unit usable for anything.
+        A facility is one physical unit you own: a court, a pitch, a lane, a hall.
+        An activity is what you sell on it, with its price and duration, set up
+        under Catalogue &amp; Pricing. Choose which activities this unit can be
+        booked for - a hall that is badminton by day and a function room by night
+        is ONE facility offering both, so it can never double-book itself. Leave
+        it empty to make the unit usable for anything, though it will not be
+        advertised on the website until you name an activity.
       </p>
 
       <div style={{ display: 'grid', gap: 8, marginBottom: 16, padding: 12,
@@ -376,11 +379,21 @@ function FacilitiesModal({ club, onClose, onChanged }) {
                         {f.name}
                         {!f.is_active && <StatusBadge tone="muted" label={t('common:state.inactive')} />}
                       </span>
-                      <div className="muted" style={{ fontSize: 12, marginTop: 2 }}>
-                        {(f.facility_type_names || []).length
-                          ? f.facility_type_names.join(', ')
-                          : 'Any facility type'}
-                      </div>
+                      {/* A unit with no types can be booked as anything, which is
+                          useful operationally but means the website has nothing
+                          to advertise it as: the public club card lists declared
+                          types only, so it cannot claim a sport nobody stated.
+                          Saying so here is the difference between a deliberate
+                          choice and a gap the operator never noticed. */}
+                      {(f.facility_type_names || []).length ? (
+                        <div className="muted" style={{ fontSize: 12, marginTop: 2 }}>
+                          {f.facility_type_names.join(', ')}
+                        </div>
+                      ) : (
+                        <div style={{ fontSize: 12, marginTop: 2, color: 'var(--color-warning-600)' }}>
+                          {t('anyTypeNotAdvertised')}
+                        </div>
+                      )}
                     </div>
                     <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, flexShrink: 0 }}>
                       <label style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 12, color: 'var(--color-text-muted)', cursor: 'pointer' }} title={t('common:state.active')}>
@@ -601,7 +614,12 @@ function FacilityHoursModal({ facility, club, onClose, onSaved }) {
         </>
       }
     >
-      {form && (
+      {/* `facility` must be in the guard, not just `form`. Saving or cancelling
+          sets the facility to null, and React evaluates these children before
+          Modal can decide it is closed - while `form` still holds the previous
+          value, because the effect that clears it runs after the render. That
+          read of `facility.id` threw and took the whole page down. */}
+      {facility && form && (
         <ScheduleScopePanel
           scope="facility"
           parentLabel={club?.name || 'Club'}

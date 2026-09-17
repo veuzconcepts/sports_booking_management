@@ -67,6 +67,7 @@
     "facility": "Facility",
     "from": "From",
     "name": "Name",
+    "no": "No",
     "notes": "Notes",
     "phone": "Phone",
     "reason": "Reason",
@@ -74,7 +75,8 @@
     "time": "Time",
     "to": "To",
     "total": "Total",
-    "updatedAt": "Updated"
+    "updatedAt": "Updated",
+    "yes": "Yes"
   },
   "messages": {
     "cannotBeUndone": "This cannot be undone.",

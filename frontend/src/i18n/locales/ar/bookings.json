@@ -131,7 +131,7 @@
     "currency": "العملة",
     "customer": "العميل",
     "facility": "المرفق",
-    "facilityType": "نوع المرفق",
+    "facilityType": "النشاط",
     "payment": "الدفع",
     "reference": "المرجع",
     "source": "المصدر",
@@ -189,12 +189,12 @@
   "emptyTitle": "لا توجد حجوزات بعد",
   "existingCustomer": "عميل حالي",
   "existingCustomerUpdatedTheirInformation": "حدّث العميل الحالي بياناته",
-  "facilityCategory": "فئة المرفق *",
-  "facilityType": "نوع المرفق *",
+  "facilityCategory": "فئة النشاط *",
+  "facilityType": "النشاط *",
   "filters": {
     "bookingDate": "تاريخ الحجز",
     "club": "النادي",
-    "facilityType": "نوع المرفق",
+    "facilityType": "النشاط",
     "paymentStatus": "حالة الدفع",
     "source": "المصدر",
     "status": "الحالة"
@@ -209,7 +209,7 @@
     "club": "النادي",
     "customer": "العميل",
     "facility": "المرفق",
-    "facilityType": "نوع المرفق",
+    "facilityType": "النشاط",
     "paymentStatus": "حالة الدفع",
     "source": "المصدر",
     "status": "الحالة"
@@ -292,6 +292,32 @@
   "skipAssignment": "تخطي الإسناد",
   "source": "المصدر",
   "specialInstructions": "تعليمات خاصة",
+  "split": {
+    "title": "الدفع المقسّم",
+    "tableCaption": "من دفع كل جزء من هذا الحجز",
+    "allocated": "المخصص",
+    "collected": "المحصّل",
+    "expires": "انتهاء الروابط",
+    "participant": "المشارك",
+    "amount": "المبلغ",
+    "state": "الحالة",
+    "payment": "الدفعة",
+    "organizer": "المنظّم",
+    "guest": "ضيف",
+    "status": {
+      "active": "بانتظار الدفع",
+      "completed": "مدفوع بالكامل",
+      "cancelled": "ملغى",
+      "expired": "منتهي"
+    },
+    "shareStatus": {
+      "pending": "قيد الانتظار",
+      "paid": "مدفوع",
+      "failed": "فشل",
+      "expired": "منتهي",
+      "cancelled": "ملغى"
+    }
+  },
   "staffMember": "الموظف",
   "staffOnlyNotShownCustomer": "للموظفين فقط؛ لا تُعرض للعميل.",
   "status": {

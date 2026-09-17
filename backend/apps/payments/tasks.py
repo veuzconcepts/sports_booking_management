@@ -71,3 +71,21 @@ def expire_memberships_task():
     if count:
         logger.info("expire_memberships_task expired %s membership(s).", count)
     return count
+
+
+@shared_task
+def expire_split_payments_task():
+    """Close split arrangements whose deadline has passed.
+
+    Runs often because a split deadline is measured in minutes, not days. It is
+    deliberately free of financial consequence: expiry stops the payment links
+    working and nothing else. Money already collected stays collected and the
+    booking keeps its status, because what should happen to a part-paid booking
+    is a business policy decision, not something a scheduled job may make.
+    """
+    from .split import expire_due_splits
+
+    closed = expire_due_splits()
+    if closed:
+        logger.info("Expired %s split payment arrangement(s)", closed)
+    return closed

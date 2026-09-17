@@ -213,6 +213,37 @@ Use configured Organization/Club timezone where applicable. Handle overnight sch
 
 Never use floating-point arithmetic for money. Use Decimal/proper monetary fields and consistent rounding, tax, discount, refund, and currency handling.
 
+## Payment Integrity
+
+Booking totals, paid amounts and outstanding balances are backend-authoritative.
+
+Split payments may divide a valid final payable amount between multiple payment transactions but must never create a second booking total, bypass availability, bypass pricing, or allow overpayment.
+
+All payment actions must be idempotent, concurrency-safe, permission/scope validated and integrated with the existing payment/refund architecture.
+
+Never store or log CVV or raw sensitive card details.
+
+Demo payment behavior must never operate in production.
+
+### Split payment: confirmed financial policy
+
+These two rules were undefined until they were decided explicitly. Do not change
+them, and do not add automated financial behavior around them, without asking.
+
+**Expiry is inert.** When a split payment deadline passes with only part of the
+balance collected, the payment links stop working and nothing else happens. No
+refund is issued, no booking is cancelled, no slot is released, no status
+changes. A human resolves a part-paid booking using the existing cancellation
+and credit note tools.
+
+**Refunds follow the payer.** A booking settled by several people is refunded
+per participant, each against their own payment, through the normal credit note
+flow and honouring `Organization.require_refund_approval`. Cancelling such a
+booking does not refund anybody automatically, and the full amount is never
+returned to the organizer alone. Every share therefore has to keep its payer,
+its amount and its payment reference, and each share's payment must raise its
+own invoice.
+
 # 15. APIs, Queries, and Performance
 
 APIs must be consistent, validated, permission-protected, and backward-compatible where practical.

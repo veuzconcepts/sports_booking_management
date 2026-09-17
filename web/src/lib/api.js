@@ -87,6 +87,37 @@ export const getCampaigns = ({ placement = 'home', club, signedIn = false } = {}
 export const recordCampaignEvent = (payload) =>
   postJSON('/website/public/campaign-event/', payload);
 
+/**
+ * What payment methods the checkout may offer.
+ *
+ * The backend decides: it knows whether a provider is configured and whether
+ * the demo adapter is genuinely active, and it only ever sends test card
+ * numbers while it is. The site must never assume card payment works.
+ */
+export const getPaymentConfig = () => getJSON('/website/public/payment-config/');
+
+/** The minimal booking summary and assigned amount behind one share link. */
+export const getSplitShare = (token) =>
+  getJSON(`/website/public/split/${encodeURIComponent(token)}/`);
+
+/**
+ * Pay one share. The amount is NOT sent: the backend decides what this link
+ * owes, so nothing the browser reports can change what is charged.
+ */
+export const paySplitShare = (token, body) =>
+  postJSON(`/website/public/split/${encodeURIComponent(token)}/`, body);
+
+/** Payment progress for the organizer's own management link. */
+export const getSplitManage = (token) =>
+  getJSON(`/website/public/split/manage/${encodeURIComponent(token)}/`);
+
+/** An organizer action on their own split (pay remaining, cancel a share, ...). */
+export const splitManageAction = (token, body) =>
+  postJSON(`/website/public/split/manage/${encodeURIComponent(token)}/`, body);
+
+/** Settle a booking from the confirmation screen, or retry a declined card. */
+export const payBooking = (payload) => postJSON('/website/public/booking-pay/', payload);
+
 /** Format a money amount with the catalogue currency code. */
 export function money(amount, currency) {
   if (amount === null || amount === undefined) return '';

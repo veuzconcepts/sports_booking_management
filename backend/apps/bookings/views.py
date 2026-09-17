@@ -736,7 +736,34 @@ class BookingViewSet(GroupedListMixin, viewsets.ModelViewSet):
                  .select_related("created_by")
                  .prefetch_related("refunds", "refunds__created_by", "refunds__credit_note")
                  .order_by("-created_at")), many=True, context=ctx).data
-        return Response({"invoices": invoices, "payments": payments})
+        # Who actually paid, when a booking was settled by several people. Kept
+        # behind payments.view because it is a money record, and stripped of the
+        # participants' contact details, which staff have no operational need for.
+        splits = []
+        if can_payments:
+            from apps.payments.models import BookingPaymentSplit
+            for split in (BookingPaymentSplit.objects.filter(booking=booking)
+                          .prefetch_related("shares", "shares__payment")
+                          .order_by("-created_at")):
+                splits.append({
+                    "id": split.id,
+                    "status": "expired" if split.is_expired else split.status,
+                    "currency": split.currency,
+                    "expires_at": split.expires_at,
+                    "allocated": str(split.amount_allocated),
+                    "paid": str(split.paid_total),
+                    "shares": [{
+                        "id": sh.id,
+                        "name": sh.display_name,
+                        "is_organizer": sh.is_organizer,
+                        "amount": str(sh.amount),
+                        "status": sh.status,
+                        "paid_at": sh.paid_at,
+                        "payment": sh.payment.reference if sh.payment_id else None,
+                    } for sh in split.shares.all()],
+                })
+        return Response({"invoices": invoices, "payments": payments,
+                         "splits": splits})
 
     @action(detail=True, methods=["post"])
     def cancel(self, request, pk=None):

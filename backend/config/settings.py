@@ -359,6 +359,12 @@ CELERY_BEAT_SCHEDULE = {
         "task": "apps.staff.tasks.activate_due_transfers_task",
         "schedule": crontab(hour=0, minute=20),
     },
+    # Split deadlines are measured in minutes, so this cannot wait for a nightly
+    # sweep the way membership expiry can.
+    "expire-split-payments": {
+        "task": "apps.payments.tasks.expire_split_payments_task",
+        "schedule": crontab(minute="*/5"),
+    },
 }
 
 # ---------------------------------------------------------------------------
@@ -366,6 +372,34 @@ CELERY_BEAT_SCHEDULE = {
 # ---------------------------------------------------------------------------
 DEFAULT_CURRENCY = config("DEFAULT_CURRENCY", default="USD")
 DEFAULT_TAX_RATE = config("DEFAULT_TAX_RATE", default=0.05, cast=float)
+
+# ---------------------------------------------------------------------------
+# Payments
+# ---------------------------------------------------------------------------
+# Which payment provider actually takes card money. One setting, read in one
+# place (apps.payments.gateway.get_gateway); no component branches on it.
+#
+#   demo     - simulated card authorisation for testing the real booking
+#              lifecycle end to end. Test cards only, no money moves.
+#   live     - a real provider adapter (none is integrated yet).
+#   disabled - card payment is unavailable; the checkout offers cash only.
+#
+# Demo is deliberately hard to switch on by accident: it is permitted when
+# DJANGO_DEBUG is on, or when a sandbox/staging host opts in EXPLICITLY with
+# PAYMENT_ALLOW_DEMO=true. A production box that is left on PAYMENT_MODE=demo
+# resolves to `disabled` and refuses card payment rather than pretending a
+# charge succeeded - failing closed is the only safe direction for money.
+PAYMENT_MODE = config("PAYMENT_MODE", default="demo" if DEBUG else "disabled")
+PAYMENT_ALLOW_DEMO = DEBUG or config("PAYMENT_ALLOW_DEMO", default=False, cast=bool)
+
+# How long an unpaid split-payment arrangement stays open. The booking itself
+# is NOT a separate hold (a pending booking already occupies its slot), so this
+# only governs how long the shareable links keep working.
+SPLIT_PAYMENT_MINUTES = config("SPLIT_PAYMENT_MINUTES", default=60, cast=int)
+# Upper bound on how many people one booking may be split between.
+SPLIT_PAYMENT_MAX_SHARES = config("SPLIT_PAYMENT_MAX_SHARES", default=20, cast=int)
+# Public base URL used to build shareable payment links (the customer website).
+PUBLIC_WEBSITE_URL = config("PUBLIC_WEBSITE_URL", default="http://localhost:4321")
 
 # Google Maps / Places / Geocoding — environment-driven, never hardcoded. The
 # frontend uses VITE_GOOGLE_MAPS_API_KEY (Maps JS + Places) to place clubs on a

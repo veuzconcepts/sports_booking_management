@@ -1,8 +1,13 @@
 ---
+import { fromAstro } from '../i18n/index.js';
 import '../styles/theme.css';
 import { getBranding } from '../lib/api.js';
 
 const { seo = {}, site = {} } = Astro.props;
+
+// Resolved once per request by `src/middleware.js`, so the page, its layout and
+// every island agree on one answer.
+const { locale, dir } = fromAstro(Astro);
 const branding = await getBranding();
 // SEO falls back: per-page CMS SEO → org SEO defaults → built-in copy.
 const title = seo?.meta_title || branding?.meta_title
@@ -44,7 +49,7 @@ const jsonLd = {
 };
 ---
 <!doctype html>
-<html lang="en" data-theme="light" style={brandStyle}>
+<html lang={locale} dir={dir} data-theme="light" style={brandStyle}>
   <head>
     <!-- Apply the saved theme before paint so there is no flash. Light is the
          default: the site is a warm off-white page, and dark is opt-in. The

@@ -1,7 +1,32 @@
 import { useEffect, useMemo, useState } from 'react';
 import { isValidPhoneNumber, parsePhoneNumber } from 'libphonenumber-js/max';
+import { useTranslation } from 'react-i18next';
+
+import { I18n } from '../i18n/client.jsx';
+import { intlLocale, weekdayStyle } from '../i18n/index.js';
 import PhoneField from './PhoneField.jsx';
 import { phoneCountryFor } from '../utils/countries.js';
+import {
+  CardForm,
+  CheckIcon,
+  ClockIcon,
+  LockIcon,
+  PaymentMethods,
+  SplitIcon,
+  SplitPanel,
+  SplitToggle,
+  blankCard,
+  blankSplit,
+  cardRequest,
+  copyLink,
+  formatMoney,
+  paymentTiles,
+  previewEqualSplit,
+  shareLink,
+  shareTone,
+  splitRequest,
+  useCountdown,
+} from './CheckoutPayment.jsx';
 
 // A "Mobile number" must be a real mobile for its country - reject landlines
 // (e.g. UAE +971 9… Fujairah fixed-line) and other non-mobile line types.
@@ -23,7 +48,7 @@ function isValidMobile(value) {
 // Club first: where you play narrows everything after it, and it is the
 // question a customer can always answer. Add-ons are their own step rather than
 // a modal, so they can be revisited from the timeline like any other choice.
-const STEPS = ['Club', 'Facility', 'Add-ons', 'Date & Time', 'Payment'];
+const STEP_KEYS = ['club', 'facility', 'addons', 'when', 'pay'];
 const STEP_CLUB = 0, STEP_FACILITY = 1, STEP_ADDONS = 2, STEP_WHEN = 3, STEP_PAY = 4;
 const BLANK_DETAILS = { name: '', phone: '', email: '', notes: '' };
 
@@ -37,7 +62,7 @@ function Price({ amount, currency }) {
   const v = fmt(amount);
   if (v === null) return null;
   const sym = currency === 'AED' ? <span className="aed-symbol">AED</span> : <>{currency}</>;
-  return <>{sym} {v}</>;
+  return <bdi>{sym} {v}</bdi>;
 }
 // Distance between the visitor and a club (km), for "nearest" sorting.
 function haversine(a, b) {
@@ -47,11 +72,11 @@ function haversine(a, b) {
   const h = Math.sin(dLat / 2) ** 2 + Math.cos(toRad(a.lat)) * Math.cos(toRad(b.latitude)) * Math.sin(dLng / 2) ** 2;
   return 2 * R * Math.asin(Math.sqrt(h));
 }
-function duration(mins) {
+function duration(mins, t) {
   if (!mins) return '';
-  if (mins < 60) return `${mins} min`;
+  if (mins < 60) return t('common.minutes', { count: mins });
   const h = Math.round((mins / 60) * 10) / 10;
-  return `${h} hr${h > 1 ? 's' : ''}`;
+  return t('common.hours', { count: h });
 }
 
 const Bolt = (p) => (
@@ -62,12 +87,6 @@ const Arrow = (p) => (
 );
 const Pin = (p) => (
   <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" {...p}><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"/><circle cx="12" cy="10" r="3"/></svg>
-);
-const Shield = (p) => (
-  <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" {...p}><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
-);
-const Warn = (p) => (
-  <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" {...p}><path d="M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12" y2="17"/></svg>
 );
 const Droplet = (p) => (
   <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" {...p}><path d="M12 2.7S5 10 5 14a7 7 0 0 0 14 0c0-4-7-11.3-7-11.3z"/></svg>
@@ -92,9 +111,6 @@ const Close = (p) => (
 );
 const Sun = (p) => (
   <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" {...p}><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/></svg>
-);
-const CardIcon = (p) => (
-  <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" {...p}><rect x="2" y="5" width="20" height="14" rx="2.5"/><path d="M2 10h20"/></svg>
 );
 const CashIcon = (p) => (
   <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" {...p}><rect x="2" y="6" width="20" height="12" rx="2.5"/><circle cx="12" cy="12" r="2.4"/><path d="M5.5 12h.01M18.5 12h.01"/></svg>
@@ -142,7 +158,12 @@ function emailLooksReal(raw) {
 // the bundled static file.
 let PLACEHOLDER_LOGO = '/logo.svg';
 
-export default function BookingWizard({ categories = [], facilityTypes = [], clubs = [], currency = '', city = '', country = '', placeholderLogo = '' }) {
+export default function BookingWizard({ locale, ...props }) {
+  return <I18n locale={locale}><Wizard {...props} /></I18n>;
+}
+
+function Wizard({ categories = [], facilityTypes = [], clubs = [], currency = '', city = '', country = '', placeholderLogo = '' }) {
+  const { t } = useTranslation();
   PLACEHOLDER_LOGO = placeholderLogo || '/logo.svg';
   const [step, setStep] = useState(0);
   const [category, setCategory] = useState(null);
@@ -157,13 +178,13 @@ export default function BookingWizard({ categories = [], facilityTypes = [], clu
   const [startDate, setStartDate] = useState(null);
   // Confirm & Pay state lives here so it survives stepping back and forth.
   const [details, setDetails] = useState({ ...BLANK_DETAILS });
-  const [pay, setPay] = useState({ method: 'card', coupon: '', applied: null });
+  const [pay, setPay] = useState({ method: 'card', coupon: '', applied: null, card: blankCard(), split: blankSplit() });
   const [bookingDone, setBookingDone] = useState(null);
 
   // Start a brand-new booking after a confirmed one.
   const reset = () => {
     setCategory(null); setFacilityType(null); setClub(null); setSlot(null); setAddons([]);
-    setDetails({ ...BLANK_DETAILS }); setPay({ method: 'card', coupon: '', applied: null });
+    setDetails({ ...BLANK_DETAILS }); setPay({ method: 'card', coupon: '', applied: null, card: blankCard(), split: blankSplit() });
     setBookingDone(null); setQuery(''); go(0);
   };
 
@@ -229,7 +250,7 @@ export default function BookingWizard({ categories = [], facilityTypes = [], clu
     window.history.replaceState({}, '', qs ? `?${qs}` : window.location.pathname);
   }, [step, category, facilityType, addons, club, slot, restored, bookingDone]);
 
-  const go = (n) => setStep(Math.max(0, Math.min(STEPS.length - 1, n)));
+  const go = (n) => setStep(Math.max(0, Math.min(STEP_KEYS.length - 1, n)));
 
   // A facility with no optional extras has nothing to show on the add-ons step,
   // so that step is passed over in both directions rather than shown empty.
@@ -258,17 +279,17 @@ export default function BookingWizard({ categories = [], facilityTypes = [], clu
   const jump = (i) => { if (reachable(i)) go(i); };
 
   const TITLES = {
-    [STEP_FACILITY]: ['Select Facility', `Pick the ${category?.name?.toLowerCase() || 'facility'} you want to book`],
-    [STEP_ADDONS]: ['Add Extras', 'Optional extras. Pick any you would like, or continue without.'],
-    [STEP_WHEN]: ['Pick a Date & Time', "Choose a slot that suits you - we'll be there."],
-    [STEP_PAY]: ['Confirm & Pay', 'Add your details, review the price and choose how to pay.'],
+    [STEP_FACILITY]: [t('wizard.facility.title'), t('wizard.facility.subtitle')],
+    [STEP_ADDONS]: [t('wizard.addons.title'), t('wizard.addons.subtitle')],
+    [STEP_WHEN]: [t('wizard.when.title'), t('wizard.when.subtitle')],
+    [STEP_PAY]: [t('checkout.title'), t('checkout.subtitle')],
   };
 
   return (
     <div className="bw">
       {step > 0 && !bookingDone && (
         <div className="bw__head">
-          <button className="bw__back" type="button" onClick={back} aria-label="Back">
+          <button className="bw__back" type="button" onClick={back} aria-label={t('common.back')}>
             <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round"><path d="M15 18l-6-6 6-6"/></svg>
           </button>
           <div className="bw__titles">
@@ -307,9 +328,11 @@ export default function BookingWizard({ categories = [], facilityTypes = [], clu
         {step === STEP_PAY && (
           <Details
             facilityType={facilityType} category={category} club={club} slot={slot} currency={currency}
+            country={country}
             addons={addons}
             details={details} setDetails={setDetails} pay={pay} setPay={setPay}
             done={bookingDone} setDone={setBookingDone} onReset={reset}
+            onEditBooking={() => go(STEP_WHEN)}
           />
         )}
       </div>
@@ -318,13 +341,16 @@ export default function BookingWizard({ categories = [], facilityTypes = [], clu
 }
 
 function Progress({ step, reachable, onJump }) {
+  const { t } = useTranslation();
   return (
-    <ol className="bw__steps" aria-label={`Step ${step + 1} of ${STEPS.length}`}>
-      {STEPS.map((label, i) => {
+    <ol className="bw__steps"
+      aria-label={t('wizard.stepOf', { current: step + 1, total: STEP_KEYS.length })}>
+      {STEP_KEYS.map((key, i) => {
+        const label = t(`wizard.steps.${key}`);
         const state = i < step ? 'done' : i === step ? 'active' : 'todo';
         const can = reachable(i) && i !== step;
         return (
-          <li key={label} className={`bw__step bw__step--${state}`}>
+          <li key={key} className={`bw__step bw__step--${state}`}>
             <button type="button" className="bw__step-btn" disabled={!can}
               onClick={() => onJump(i)} aria-label={label}>
               <span className="bw__step-dot">{i < step ? <Check /> : i + 1}</span>
@@ -343,20 +369,8 @@ function FacilityMedia({ s }) {
   return <span className="bw__fac-ph"><img src={PLACEHOLDER_LOGO} alt={s.name} /></span>;
 }
 
-function Chips({ s, currency }) {
-  return (
-    <>
-      {s.available_in_rta_parking
-        ? <span className="bw__chip bw__chip--ok"><Check /> Available in RTA Parking Zones</span>
-        : <span className="bw__chip bw__chip--warn"><Warn /> Not Available in RTA Parking Zones</span>}
-      {Number(s.damage_cover_amount) > 0 && (
-        <span className="bw__chip"><Shield /> <Price amount={s.damage_cover_amount} currency={currency} /> damage cover</span>
-      )}
-    </>
-  );
-}
-
 function FacilityCard({ s, currency, onPick, onMore }) {
+  const { t } = useTranslation();
   return (
     <article className="bw__fac" role="button" tabIndex={0}
       onClick={() => onPick(s)}
@@ -369,7 +383,7 @@ function FacilityCard({ s, currency, onPick, onMore }) {
             
             {s.badge_display && <span className="bw__tag bw__tag--badge"><Bolt /> {s.badge_display}</span>}
             
-            {s.duration_minutes ? <span className="bw__tag"><Clock /> {duration(s.duration_minutes)}</span> : null}
+            {s.duration_minutes ? <span className="bw__tag"><Clock /> {duration(s.duration_minutes, t)}</span> : null}
           </div>
           <div className="bw__fac-price"><strong><Price amount={s.from_price} currency={currency} /></strong> <VatNote inclusive={s.tax_inclusive} /></div>
           {(s.description || s.whats_included) && (
@@ -378,7 +392,7 @@ function FacilityCard({ s, currency, onPick, onMore }) {
               {s.whats_included && (
                 <button className="bw__fac-more" type="button"
                   onClick={(e) => { e.stopPropagation(); onMore(s); }}>
-                  <Sparkle /> What's Included <Arrow />
+                  <Sparkle /> {t('wizard.facility.included')} <Arrow />
                 </button>
               )}
             </div>
@@ -386,7 +400,6 @@ function FacilityCard({ s, currency, onPick, onMore }) {
         </div>
         <span className="bw__fac-cta" aria-hidden="true"><ArrowRight /></span>
       </div>
-      <div className="bw__fac-foot"><Chips s={s} currency={currency} /></div>
     </article>
   );
 }
@@ -400,9 +413,10 @@ const PERFORMED_GROUPS = [
 ];
 
 function FacilityTypes({ list, currency, onPick }) {
+  const { t } = useTranslation();
   const [detail, setDetail] = useState(null);
   if (list.length === 0) {
-    return <p className="bw__empty">No facilities available in this category yet.</p>;
+    return <p className="bw__empty">{t('wizard.facility.empty')}</p>;
   }
   const groups = PERFORMED_GROUPS
     .map((g) => ({ ...g, items: list.filter((s) => s.performed_at === g.key) }))
@@ -427,7 +441,7 @@ function FacilityTypes({ list, currency, onPick }) {
           ? <div className="bw__fac-list">{other.map(card)}</div>
           : (
             <section className="bw__fac-group">
-              <div className="bw__fac-sep"><span>More facilities</span></div>
+              <div className="bw__fac-sep"><span>{t('wizard.facility.more')}</span></div>
               <div className="bw__fac-list">{other.map(card)}</div>
             </section>
           )
@@ -443,6 +457,7 @@ function FacilityTypes({ list, currency, onPick }) {
 }
 
 function FacilityModal({ facilityType: s, currency, onClose, onSelect }) {
+  const { t } = useTranslation();
   useEffect(() => {
     const onKey = (e) => { if (e.key === 'Escape') onClose(); };
     document.addEventListener('keydown', onKey);
@@ -453,7 +468,7 @@ function FacilityModal({ facilityType: s, currency, onClose, onSelect }) {
   return (
     <div className="bw__modal" role="dialog" aria-modal="true" aria-label={s.name} onClick={onClose}>
       <div className="bw__modal-card" onClick={(e) => e.stopPropagation()}>
-        <button className="bw__modal-close" type="button" onClick={onClose} aria-label="Close"><Close /></button>
+        <button className="bw__modal-close" type="button" onClick={onClose} aria-label={t('common.close')}><Close /></button>
         <div className="bw__modal-media">
           <FacilityMedia s={s} />
           <div className="bw__modal-media-tag">
@@ -464,12 +479,11 @@ function FacilityModal({ facilityType: s, currency, onClose, onSelect }) {
           <div className="bw__modal-scroll">
             <h3 className="bw__modal-title">{s.name}{s.tagline && <em> - {s.tagline}</em>}</h3>
             <div className="bw__modal-meta">
-              {s.duration_minutes ? <span className="bw__time"><Clock /> {duration(s.duration_minutes)}</span> : null}
+              {s.duration_minutes ? <span className="bw__time"><Clock /> {duration(s.duration_minutes, t)}</span> : null}
               {s.badge_display && <span className="bw__time"><Bolt /> {s.badge_display}</span>}
               
             </div>
-            <div className="bw__modal-chips"><Chips s={s} currency={currency} /></div>
-            <h4 className="bw__modal-sub"><Sparkle /> What's Included</h4>
+            <h4 className="bw__modal-sub"><Sparkle /> {t('wizard.facility.included')}</h4>
             <div className="bw__rte" dangerouslySetInnerHTML={{ __html: s.whats_included }} />
             {s.whats_not_included && (
               <div className="bw__modal-excl">
@@ -480,8 +494,8 @@ function FacilityModal({ facilityType: s, currency, onClose, onSelect }) {
             )}
           </div>
           <div className="bw__modal-foot">
-            <button className="bw__modal-close-btn" type="button" onClick={onClose}>Close</button>
-            <button className="bw__modal-select" type="button" onClick={() => onSelect(s)}>Select Facility <ArrowRight /></button>
+            <button className="bw__modal-close-btn" type="button" onClick={onClose}>{t('common.close')}</button>
+            <button className="bw__modal-select" type="button" onClick={() => onSelect(s)}>{t('wizard.facility.selectCta')} <ArrowRight /></button>
           </div>
         </div>
       </div>
@@ -503,6 +517,7 @@ function VatNote({ inclusive }) {
  * markup keeps the existing add-on classes, so the styling is unchanged.
  */
 function AddOns({ facilityType, currency, selected = [], onConfirm }) {
+  const { t } = useTranslation();
   const list = facilityType?.add_ons || [];
   const [picked, setPicked] = useState(selected);
 
@@ -517,9 +532,9 @@ function AddOns({ facilityType, currency, selected = [], onConfirm }) {
   if (list.length === 0) {
     return (
       <div className="bw__addon-step">
-        <p className="bw__empty">This facility has no optional extras.</p>
+        <p className="bw__empty">{t('wizard.addons.empty')}</p>
         <button type="button" className="bw__modal-select" onClick={() => onConfirm([])}>
-          Continue <ArrowRight />
+          {t('common.continue')} <ArrowRight />
         </button>
       </div>
     );
@@ -528,7 +543,7 @@ function AddOns({ facilityType, currency, selected = [], onConfirm }) {
   return (
     <div className="bw__addon-step">
       <div className="bw__addon-head">
-        <span className="bw__cal-eyebrow"><Sparkle /> Recommended add-ons</span>
+        <span className="bw__cal-eyebrow"><Sparkle /> {t('wizard.addons.title')}</span>
         <h3>Boost your {facilityType?.name}</h3>
         <p>Optional extras - pick any you&rsquo;d like, or continue without.</p>
       </div>
@@ -555,10 +570,11 @@ function AddOns({ facilityType, currency, selected = [], onConfirm }) {
 
       <div className="bw__addon-foot">
         <button type="button" className="bw__modal-close-btn" onClick={() => onConfirm([])}>
-          Skip extras
+          {t('wizard.addons.skip')}
         </button>
         <button type="button" className="bw__modal-select" onClick={() => onConfirm(picked)}>
-          Continue{count ? ` · ${count} add-on${count > 1 ? 's' : ''}` : ''} <ArrowRight />
+          {t('common.continue')}
+          {count ? ` · ${t('wizard.addons.addonCount', { count })}` : ''} <ArrowRight />
         </button>
       </div>
     </div>
@@ -572,13 +588,14 @@ function AddOns({ facilityType, currency, selected = [], onConfirm }) {
  * customer has to make, so it sits above the list and "All" is a valid answer.
  */
 function FacilityBrowser({ categories, category, onCategory, list, currency, onPick }) {
+  const { t } = useTranslation();
   return (
     <div className="bw__browse">
       {categories.length > 1 && (
-        <div className="bw__filters" role="group" aria-label="Filter by sport">
+        <div className="bw__filters" role="group" aria-label={t('wizard.facility.filter')}>
           <button type="button" aria-pressed={!category}
             className={`bw__filter${!category ? ' is-on' : ''}`}
-            onClick={() => onCategory(null)}>All</button>
+            onClick={() => onCategory(null)}>{t('common.all')}</button>
           {categories.map((c) => (
             <button key={c.id} type="button" aria-pressed={category?.id === c.id}
               className={`bw__filter${category?.id === c.id ? ' is-on' : ''}`}
@@ -592,6 +609,7 @@ function FacilityBrowser({ categories, category, onCategory, list, currency, onP
 }
 
 function Location({ clubs, query, setQuery, club, onChoose, city }) {
+  const { t } = useTranslation();
   const place = city || 'your area';
   const [coords, setCoords] = useState(null);
   const [geo, setGeo] = useState('idle');   // idle | loading | ok | denied
@@ -627,15 +645,15 @@ function Location({ clubs, query, setQuery, club, onChoose, city }) {
       <div className="bw__loc-hero">
         <div className="bw__loc-herohead">
           <span className="bw__loc-pin"><Pin /></span>
-          <h2>Let's bring the shine to your doorstep</h2>
+          <h2>{t('wizard.club.title')}</h2>
         </div>
-        <p>Tell us where you are in <strong>{place}</strong> and we'll match you with the nearest club.</p>
+        <p>{t('wizard.club.pickInLead', { city: place })}</p>
       </div>
 
       <div className="bw__loc-search">
         <Pin />
         <input
-          type="text" value={query} aria-label="Search club"
+          type="text" value={query} aria-label={t('wizard.club.search')}
           placeholder={`Search a club in ${place}`}
           onChange={(e) => { setQuery(e.target.value); setOpen(true); }}
           onFocus={() => { if (query.trim()) setOpen(true); }}
@@ -667,18 +685,18 @@ function Location({ clubs, query, setQuery, club, onChoose, city }) {
             <Pin /> {geo === 'loading' ? 'Finding you…' : 'Use my current location'}
           </button>
         )}
-        {geo === 'ok' && <span className="bw__geo-ok"><Check /> Nearest clubs first</span>}
-        {geo === 'denied' && <span className="bw__geo-note">Allow location access to see the closest club.</span>}
+        {geo === 'ok' && <span className="bw__geo-ok"><Check /> {t('wizard.club.nearestFirst')}</span>}
+        {geo === 'denied' && <span className="bw__geo-note">{t('wizard.club.allowLocation')}</span>}
       </div>
 
       {!searching && (
         <>
           <div className="bw__loc-listhead">
-            <span>Nearest clubs</span>
+            <span>{t('wizard.club.nearest')}</span>
             {list.length > shown.length && <span className="bw__loc-listhint">Search to see all {list.length}</span>}
           </div>
           <div className="bw__loc-list">
-            {shown.length === 0 && <p className="bw__empty">No clubs available yet.</p>}
+            {shown.length === 0 && <p className="bw__empty">{t('wizard.club.empty')}</p>}
             {shown.map((b) => (
               <button
                 key={b.id} type="button"
@@ -691,21 +709,22 @@ function Location({ clubs, query, setQuery, club, onChoose, city }) {
                   <span>{[b.address, b.city].filter(Boolean).join(', ') || 'Address coming soon'}</span>
                 </span>
                 {b.distance != null && <span className="bw__club-dist">{dist(b.distance)}</span>}
-                <span className="bw__club-check" aria-hidden="true">✓</span>
+                <span className="bw__club-check" aria-hidden="true"><Check /></span>
               </button>
             ))}
           </div>
         </>
       )}
 
-      <p className="bw__loc-note">ⓘ We currently serve across {place}</p>
+      <p className="bw__loc-note">We currently serve clubs across {place}.</p>
     </div>
   );
 }
 
-const longDate = (iso) => {
+const longDate = (iso, locale) => {
   const [y, m, d] = iso.split('-').map(Number);
-  return new Date(y, m - 1, d).toLocaleDateString(undefined, { weekday: 'long', month: 'long', day: 'numeric' });
+  return new Date(y, m - 1, d).toLocaleDateString(
+    intlLocale(locale), { weekday: 'long', month: 'long', day: 'numeric' });
 };
 
 const Chevron = ({ dir }) => (
@@ -725,6 +744,8 @@ const availInvalidate = (club, facilityType, date) =>
 
 function Schedule({ facilityType, category, club, currency, initialDate = null,
                    value, onChange, onContinue }) {
+  const { t, i18n } = useTranslation();
+  const locale = i18n.language;
   const today = startOfToday();
   // Open on the day the customer asked for, never on one already past.
   const opening = (() => {
@@ -785,39 +806,51 @@ function Schedule({ facilityType, category, club, currency, initialDate = null,
     <div className="bw__cal">
       {/* LEFT - your selection */}
       <div className="bw__cal-info">
-        <span className="bw__cal-eyebrow">Your booking</span>
-        <h3 className="bw__cal-title">{facilityType?.name || 'Your booking'}</h3>
+        <span className="bw__cal-eyebrow">{t('wizard.when.yourBooking')}</span>
+        <h3 className="bw__cal-title">{facilityType?.name || t('wizard.when.yourBooking')}</h3>
         {facilityType?.tagline && <p className="bw__cal-tagline">{facilityType.tagline}</p>}
         <ul className="bw__cal-meta">
-          {facilityType?.duration_minutes ? <li><Clock /> {duration(facilityType.duration_minutes)}</li> : null}
+          {facilityType?.duration_minutes ? <li><Clock /> {duration(facilityType.duration_minutes, t)}</li> : null}
           <li><Pin /> {club?.name}{club?.city ? `, ${club.city}` : ''}</li>
         </ul>
         <div className="bw__cal-sep" />
         {value && (
           <div className="bw__cal-appt">
-            <span>Appointment</span>
-            <strong>{longDate(value.date)}<br />{fmtTime(value.time, is24)} – {fmtTime(value.end, is24)}</strong>
+            <span>{t('wizard.when.appointment')}</span>
+            <strong>{longDate(value.date, locale)}<br /><bdi>{fmtTime(value.time, is24)} - {fmtTime(value.end, is24)}</bdi></strong>
           </div>
         )}
         <div className="bw__cal-total">
-          <span>Total</span>
+          <span>{t('common.total')}</span>
           <strong><Price amount={facilityType?.from_price} currency={currency} /></strong>
         </div>
 
-        <p className="bw__cal-pay"><Clock /> Payment upon completion</p>
+        <p className="bw__cal-pay"><Clock /> {t('wizard.when.payOnCompletion')}</p>
       </div>
 
       {/* CENTER - month calendar */}
       <div className="bw__cal-main">
         <div className="bw__cal-monthbar">
-          <button type="button" disabled={atMin} aria-label="Previous month"
+          <button type="button" disabled={atMin} aria-label={t('wizard.when.previousMonth')}
             onClick={() => setView(new Date(y, m - 1, 1))}><Chevron dir="left" /></button>
-          <span className="bw__cal-month">{view.toLocaleDateString(undefined, { month: 'long', year: 'numeric' })}</span>
-          <button type="button" disabled={atMax} aria-label="Next month"
+          <span className="bw__cal-month">
+            {view.toLocaleDateString(intlLocale(locale), { month: 'long', year: 'numeric' })}
+          </span>
+          <button type="button" disabled={atMax} aria-label={t('wizard.when.nextMonth')}
             onClick={() => setView(new Date(y, m + 1, 1))}><Chevron dir="right" /></button>
         </div>
         <div className="bw__dow">
-          {['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map((d) => <span key={d}>{d}</span>)}
+          {/* Built from Intl rather than hard-coded, so the column headings read
+              in the same language as the month above them. 2024-01-07 is a
+              Sunday, which is where this grid starts. */}
+          {Array.from({ length: 7 }, (_, index) => {
+            const day = new Date(2024, 0, 7 + index);
+            return (
+              <span key={index}>
+                {day.toLocaleDateString(intlLocale(locale), { weekday: weekdayStyle(locale) })}
+              </span>
+            );
+          })}
         </div>
         <div className="bw__month">
           {cells.map((d, i) => {
@@ -837,10 +870,10 @@ function Schedule({ facilityType, category, club, currency, initialDate = null,
 
       {/* RIGHT - times for the selected date */}
       <div className="bw__cal-times">
-        <div className="bw__cal-timehead">{longDate(date)}</div>
+        <div className="bw__cal-timehead">{longDate(date, locale)}</div>
         <div className="bw__time-list">
-          {loading ? <p className="bw__sch-loading">Loading…</p>
-            : data?.closed ? <p className="bw__cal-none">Closed on this day - pick another date.</p>
+          {loading ? <p className="bw__sch-loading">{t('common.loading')}</p>
+            : data?.closed ? <p className="bw__cal-none">{t('wizard.when.closed')}</p>
               : data?.slots?.length ? data.slots.map((s) => {
                 const off = s.available <= 0;
                 const sel = selectedTime === s.time;
@@ -849,15 +882,15 @@ function Schedule({ facilityType, category, club, currency, initialDate = null,
                   <div key={s.time} className={`bw__time-row${sel ? ' is-sel' : ''}`}>
                     <button type="button" className={`bw__time${sel ? ' is-sel' : tone}`} disabled={off}
                       onClick={() => onChange({ date, time: s.time, end: s.end })}>
-                      <span className="bw__time-t">{fmtTime(s.time, is24)}</span>
-                      {off ? <span className="bw__time-tag">Fully booked</span>
+                      <span className="bw__time-t"><bdi>{fmtTime(s.time, is24)}</bdi></span>
+                      {off ? <span className="bw__time-tag">{t('wizard.when.fullyBooked')}</span>
                         : null}
                     </button>
                     <button type="button" className="bw__time-go" tabIndex={sel ? 0 : -1}
-                      aria-hidden={!sel} onClick={onContinue}>Continue</button>
+                      aria-hidden={!sel} onClick={onContinue}>{t('common.continue')}</button>
                   </div>
                 );
-              }) : <p className="bw__cal-none">No times available - pick another date.</p>}
+              }) : <p className="bw__cal-none">{t('wizard.when.noTimes')}</p>}
         </div>
       </div>
     </div>
@@ -872,19 +905,27 @@ function Money({ amount, currency }) {
     ? n.toLocaleString(undefined, { minimumFractionDigits: hasFrac ? 2 : 0, maximumFractionDigits: 2 })
     : amount;
   const sym = currency === 'AED' ? <span className="aed-symbol">AED</span> : <>{currency}</>;
-  return <>{sym} {v}</>;
+  return <bdi>{sym} {v}</bdi>;
 }
 
-function Details({ facilityType, category, club, slot, currency, addons = [], details, setDetails, pay, setPay, done, setDone, onReset }) {
+function Details({ facilityType, category, club, slot, currency, country = '', addons = [], details, setDetails, pay, setPay, done, setDone, onReset, onEditBooking }) {
+  const { t, i18n } = useTranslation();
+  const locale = i18n.language;
   const selectedAddons = (facilityType?.add_ons || []).filter((a) => addons.includes(a.id));
   // Form + payment state live in the parent so they survive navigating away
   // and back to this step (until the booking is completed).
   const form = details;
-  const { method, coupon, applied } = pay;          // applied = { code, discount }
+  const { method, coupon, applied, card, split } = pay;   // applied = { code, discount }
   const set = (k) => (e) => setDetails((f) => ({ ...f, [k]: e.target.value }));
   const setMethod = (m) => setPay((p) => ({ ...p, method: m }));
   const setCoupon = (v) => setPay((p) => ({ ...p, coupon: v }));
   const setApplied = (a) => setPay((p) => ({ ...p, applied: a }));
+  // `setCard`/`setSplit` take an updater so the child can patch one field
+  // without the parent having to know the shape of the rest.
+  const setCard = (next) => setPay((p) => ({
+    ...p, card: typeof next === 'function' ? next(p.card) : next }));
+  const setSplit = (next) => setPay((p) => ({
+    ...p, split: typeof next === 'function' ? next(p.split) : next }));
   const [couponMsg, setCouponMsg] = useState('');
   const [couponBusy, setCouponBusy] = useState(false);
   const [quote, setQuote] = useState(null);
@@ -895,6 +936,18 @@ function Details({ facilityType, category, club, slot, currency, addons = [], de
   // Contact rules (Booking Configuration → Website). Default to required so the
   // form stays strict until the live config loads.
   const [cfg, setCfg] = useState({ email_required: true, phone_required: true, email_unique: false, phone_unique: false });
+  // What payment methods are actually available. Defaults to card-off so a
+  // checkout that cannot reach the backend offers cash rather than a card form
+  // that would fail.
+  const [payCfg, setPayCfg] = useState({ card_enabled: false, demo_mode: false, test_cards: [], split_enabled: false });
+  useEffect(() => {
+    fetch('/api/split?scope=config').then((r) => (r.ok ? r.json() : null))
+      .then((c) => c && setPayCfg(c)).catch(() => {});
+  }, []);
+
+  // The details block collapses to a one-line summary once it is done with, the
+  // way a checkout should: the payment step is what the customer came here for.
+  const [detailsOpen, setDetailsOpen] = useState(true);
   useEffect(() => {
     fetch('/api/booking-config').then((r) => (r.ok ? r.json() : null))
       .then((c) => c && setCfg(c)).catch(() => {});
@@ -997,10 +1050,10 @@ function Details({ facilityType, category, club, slot, currency, addons = [], de
     setCouponBusy(true); setCouponMsg('');
     const q = await loadQuote(code);
     setCouponBusy(false);
-    if (!q) { setCouponMsg('Couldn’t check that code - please try again'); return; }
+    if (!q) { setCouponMsg(t('errors.couponCheck')); return; }
     setQuote(q);
     if (q.coupon?.applied) { setApplied({ code: q.coupon.code, discount: q.coupon.discount }); setCouponMsg(''); }
-    else { setApplied(null); setCouponMsg(q.coupon?.message || 'This coupon can’t be applied.'); }
+    else { setApplied(null); setCouponMsg(q.coupon?.message || t('errors.couponInvalid')); }
   }
   function removeCoupon() {
     setApplied(null); setCoupon(''); setCouponMsg('');
@@ -1031,16 +1084,96 @@ function Details({ facilityType, category, club, slot, currency, addons = [], de
       }
     }
     setShowErrors(true);
-    if (!valid) { setError('Please complete the highlighted fields'); return; }
-    setError('');
-    if (mode === 'card') {
-      setError('Online card payment is coming soon - choose Cash to confirm your booking now.');
+    if (!valid) {
+      setDetailsOpen(true);
+      setError(t('errors.completeFields'));
       return;
     }
-    book();
+    setError('');
+    if (mode === 'card' || mode === 'split') {
+      if (!payCfg.card_enabled) {
+        setError(t('errors.paymentUnavailable'));
+        return;
+      }
+      const missing = !card.number.trim() || !card.holder.trim()
+        || !card.expiry.trim() || !card.cvv.trim();
+      // A split only needs a card up front when the organizer is paying their
+      // own share right now; otherwise the links do the collecting.
+      const needsCard = mode === 'card' || split.payMyShareNow;
+      if (needsCard && missing) {
+        setError(t('errors.enterCard'));
+        return;
+      }
+      if (mode === 'split') {
+        const problem = splitProblem();
+        if (problem) { setError(problem); return; }
+      }
+    }
+    book(mode);
   }
 
-  async function book() {
+  /**
+   * Why a split cannot be submitted yet, or '' when it can.
+   *
+   * This is a courtesy, not a control: the backend performs the same check
+   * against its own outstanding balance and refuses anything that does not add
+   * up, whatever the browser believes.
+   */
+  /**
+   * Which backend flow this checkout submits.
+   *
+   * The instrument and the arrangement are separate choices now: you can split
+   * a booking and still pay your own share by card, so the method tiles answer
+   * "how do I pay" and the split switch answers "who pays".
+   */
+  const payMode = split.on ? 'split' : (method === 'venue' ? 'cash' : 'card');
+
+  const tiles = paymentTiles({ config: payCfg, country, splitOn: split.on });
+  useEffect(() => {
+    if (tiles.length && !tiles.some((tile) => tile.key === method)) {
+      setMethod(tiles[0].key);
+    }
+  }, [tiles, method]);
+
+  function splitProblem() {
+    const total = Number(quote?.summary?.total ?? quote?.total_amount ?? 0);
+    if (split.mode === 'custom') {
+      if (!split.custom.length) return t('errors.addOnePerson');
+      const allocated = split.custom.reduce(
+        (sum, row) => sum + Math.round(Number(row.amount || 0) * 100), 0);
+      const target = Math.round(total * 100);
+      if (allocated !== target) {
+        return t('errors.sharesMustAddUp',
+          { amount: formatMoney(total.toFixed(2), cur) });
+      }
+      return '';
+    }
+    const people = Number(split.people) || 0;
+    if (people < 2) return t('errors.chooseTwoPeople');
+    if (Math.round(total * 100) < people) return t('errors.tooManyForAmount');
+    return '';
+  }
+
+  /**
+   * The payment section of the submission.
+   *
+   * Amounts are never included. The backend prices the booking and decides what
+   * each participant owes, so the only thing travelling from here is the
+   * customer's INTENT: which method, how many ways, and who the friends are.
+   */
+  function paymentRequest(mode) {
+    if (mode === 'cash') return { method: 'cash' };
+    if (mode === 'split') {
+      return {
+        method: 'split',
+        split: splitRequest(split),
+        ...(split.payMyShareNow ? { card: cardRequest(card) } : {}),
+      };
+    }
+    return { method: 'card', card: cardRequest(card) };
+  }
+
+  async function book(mode = method) {
     if (!valid || busy) return;
     setBusy(true); setError('');
     try {
@@ -1050,10 +1183,19 @@ function Details({ facilityType, category, club, slot, currency, addons = [], de
           facility_type: facilityType?.id, club: club?.id, add_ons: addons, date: slot?.date, time: slot?.time,
           name: form.name, phone: form.phone, email: form.email, notes: form.notes,
           coupon: applied?.code || '', verification_token: tokenValid ? token : undefined,
+          payment: paymentRequest(mode),
         }),
       });
       const data = await res.json().catch(() => null);
-      if (res.ok && data?.reference) setDone(data);
+      if (res.ok && data?.reference) {
+        setDone(data);
+        // A booking is always created; the payment is a separate outcome the
+        // confirmation screen reports honestly rather than hiding.
+        const outcome = data.payment || {};
+        if (outcome.status === 'failed' || outcome.status === 'unavailable') {
+          setError(outcome.detail || t('errors.paymentFailed'));
+        }
+      }
       else if (res.status === 409 && data?.needs_otp) {
         // A unique contact already exists - ask to verify and reuse it.
         setDup(data.duplicate || { field: 'contact', masked: '' });
@@ -1063,10 +1205,10 @@ function Details({ facilityType, category, club, slot, currency, addons = [], de
         // Slot was taken between viewing and booking - drop the stale cache so
         // re-opening the date shows the truth, and ask them to pick again.
         availInvalidate(club, facilityType, slot?.date);
-        setError(data?.detail || 'That time was just booked by someone else - please go back and pick another slot');
-      } else setError(data?.detail || 'Something went wrong - please try again');
+        setError(data?.detail || t('errors.slotTaken'));
+      } else setError(data?.detail || t('errors.generic'));
     } catch {
-      setError('Couldn’t reach the booking service - please try again');
+      setError(t('errors.unreachable'));
     } finally { setBusy(false); }
   }
 
@@ -1083,26 +1225,43 @@ function Details({ facilityType, category, club, slot, currency, addons = [], de
             <span className="bw__success-ring bw__success-ring--2" />
           </div>
           <div className="bw__success-htext">
-            <h2 className="bw__success-title">Booking Confirmed</h2>
-            <p className="bw__success-sub">Thank you{form.name ? `, ${form.name.split(' ')[0]}` : ''} - our team will reach out shortly to confirm.</p>
-            <span className="bw__success-ref">Reference&nbsp;<strong>{done.reference}</strong></span>
+            <h2 className="bw__success-title">{t('success.title')}</h2>
+            <p className="bw__success-sub">
+              {t('success.subtitle',
+                { name: form.name ? `, ${form.name.split(' ')[0]}` : '' })}
+            </p>
+            <span className="bw__success-ref">{t('success.reference')}&nbsp;<strong>{done.reference}</strong></span>
           </div>
         </div>
 
         <div className="bw__success-card">
           <div className="bw__success-grid">
-            <div className="bw__sx-item"><span className="bw__sx-ic"><Droplet /></span><div><span>Facility</span><strong>{facilityType?.name}</strong></div></div>
-            {slot && <div className="bw__sx-item"><span className="bw__sx-ic"><Clock /></span><div><span>Date &amp; time</span><strong>{longDate(slot.date)}</strong><em>{fmtTime(slot.time)} – {fmtTime(slot.end)}</em></div></div>}
-            <div className="bw__sx-item"><span className="bw__sx-ic"><Pin /></span><div><span>Club</span><strong>{club?.name}</strong><em>{[club?.address, club?.city].filter(Boolean).join(', ')}</em></div></div>
+            <div className="bw__sx-item"><span className="bw__sx-ic"><Droplet /></span><div><span>{t('success.facility')}</span><strong>{facilityType?.name}</strong></div></div>
+            {slot && <div className="bw__sx-item"><span className="bw__sx-ic"><Clock /></span><div><span>{t('success.dateTime')}</span><strong>{longDate(slot.date, locale)}</strong><em><bdi>{fmtTime(slot.time)} - {fmtTime(slot.end)}</bdi></em></div></div>}
+            <div className="bw__sx-item"><span className="bw__sx-ic"><Pin /></span><div><span>{t('success.club')}</span><strong>{club?.name}</strong><em>{[club?.address, club?.city].filter(Boolean).join(', ')}</em></div></div>
           </div>
           <div className="bw__success-foot">
-            <div><span className="bw__success-fk">Total</span><strong className="bw__success-total"><Money amount={done.total_amount} currency={done.currency} /></strong></div>
-            <span className="bw__success-pay"><CashIcon /> Cash · pay on completion</span>
+            <div><span className="bw__success-fk">{t('common.total')}</span><strong className="bw__success-total"><Money amount={done.total_amount} currency={done.currency} /></strong></div>
+            <PaidBadge payment={done.payment} currency={done.currency} />
           </div>
         </div>
 
+        {/* A split hands back the links here and nowhere else: the raw tokens are
+            never stored on the server, so this screen is the organizer's one
+            chance to keep them. It saves them to this browser so the progress
+            page can show them again. */}
+        {done.payment?.method === 'split' && done.payment.status === 'started' && (
+          <SplitHandoff result={done.payment} currency={done.currency} />
+        )}
 
-        <button className="bw__success-cta" type="button" onClick={onReset}>Book another facility <ArrowRight /></button>
+        {/* A declined card must not dead-end the customer. Their slot is held, so
+            the honest thing is to let them try again right here. */}
+        {done.payment?.status === 'failed' && done.checkout_token && (
+          <RetryCard checkoutToken={done.checkout_token} config={payCfg}
+            amount={done.payment.outstanding} currency={done.currency} />
+        )}
+
+        <button className="bw__success-cta" type="button" onClick={onReset}>{t('success.bookAnother')} <ArrowRight /></button>
       </div>
     );
   }
@@ -1110,161 +1269,522 @@ function Details({ facilityType, category, club, slot, currency, addons = [], de
   const cur = quote?.currency || currency;
   const num = (v) => Number(v || 0);
 
+  const bookingTotal = quote?.summary?.total ?? quote?.total_amount ?? facilityType?.from_price;
+  const shares = split.on && split.mode === 'equal'
+    ? previewEqualSplit(bookingTotal, split.people)
+    : split.custom.map((row) => row.amount);
+  const myShare = split.on ? (shares[0] ?? 0) : bookingTotal;
+  const pendingFromFriends = split.on
+    ? Math.max(0, num(bookingTotal) - num(myShare)).toFixed(2)
+    : '0.00';
+  // A split where the organizer defers their own share collects nothing now, so
+  // the button must not promise a payment that is not about to happen.
+  const paysNow = !split.on || split.payMyShareNow;
+  const needsCard = payMode === 'card' || (split.on && split.payMyShareNow);
+  const contactLine = [form.name, form.phone, form.email].filter(Boolean).join(' · ');
+  // Everything the promo, the rules and the loyalty discount took off the price,
+  // so the customer can see the offer worked.
+  const savings = (quote?.summary?.adjustments || [])
+    .filter((a) => a.kind !== 'surcharge')
+    .reduce((total, a) => total + num(a.amount), 0);
+
   return (
-    <div className="bw__det">
-      <form className="bw__det-form" onSubmit={(e) => e.preventDefault()}>
-        <section className="bw__det-sec">
-          <h4 className="bw__det-h"><Pin /> Your details</h4>
-          <div className="bw__field">
-            <label>Full name <i>*</i></label>
-            <input className={`bw__input${reqErr('name') ? ' is-invalid' : ''}`} value={form.name}
-              onChange={set('name')} placeholder="e.g. Layla Ahmed" />
-            {reqErr('name') && <span className="bw__field-err">Required</span>}
-          </div>
-          <div className="bw__field">
-            <label>Mobile number {cfg.phone_required ? <i>*</i> : <em>(optional)</em>}</label>
-            <PhoneField value={form.phone} onChange={onPhone} invalid={phoneErr}
-              defaultCountry={phoneCountryFor(country)} />
-            {phoneErr && <span className="bw__field-err">Enter a valid mobile number for the selected country</span>}
-          </div>
-          <div className="bw__field">
-            <label>Email {cfg.email_required ? <i>*</i> : <em>(optional)</em>}</label>
-            <input className={`bw__input${emailErr ? ' is-invalid' : ''}`} type="email" value={form.email}
-              onChange={onEmail} placeholder="you@example.com" />
-            {emailErr && <span className="bw__field-err">Enter a valid email address</span>}
-          </div>
+    <div className="ck">
+      <div className="ck__main">
+        {/* 1. Your details. Collapses to a single line once it is done with, so
+            the payment step is what the page is actually about. */}
+        <section className="ck__sec">
+          {detailsOpen ? (
+            <form className="ck__form" onSubmit={(e) => e.preventDefault()}>
+              <header className="ck__sec-head">
+                <span className="ck__step">1</span>
+                <h3 className="ck__sec-h">{t('checkout.detailsTitle')}</h3>
+              </header>
 
-          {dup && !token && (
-            <div className="bw__otp">
-              <p className="bw__otp-h">We already have an account for this {dup.field === 'phone' ? 'mobile number' : 'email'}</p>
-              <p className="bw__otp-sub">
-                Enter the code we sent to <em>{dup.masked}</em> to continue with your existing details.
-              </p>
-              <div className="bw__otp-row">
-                <input className="bw__input" value={otpCode} inputMode="numeric"
-                  onChange={(e) => setOtpCode(e.target.value)} placeholder="6-digit code" />
-                <button className="bw__otp-btn" type="button" onClick={verifyOtp} disabled={otpBusy}>
-                  {otpBusy ? 'Checking…' : 'Verify'}
-                </button>
+              <div className="ck__field">
+                <label htmlFor="ck-name">{t('checkout.fullName')} <i aria-hidden="true">*</i></label>
+                <input id="ck-name" className={`ck__input${reqErr('name') ? ' is-invalid' : ''}`}
+                  value={form.name} onChange={set('name')} placeholder={t('checkout.namePlaceholder')}
+                  autoComplete="name" />
+                {reqErr('name') && <span className="ck__field-err">{t('common.required')}</span>}
               </div>
-              {otpMsg && <span className="bw__field-err">{otpMsg}</span>}
-            </div>
-          )}
-        </section>
-
-        <section className="bw__det-sec">
-          <h4 className="bw__det-h"><Clock /> Anything we should know?</h4>
-          <div className="bw__field">
-            <label>Notes <em>(optional)</em></label>
-            <textarea className="bw__input bw__textarea" rows={3} value={form.notes} onChange={set('notes')}
-              placeholder="Coaching request, equipment needed, accessibility…" />
-          </div>
-        </section>
-      </form>
-
-      <aside className="bw__pay">
-        <span className="bw__cal-eyebrow">Booking summary</span>
-        <h3 className="bw__cal-title">{facilityType?.name || 'Your booking'}</h3>
-        <ul className="bw__cal-meta">
-          {facilityType?.duration_minutes ? <li><Clock /> {duration(facilityType.duration_minutes)}</li> : null}
-          <li><Pin /> {club?.name}{club?.city ? `, ${club.city}` : ''}</li>
-          {slot ? <li><Sun /> {longDate(slot.date)}, {fmtTime(slot.time)}–{fmtTime(slot.end)}</li> : null}
-          {selectedAddons.length > 0 && <li><Sparkle /> {selectedAddons.map((a) => a.name).join(', ')}</li>}
-        </ul>
-
-        {/* Coupon */}
-        <div className="bw__coupon">
-          {applied ? (
-            <div className="bw__coupon-on">
-              <span className="bw__coupon-tag"><TagIcon /> {applied.code}</span>
-              <span className="bw__coupon-save">− <Money amount={applied.discount} currency={cur} /></span>
-              <button type="button" className="bw__coupon-x" onClick={removeCoupon} aria-label="Remove coupon">✕</button>
-            </div>
-          ) : (
-            <div className="bw__coupon-row">
-              <span className="bw__coupon-ic"><TagIcon /></span>
-              <input className="bw__coupon-in" value={coupon} placeholder="Promo code"
-                onChange={(e) => setCoupon(e.target.value.toUpperCase())}
-                onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); applyCoupon(); } }} />
-              <button type="button" className="bw__coupon-apply" onClick={applyCoupon} disabled={!coupon.trim() || couponBusy}>
-                {couponBusy ? '…' : 'Apply'}
-              </button>
-            </div>
-          )}
-          {couponMsg && <p className="bw__coupon-msg">{couponMsg}</p>}
-        </div>
-
-        {/* Price breakdown - enterprise B2C order summary: VAT-inclusive line
-            prices, then Subtotal → Discounts → Total, with VAT disclosed. */}
-        {quote?.summary ? (() => {
-          const sm = quote.summary;
-          const savings = sm.adjustments
-            .filter((a) => a.kind !== 'surcharge')
-            .reduce((t, a) => t + num(a.amount), 0);
-          return (
-            <div className="bw__bd">
-              {sm.items.map((it, i) => (
-                <div key={i} className="bw__bd-row bw__bd-item">
-                  <span>{it.label}</span><span><Money amount={it.amount} currency={cur} /></span>
-                </div>
-              ))}
-              <div className="bw__bd-row bw__bd-sub">
-                <span>Subtotal</span><span><Money amount={sm.items_subtotal} currency={cur} /></span>
+              <div className="ck__field">
+                <label htmlFor="ck-phone">
+                  {t('checkout.mobile')}{' '}
+                  {cfg.phone_required
+                    ? <i aria-hidden="true">*</i>
+                    : <em>{t('common.optional')}</em>}
+                </label>
+                <PhoneField value={form.phone} onChange={onPhone} invalid={phoneErr}
+                  defaultCountry={phoneCountryFor(country)} />
+                {phoneErr && (
+                  <span className="ck__field-err">{t('checkout.invalidMobile')}</span>
+                )}
               </div>
-              {sm.adjustments.map((a, i) => {
-                const off = a.kind !== 'surcharge';
-                return (
-                  <div key={i} className={`bw__bd-row${off ? ' bw__bd-row--offer' : ''}`}>
-                    <span>{off ? <TagIcon /> : null} {a.label}{a.adjustment ? <em className="bw__bd-adj"> ({a.adjustment})</em> : null}</span>
-                    <span>{off ? '− ' : '+ '}<Money amount={a.amount} currency={cur} /></span>
+              <div className="ck__field">
+                <label htmlFor="ck-email">
+                  {t('checkout.email')}{' '}
+                  {cfg.email_required
+                    ? <i aria-hidden="true">*</i>
+                    : <em>{t('common.optional')}</em>}
+                </label>
+                <input id="ck-email" className={`ck__input${emailErr ? ' is-invalid' : ''}`}
+                  type="email" value={form.email} onChange={onEmail}
+                  placeholder={t('checkout.emailPlaceholder')} autoComplete="email" />
+                {emailErr && <span className="ck__field-err">{t('checkout.invalidEmail')}</span>}
+              </div>
+
+              <div className="ck__field">
+                <label htmlFor="ck-notes">
+                  {t('checkout.notes')} <em>{t('common.optional')}</em>
+                </label>
+                <textarea id="ck-notes" className="ck__input ck__textarea" rows={2}
+                  value={form.notes} onChange={set('notes')}
+                  placeholder={t('checkout.notesPlaceholder')} />
+              </div>
+
+              {dup && !token && (
+                <div className="ck__otp">
+                  <p className="ck__otp-h">
+                    {t(dup.field === 'phone' ? 'otp.titlePhone' : 'otp.titleEmail')}
+                  </p>
+                  <p className="ck__otp-sub">
+                    {t('otp.subtitle', { masked: dup.masked })}
+                  </p>
+                  <div className="ck__otp-row">
+                    <input className="ck__input" value={otpCode} inputMode="numeric"
+                      aria-label={t('otp.code')}
+                      onChange={(e) => setOtpCode(e.target.value)} placeholder={t('otp.placeholder')} />
+                    <button className="ck__otp-btn" type="button" onClick={verifyOtp}
+                      disabled={otpBusy}>
+                      {t(otpBusy ? 'otp.checking' : 'otp.verify')}
+                    </button>
                   </div>
-                );
-              })}
-              <div className="bw__bd-total">
-                <span>Total <em className="bw__bd-vatin">(incl. VAT)</em></span>
-                <strong><Money amount={sm.total} currency={cur} /></strong>
+                  {otpMsg && <span className="ck__field-err">{otpMsg}</span>}
+                </div>
+              )}
+
+              <button type="button" className="ck__continue"
+                onClick={() => {
+                  setShowErrors(true);
+                  if (valid) { setDetailsOpen(false); setError(''); }
+                }}>
+                {t('checkout.continueToPayment')}
+              </button>
+            </form>
+          ) : (
+            <div className="ck__done-row">
+              <span className="ck__tick" aria-hidden="true"><CheckIcon /></span>
+              <div className="ck__done-tx">
+                <strong>{t('checkout.detailsTitle')}</strong>
+                <span>{contactLine}</span>
               </div>
-              <div className="bw__bd-foot">
-                <span className="bw__bd-vatnote">Includes VAT ({sm.vat_percent}%) · <Money amount={sm.vat_amount} currency={cur} /></span>
-                {savings > 0 && <span className="bw__bd-save">You save <Money amount={savings} currency={cur} /></span>}
+              <button type="button" className="ck__edit"
+                onClick={() => setDetailsOpen(true)}>{t('common.edit')}</button>
+            </div>
+          )}
+        </section>
+
+        {/* 2. Payment. */}
+        <section className="ck__sec ck__sec--pay">
+          <header className="ck__sec-head">
+            <span className="ck__step">2</span>
+            <h3 className="ck__sec-h">{t('checkout.paymentTitle')}</h3>
+            <span className="ck__secure"><LockIcon /> {t('checkout.secure')}</span>
+          </header>
+
+          {/* Switched on, the split configuration leads: it decides how much the
+              card below is about to be charged. */}
+          {split.on && (
+            <SplitPanel
+              split={split}
+              setSplit={setSplit}
+              total={bookingTotal}
+              currency={cur}
+              disabled={busy}
+              organizerName={form.name}
+              holdMinutes={payCfg.split_minutes || 60}
+            />
+          )}
+
+          <PaymentMethods
+            method={method}
+            config={payCfg}
+            country={country}
+            splitOn={split.on}
+            heading={split.on ? 'Pay your share with' : undefined}
+            onPick={(next) => { setMethod(next); setError(''); }}
+          />
+
+          {needsCard && payCfg.card_enabled && (
+            <CardForm card={card} setCard={setCard} config={payCfg}
+              disabled={busy} compact={split.on} />
+          )}
+
+          {payMode === 'cash' && (
+            <p className="ck__venue-note">
+              <ClockIcon /> {t('checkout.venueNote')}
+            </p>
+          )}
+
+          {/* Switched off, the offer sits quietly at the foot of the section. */}
+          {!split.on && payCfg.split_enabled && payCfg.card_enabled && (
+            <SplitToggle on={false} disabled={busy}
+              onChange={(next) => { setSplit((c) => ({ ...c, on: next })); setError(''); }} />
+          )}
+
+          {error && <p className="ck__error" role="alert">{error}</p>}
+        </section>
+      </div>
+
+      <aside className="ck__rail">
+        <div className="ck__sum">
+          <div className="ck__sum-head">
+            <span className="ck__sum-ic" aria-hidden="true"><Droplet /></span>
+            <div className="ck__sum-title">
+              <span className="ck__sum-eyebrow">{t('checkout.summary')}</span>
+              <h3>{facilityType?.name || t('checkout.yourBooking')}</h3>
+            </div>
+            <button type="button" className="ck__edit" onClick={onEditBooking}>{t('common.edit')}</button>
+          </div>
+
+          <ul className="ck__sum-meta">
+            <li><Pin /> <span>{club?.name}{club?.city ? `, ${club.city}` : ''}</span></li>
+            {slot && <li><Sun /> <span>{longDate(slot.date, locale)}</span></li>}
+            {slot && (
+              <li>
+                <ClockIcon />
+                <span>
+                  <bdi>{fmtTime(slot.time)} - {fmtTime(slot.end)}</bdi>
+                  {facilityType?.duration_minutes
+                    ? ` (${duration(facilityType.duration_minutes, t)})` : ''}
+                </span>
+              </li>
+            )}
+            {selectedAddons.length > 0 && (
+              <li><Sparkle /> <span>{selectedAddons.map((a) => a.name).join(', ')}</span></li>
+            )}
+          </ul>
+
+          {/* Price breakdown: VAT-inclusive line prices, then the adjustments
+              that moved the total, then the total itself. */}
+          {quote?.summary ? (() => {
+            const sm = quote.summary;
+            return (
+              <div className="ck__lines">
+                {sm.items.map((it, i) => (
+                  <div key={i} className="ck__line">
+                    <span>{it.label}</span>
+                    <span><Money amount={it.amount} currency={cur} /></span>
+                  </div>
+                ))}
+                {sm.adjustments.map((a, i) => {
+                  const off = a.kind !== 'surcharge';
+                  return (
+                    <div key={i} className={`ck__line${off ? ' ck__line--offer' : ''}`}>
+                      <span>
+                        {a.label}
+                        {a.adjustment ? <em> ({a.adjustment})</em> : null}
+                      </span>
+                      <span>{off ? '- ' : '+ '}<Money amount={a.amount} currency={cur} /></span>
+                    </div>
+                  );
+                })}
+              </div>
+            );
+          })() : (
+            <div className="ck__lines">
+              <div className="ck__line">
+                <span>{t('common.subtotal')}</span>
+                <span><Money amount={quote?.subtotal ?? facilityType?.from_price} currency={cur} /></span>
               </div>
             </div>
-          );
-        })() : (
-          <div className="bw__bd">
-            <div className="bw__bd-row"><span>Subtotal</span><span><Money amount={quote?.subtotal ?? facilityType?.from_price} currency={cur} /></span></div>
-            <div className="bw__bd-total"><span>Total</span><strong><Money amount={quote?.total_amount ?? facilityType?.from_price} currency={cur} /></strong></div>
-          </div>
-        )}
+          )}
 
-        {/* Payment method */}
-        <div className="bw__pm">
-          <span className="bw__pm-h">Payment method</span>
-          <div className="bw__pm-grid">
-            <button type="button" className={`bw__pm-opt${method === 'card' ? ' is-on' : ''}`} onClick={() => { setMethod('card'); setError(''); }}>
-              <CardIcon /><span>Card</span>
-            </button>
-            <button type="button" className={`bw__pm-opt${method === 'cash' ? ' is-on' : ''}`} onClick={() => { setMethod('cash'); setError(''); }}>
-              <CashIcon /><span>Cash</span>
-            </button>
-          </div>
-        </div>
+          <PromoField
+            applied={applied} coupon={coupon} setCoupon={setCoupon}
+            onApply={applyCoupon} onRemove={removeCoupon}
+            busy={couponBusy} message={couponMsg} currency={cur}
+          />
 
-        {error && <p className="bw__det-error">{error}</p>}
+          {split.on ? (
+            <>
+              <div className="ck__line ck__line--sub">
+                <span>{t('checkout.bookingTotal')}</span>
+                <span><Money amount={bookingTotal} currency={cur} /></span>
+              </div>
+              <div className="ck__total">
+                <div>
+                  <span className="ck__total-k">{t('checkout.yourShare')}</span>
+                  <span className="ck__total-sub">{t('checkout.playersOf', { count: split.people })}</span>
+                </div>
+                <div className="ck__total-v">
+                  <strong><Money amount={myShare} currency={cur} /></strong>
+                  <span className="ck__total-sub">
+                    {t('checkout.pendingFromFriends',
+                      { amount: `${cur} ${pendingFromFriends}` })}
+                  </span>
+                </div>
+              </div>
+            </>
+          ) : (
+            <div className="ck__total">
+              <span className="ck__total-k">{t('common.total')}</span>
+              <div className="ck__total-v">
+                <strong><Money amount={bookingTotal} currency={cur} /></strong>
+                {quote?.summary && (
+                  <span className="ck__total-sub">
+                    {t('checkout.includesVat', {
+                      percent: quote.summary.vat_percent,
+                      amount: `${cur} ${quote.summary.vat_amount}`,
+                    })}
+                  </span>
+                )}
+                {savings > 0 && (
+                  <span className="ck__total-save">
+                    {t('checkout.youSave', { amount: `${cur} ${savings.toFixed(2)}` })}
+                  </span>
+                )}
+              </div>
+            </div>
+          )}
 
-        {method === 'card' ? (
-          <button type="button" className="bw__det-submit" disabled={busy} onClick={() => onBook('card')}>
-            {busy ? 'Checking…' : <>Complete Payment <ArrowRight /></>}
+          <button type="button" className="ck__pay" disabled={busy}
+            onClick={() => onBook(payMode)}>
+            {busy ? t('checkout.working') : (
+              <>
+                <LockIcon />
+                {payMode === 'cash'
+                  ? t('checkout.confirmBooking')
+                  : split.on
+                    ? (paysNow
+                      ? t('checkout.payMyShare', { amount: `${cur} ${Number(myShare).toFixed(2)}` })
+                      : t('checkout.createSplit'))
+                    : t('checkout.payAmount', { amount: `${cur} ${Number(bookingTotal || 0).toFixed(2)}` })}
+              </>
+            )}
           </button>
-        ) : (
-          <>
-            <button type="button" className="bw__det-submit" disabled={busy} onClick={() => onBook('cash')}>
-              {busy ? 'Booking…' : <>Book Now <ArrowRight /></>}
-            </button>
-            <p className="bw__pay-note"><Clock /> Pay cash upon completion.</p>
-          </>
-        )}
+
+          <p className="ck__legal">
+            {t(split.on ? 'checkout.legalSplit'
+              : payMode === 'cash' ? 'checkout.legalBook' : 'checkout.legalPay')}
+          </p>
+        </div>
       </aside>
+    </div>
+  );
+}
+
+/**
+ * The promo code, behind a disclosure link.
+ *
+ * Most customers do not have one, and an always-open input invites them to go
+ * looking for a code instead of finishing the booking. Once applied it stays
+ * visible, because a discount the customer cannot see is a discount they will
+ * ask about.
+ */
+function PromoField({ applied, coupon, setCoupon, onApply, onRemove, busy, message, currency }) {
+  const { t } = useTranslation();
+  const [open, setOpen] = useState(false);
+
+  if (applied) {
+    return (
+      <div className="ck__promo-on">
+        <span className="ck__promo-tag"><TagIcon /> {applied.code}</span>
+        <span className="ck__promo-save">- <Money amount={applied.discount} currency={currency} /></span>
+        <button type="button" className="ck__promo-x" onClick={onRemove}
+          aria-label={t('checkout.removePromo')}>✕</button>
+      </div>
+    );
+  }
+  if (!open) {
+    return (
+      <button type="button" className="ck__promo-link" onClick={() => setOpen(true)}>
+        {t('checkout.promoAsk')}
+      </button>
+    );
+  }
+  return (
+    <div className="ck__promo">
+      <div className="ck__promo-row">
+        <input className="ck__input" value={coupon} placeholder={t('checkout.promoPlaceholder')}
+          aria-label={t('checkout.promoPlaceholder')} autoFocus
+          onChange={(e) => setCoupon(e.target.value.toUpperCase())}
+          onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); onApply(); } }} />
+        <button type="button" className="ck__promo-apply" onClick={onApply}
+          disabled={!coupon.trim() || busy}>
+          {busy ? '…' : t('common.apply')}
+        </button>
+      </div>
+      {message && <p className="ck__promo-msg">{message}</p>}
+    </div>
+  );
+}
+
+/**
+ * How the booking was settled, on the confirmation screen.
+ *
+ * Reports what actually happened rather than assuming success: a booking exists
+ * either way, and telling somebody "paid" when their card was declined is the
+ * one thing this screen must never do.
+ */
+function PaidBadge({ payment, currency }) {
+  const { t } = useTranslation();
+  const outcome = payment || {};
+  if (outcome.status === 'paid') {
+    return (
+      <span className="bw__success-pay is-paid">
+        <CardIconSm /> {t('success.paid')}
+        {outcome.card_last4 ? ` · ${outcome.card_brand || 'card'} ····${outcome.card_last4}` : ''}
+      </span>
+    );
+  }
+  if (outcome.status === 'started') {
+    return <span className="bw__success-pay is-split"><SplitIcon /> {t('success.splitInProgress')}</span>;
+  }
+  if (outcome.status === 'failed' || outcome.status === 'unavailable') {
+    return <span className="bw__success-pay is-failed">{t('success.notCompleted')}</span>;
+  }
+  return <span className="bw__success-pay"><CashIcon /> {t('success.cash')}</span>;
+}
+
+const CardIconSm = (p) => (
+  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" {...p}>
+    <rect x="2" y="5" width="20" height="14" rx="2.5" /><path d="M2 10h20" />
+  </svg>
+);
+
+/**
+ * The split links, handed over once.
+ *
+ * `localStorage` is the right home for these and a runtime store would be the
+ * wrong one: they are bearer credentials that belong to this person on this
+ * device, and the server deliberately keeps only digests. Wrapped in try/catch
+ * because a private window can refuse storage outright, and a customer who
+ * cannot save them must still be able to copy them off the screen.
+ */
+function SplitHandoff({ result, currency }) {
+  const { t } = useTranslation();
+  const [copied, setCopied] = useState('');
+  const shares = result.split?.shares || [];
+  const links = result.links || {};
+  const countdown = useCountdown(result.split?.expires_at);
+
+  useEffect(() => {
+    try {
+      window.localStorage.setItem(
+        `split:${result.manage_token}`,
+        JSON.stringify({ links, saved: Date.now() }));
+    } catch { /* private window: the links are still on screen */ }
+  }, [result.manage_token, links]);
+
+  const onShare = async (shareId, name, amount) => {
+    const url = links[String(shareId)];
+    if (!url) return;
+    const message = t('handoff.shareMessage',
+      { name: name || '', amount: formatMoney(amount, currency) });
+    const outcome = await shareLink(url, message);
+    if (outcome === 'copied') {
+      setCopied(String(shareId));
+      setTimeout(() => setCopied(''), 2000);
+    }
+  };
+
+  return (
+    <div className="bw__handoff">
+      <div className="bw__handoff-head">
+        <h3>{t('handoff.title')}</h3>
+        {countdown && <span className="bw__handoff-clock">{t('handoff.within', { time: countdown })}</span>}
+      </div>
+      <p className="bw__handoff-note">
+        {t('handoff.note')}
+      </p>
+      <ul className="bw__handoff-list">
+        {shares.map((share) => {
+          const tone = shareTone(share.status);
+          const url = links[String(share.id)];
+          return (
+            <li key={share.id} className="bw__handoff-row">
+              <div className="bw__handoff-who">
+                <strong>{share.is_organizer ? 'You' : share.name}</strong>
+                <span>{formatMoney(share.amount, currency)}</span>
+              </div>
+              <span className={`bw__handoff-state ${tone.className}`}>{tone.label}</span>
+              {url ? (
+                <div className="bw__handoff-acts">
+                  <button type="button" onClick={async () => {
+                    const outcome = await copyLink(url);
+                    if (outcome === 'copied') {
+                      setCopied(String(share.id));
+                      setTimeout(() => setCopied(''), 2000);
+                    }
+                  }}>
+                    {t(copied === String(share.id) ? 'handoff.copied' : 'handoff.copyLink')}
+                  </button>
+                  <button type="button"
+                    onClick={() => onShare(share.id, share.name, share.amount)}>
+                    {t('handoff.share')}
+                  </button>
+                </div>
+              ) : <span className="bw__handoff-acts-none">{t('handoff.settled')}</span>}
+            </li>
+          );
+        })}
+      </ul>
+      <a className="bw__handoff-manage" href={`/pay/split/manage/${result.manage_token}`}>
+        {t('handoff.track')}
+      </a>
+      {result.organizer_payment?.status === 'failed' && (
+        <p className="bw__det-error" role="alert">
+          {t('handoff.organizerFailed', { detail: result.organizer_payment.detail })}
+        </p>
+      )}
+    </div>
+  );
+}
+
+/** Retry a declined card against the booking that was just created. */
+function RetryCard({ checkoutToken, config, amount, currency }) {
+  const { t } = useTranslation();
+  const [card, setCard] = useState(blankCard());
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
+  const [paid, setPaid] = useState(null);
+
+  if (paid) {
+    return (
+      <div className="bw__retry is-done">
+        <strong>{t('retry.received')}</strong>
+        <span>{t('retry.receipt', { amount: formatMoney(paid.amount, currency), reference: paid.reference })}</span>
+      </div>
+    );
+  }
+
+  const submit = async () => {
+    if (busy) return;
+    setBusy(true); setError('');
+    try {
+      const res = await fetch('/api/split?scope=booking', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ checkout_token: checkoutToken, card: cardRequest(card) }),
+      });
+      const data = await res.json().catch(() => null);
+      if (res.ok && data?.status === 'paid') setPaid(data);
+      else setError(data?.detail || t('errors.paymentFailed'));
+    } catch {
+      setError(t('errors.paymentUnreachable'));
+    } finally { setBusy(false); }
+  };
+
+  return (
+    <div className="bw__retry">
+      <h3>{t('retry.title')}</h3>
+      <p>{t('retry.body', { amount: formatMoney(amount, currency) })}</p>
+      <CardForm card={card} setCard={setCard} config={config} disabled={busy} />
+      {error && <p className="bw__det-error" role="alert">{error}</p>}
+      <button type="button" className="bw__det-submit" disabled={busy} onClick={submit}>
+        {busy ? t('retry.paying') : t('retry.pay', { amount: formatMoney(amount, currency) })}
+      </button>
     </div>
   );
 }

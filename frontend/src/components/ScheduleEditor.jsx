@@ -358,8 +358,8 @@ export function WeeklyTimeline({ week, format24 }) {
       <div className="sch-tl-scale">
         <span />
         <div className="sch-tl-scale__marks">
-          {['00:00', '06:00', '12:00', '18:00', '24:00'].map((t) => (
-            <span key={t}>{t === '24:00' ? t : displayTime(t, format24)}</span>
+          {['00:00', '06:00', '12:00', '18:00', '24:00'].map((mark) => (
+            <span key={mark}>{mark === '24:00' ? mark : displayTime(mark, format24)}</span>
           ))}
         </div>
       </div>

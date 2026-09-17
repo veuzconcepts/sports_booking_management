@@ -239,6 +239,9 @@
   font-size: 0.78rem;
   font-weight: 600;
 }
+/* The overflow counter reads as a quieter sibling of a real sport, so nobody
+   mistakes "+3" for the name of an activity. */
+.club__tag--more { background: transparent; border: 1px solid var(--line); color: var(--muted); }
 .club__foot { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
 .club__link { font-weight: 700; color: var(--brand-soft); }
 .club__link:hover { color: var(--ink); }

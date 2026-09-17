@@ -114,7 +114,7 @@
     },
     "subheadline": "Subheadline",
     "subtitle": "Promotional cards shown on the customer website during a set period.",
-    "timezoneHint": "Read in the organization timezone, not the visitor’s.",
+    "timezoneHint": "Set in {{zone}}, the organization timezone, not the visitor’s.",
     "title": "Website Campaigns",
     "type": "Type",
     "types": {
@@ -219,7 +219,7 @@
   "question": "Question",
   "quote": "Quote",
   "rating": "Rating",
-  "rating15": "Rating (1–5)",
+  "rating15": "Rating (1-5)",
   "removeColumn": "Remove column",
   "removeLink": "Remove link",
   "robots": "Robots",

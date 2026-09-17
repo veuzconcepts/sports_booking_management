@@ -102,7 +102,7 @@
   "checking": "Checking…",
   "chooseCategory": "Choose a category…",
   "chooseClub": "Choose a club…",
-  "chooseFacilityType": "Choose a facility type…",
+  "chooseFacilityType": "Choose an activity…",
   "chooseSlot": "Choose a slot…",
   "chooseStaffMember": "Choose a staff member…",
   "club": "Club *",
@@ -114,7 +114,7 @@
     "currency": "Currency",
     "customer": "Customer",
     "facility": "Facility",
-    "facilityType": "Facility type",
+    "facilityType": "Activity",
     "payment": "Payment",
     "reference": "Reference",
     "source": "Source",
@@ -172,12 +172,12 @@
   "emptyTitle": "No bookings yet",
   "existingCustomer": "Existing customer",
   "existingCustomerUpdatedTheirInformation": "Existing customer updated their information",
-  "facilityCategory": "Facility Category *",
-  "facilityType": "Facility Type *",
+  "facilityCategory": "Activity Category *",
+  "facilityType": "Activity *",
   "filters": {
     "bookingDate": "Booking date",
     "club": "Club",
-    "facilityType": "Facility type",
+    "facilityType": "Activity",
     "paymentStatus": "Payment status",
     "source": "Source",
     "status": "Status"
@@ -192,7 +192,7 @@
     "club": "Club",
     "customer": "Customer",
     "facility": "Facility",
-    "facilityType": "Facility type",
+    "facilityType": "Activity",
     "paymentStatus": "Payment status",
     "source": "Source",
     "status": "Status"
@@ -275,6 +275,32 @@
   "skipAssignment": "Skip assignment",
   "source": "Source",
   "specialInstructions": "Special instructions",
+  "split": {
+    "title": "Split payment",
+    "tableCaption": "Who paid which part of this booking",
+    "allocated": "Allocated",
+    "collected": "Collected",
+    "expires": "Links expire",
+    "participant": "Participant",
+    "amount": "Amount",
+    "state": "State",
+    "payment": "Payment",
+    "organizer": "Organizer",
+    "guest": "Guest",
+    "status": {
+      "active": "Awaiting payment",
+      "completed": "Fully paid",
+      "cancelled": "Cancelled",
+      "expired": "Expired"
+    },
+    "shareStatus": {
+      "pending": "Pending",
+      "paid": "Paid",
+      "failed": "Failed",
+      "expired": "Expired",
+      "cancelled": "Cancelled"
+    }
+  },
   "staffMember": "Staff member",
   "staffOnlyNotShownCustomer": "Staff-only; not shown to the customer.",
   "status": {

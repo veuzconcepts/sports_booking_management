@@ -1,0 +1,32 @@
+---
+import { fromAstro } from '../../../../i18n/index.js';
+import BaseLayout from '../../../../layouts/BaseLayout.astro';
+import Header from '../../../../components/Header.astro';
+import { SplitProgress } from '../../../../components/SplitPay.jsx';
+import { getHome } from '../../../../lib/api.js';
+import '../../../../styles/booking.css';
+import '../../../../styles/payment.css';
+
+// The organizer's management link. Same bearer-token handling as a share link:
+// rendered per request, never indexed, never cached, and the token is resolved
+// by the island through the same-origin proxy rather than baked into the HTML.
+export const prerender = false;
+
+const { token } = Astro.params;
+const home = await getHome();
+const { locale, t } = fromAstro(Astro);
+
+Astro.response.headers.set('Cache-Control', 'no-store, private');
+Astro.response.headers.set('Referrer-Policy', 'no-referrer');
+---
+<BaseLayout
+  seo={{ meta_title: t('progress.title'), robots: 'noindex, nofollow' }}
+  site={home?.organization || {}}
+>
+  <Header hideCta />
+  <section class="section section--flush-top">
+    <div class="container">
+      <SplitProgress client:load token={token} locale={locale} />
+    </div>
+  </section>
+</BaseLayout>

@@ -1,12 +1,14 @@
 ---
+import { fromAstro } from '../i18n/index.js';
 import BaseLayout from '../layouts/BaseLayout.astro';
 import Header from '../components/Header.astro';
 import { getBranding } from '../lib/api.js';
 
 const branding = await getBranding();
 const logo = branding?.logo_dark || branding?.logo_light || '/logo.svg';
+const { t } = fromAstro(Astro);
 ---
-<BaseLayout seo={{ meta_title: 'Page not found', robots: 'noindex, follow' }}>
+<BaseLayout seo={{ meta_title: t('notFound.title'), robots: 'noindex, follow' }}>
   <Header />
 
   <section class="nf">
@@ -14,11 +16,11 @@ const logo = branding?.logo_dark || branding?.logo_light || '/logo.svg';
     <div class="nf__inner">
       <img class="nf__logo" src={logo} alt={branding?.name || 'Club Booking'} />
       <span class="nf__code">404</span>
-      <h1>This page took a wrong turn</h1>
-      <p>The page you're looking for doesn't exist or may have moved. Let's get you back on the road.</p>
+      <h1>{t('notFound.title')}</h1>
+      <p>{t('notFound.body')}</p>
       <div class="nf__actions">
-        <a href="/" class="nf__btn nf__btn--primary">Back to home</a>
-        <a href="/#services" class="nf__btn nf__btn--ghost">Browse services</a>
+        <a href="/" class="nf__btn nf__btn--primary">{t('notFound.cta')}</a>
+        <a href="/#sports" class="nf__btn nf__btn--ghost">{t('notFound.browse')}</a>
       </div>
     </div>
   </section>

@@ -7,6 +7,9 @@ One serializer per content model, used for BOTH the authenticated CMS endpoints
 so it can be gated by `website.publish` separately from `website.edit`.
 """
 
+from django.utils import timezone
+
+from apps.settings_app import schedule as sched
 from rest_framework import serializers
 
 from .models import (
@@ -315,12 +318,90 @@ class PublicClubSerializer(serializers.Serializer):
     phone = serializers.CharField()
     latitude = serializers.SerializerMethodField()
     longitude = serializers.SerializerMethodField()
+    # What this club ACTUALLY offers, derived from its own facilities rather
+    # than from the organization-wide catalogue. Showing every club the same
+    # list of sports told visitors a padel court existed at a venue that has
+    # none, which is worse than showing nothing.
+    sports = serializers.SerializerMethodField()
+    facility_types = serializers.SerializerMethodField()
+    # The units the operator actually named and can point at in the admin. The
+    # website lists these, so a chip on a club card is a string somebody typed
+    # rather than something derived two joins away from it.
+    facilities = serializers.SerializerMethodField()
+
+    def get_facilities(self, obj) -> list:
+        """This club's active facilities, by name."""
+        return [{"id": facility.id, "name": facility.name}
+                for facility in sorted(
+                    (f for f in obj.facilities.all() if f.is_active),
+                    key=lambda f: f.name)]
 
     def get_latitude(self, obj) -> float:
         return float(obj.latitude) if obj.latitude is not None else None
 
     def get_longitude(self, obj) -> float:
         return float(obj.longitude) if obj.longitude is not None else None
+
+    def get_sports(self, obj) -> list:
+        """The distinct categories this club can be booked for.
+
+        A facility type belongs to several categories, so the same category can
+        arrive from more than one type; the first occurrence wins and the order
+        follows the types, which is the order the catalogue itself uses.
+        """
+        seen, out = set(), []
+        for facility_type in self._bookable_types(obj):
+            for category in facility_type.categories.all():
+                if category.id in seen or not category.is_active:
+                    continue
+                seen.add(category.id)
+                out.append({"id": category.id, "name": category.name,
+                            "slug": getattr(category, "slug", "")})
+        return out
+
+    def get_facility_types(self, obj) -> list:
+        """The specific bookable types, for a club card that wants detail."""
+        return [{"id": t.id, "name": t.name,
+                 "categories": [c.id for c in t.categories.all()]}
+                for t in self._bookable_types(obj)]
+
+    def _bookable_types(self, obj):
+        """What this club may ADVERTISE, which is narrower than what it can serve.
+
+        Only types a facility explicitly declares are listed. A facility with an
+        empty `facility_types` can serve any type, and the availability engine
+        rightly treats it that way, but that is the operator not having said yet
+        rather than a statement that the club has a pool. Advertising the whole
+        catalogue off the back of one unconfigured court is how a club with two
+        tennis courts came to promise Aquatics on the homepage.
+
+        So the two questions are answered differently on purpose:
+
+          "can a customer book a swimming lane here?"  -> availability decides,
+              and an unrestricted facility counts.
+          "what does this club offer?"                 -> only what was declared.
+
+        Under-claiming costs a visitor a little discovery. Over-claiming sends
+        somebody to a venue expecting a pool that is not there.
+
+        Cached on the instance so the two fields above do not query twice.
+        """
+        cached = getattr(obj, "_public_bookable_types", None)
+        if cached is not None:
+            return cached
+        from apps.facilities.models import Facility, FacilityType
+
+        facilities = (Facility.objects.filter(club=obj, is_active=True)
+                      .prefetch_related("facility_types"))
+        declared = {t.id for f in facilities for t in f.facility_types.all()}
+        types = list(
+            FacilityType.objects
+            .filter(id__in=declared, is_active=True, online_booking_enabled=True)
+            .prefetch_related("categories")
+            .order_by("name")
+        ) if declared else []
+        obj._public_bookable_types = types
+        return types
 
 
 class PublicPlanSerializer(serializers.Serializer):
@@ -375,8 +456,28 @@ def _safe_link(value, field):
         {field: "Use an internal path such as /book, or a full https:// address."})
 
 
+class OrganizationDateTimeField(serializers.DateTimeField):
+    """A datetime whose zone-less form is the ORGANIZATION's local time.
+
+    The admin form is a `datetime-local` input, which carries no timezone: an
+    operator in Riyadh typing 12:06 means 12:06 there. Django's current timezone
+    is UTC and nothing activates another, so by default DRF reads that as 12:06
+    UTC and the campaign goes live three hours late.
+
+    This has to be decided by the field: DRF attaches a timezone while parsing
+    the string, long before a `validate_<field>` hook could correct it.
+    """
+
+    def default_timezone(self):
+        return sched.organization_timezone()
+
+
 class WebsiteCampaignSerializer(_Base):
     """The admin view of a campaign: everything, including the internal notes."""
+
+    # Read and written in the organization's own time, like its opening hours.
+    starts_at = OrganizationDateTimeField()
+    ends_at = OrganizationDateTimeField()
 
     image_detail = serializers.SerializerMethodField()
     mobile_image_detail = serializers.SerializerMethodField()

@@ -63,6 +63,14 @@
   --err-bg: #fdecec;
   --err-border: #f5c2c2;
   --err-ink: #b3261e;
+  /* Payment states. Deliberately NOT branding: "paid" must read as settled and
+     "pending" as waiting whatever colours a club chooses for itself. */
+  --ok-bg: #e6f6ec;
+  --ok-border: #bfe6cd;
+  --ok-ink: #168a47;
+  --warn-bg: #fff3e0;
+  --warn-border: #f3dcb8;
+  --warn-ink: #9a6400;
   --price-grad: linear-gradient(135deg, var(--brand-deep), var(--brand-soft));
   --hover-glow: 0 18px 42px rgba(21, 64, 44, 0.16), 0 10px 26px rgba(11, 31, 23, 0.10);
   --hover-border: var(--brand-soft);
@@ -106,6 +114,12 @@
   --err-bg: rgba(210, 59, 59, 0.14);
   --err-border: rgba(210, 59, 59, 0.40);
   --err-ink: #ff8f8f;
+  --ok-bg: rgba(46, 176, 106, 0.16);
+  --ok-border: rgba(46, 176, 106, 0.42);
+  --ok-ink: #6fe3a3;
+  --warn-bg: rgba(226, 160, 61, 0.16);
+  --warn-border: rgba(226, 160, 61, 0.40);
+  --warn-ink: #f0c274;
   --price-grad: linear-gradient(135deg, var(--accent), var(--accent-strong));
   --hover-glow: 0 18px 42px rgba(207, 245, 106, 0.18), 0 10px 26px rgba(0, 0, 0, 0.38);
   --hover-border: rgba(207, 245, 106, 0.85);

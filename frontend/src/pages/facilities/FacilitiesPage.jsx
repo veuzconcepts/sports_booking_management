@@ -713,14 +713,14 @@ function FacilityTypeFormModal({ open, item, categories, onClose, onSaved, onDel
       }
       onSaved?.();
     } catch (e) {
-      toast.error(formatApiError(e.response?.data, 'Unable to save the facility type. Please try again.'));
+      toast.error(formatApiError(e.response?.data, 'Unable to save the activity. Please try again.'));
     }
   }
 
   return (
     <>
     <Modal open={open} onClose={onClose} size="lg"
-      title={isEdit ? `Edit ${item.name}` : 'New facility type'}
+      title={isEdit ? `Edit ${item.name}` : 'New activity'}
       footer={
         <>
           {isEdit && (
