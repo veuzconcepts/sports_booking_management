@@ -1,6 +1,7 @@
-"""Split payment: settling one booking with several payments.
+"""Split payment: settling a booking, or a whole multi-slot order, with
+several payments.
 
-The rule this module exists to protect: a split never invents money. The
+The rule this module exists to protect: a split never invents money. Each
 booking's `total_amount` is computed once by the pricing engine (base, add-ons,
 rules, promo, loyalty, membership coverage, VAT) and `booking_outstanding()`
 says what is still to collect. A split only decides *who pays which slice of
@@ -8,6 +9,13 @@ that*, and every single payment re-reads the live outstanding balance before it
 takes anything. Repricing the booking, a staff member collecting cash, or a
 concurrent friend paying all change the answer safely, because none of them is
 trusted from an earlier snapshot.
+
+A split targets either one `Booking` or one `BookingOrder`. An order holds no
+money of its own, so an order split still allocates what its BOOKINGS owe: a
+share is an amount of the order, and paying it spreads that amount across the
+slots in proportion to what each still owes, one payment and one invoice per
+slot. That is the confirmed policy, and it is what keeps a later per-slot
+refund returning what that slot's payers actually put in.
 
 Security model: a share's payment link is a bearer credential. It is generated
 from `secrets`, shown to the organizer once, and stored only as a SHA-256
@@ -85,6 +93,134 @@ def allocate_equal(total, people: int, currency: str) -> list[Decimal]:
     ]
 
 
+def _lock_bookings(split=None, *, booking=None, order=None):
+    """Lock every booking a split collects for, always in the same order.
+
+    A split covers one booking or one multi-slot order. Either way what it
+    allocates is money the BOOKINGS own, so every operation works on a list.
+    Rows are locked by id so concurrent split operations on overlapping orders
+    always take their locks in the same sequence and cannot deadlock, then
+    returned chronologically because that is the order a customer reads.
+    """
+    from apps.bookings.models import Booking
+
+    if split is not None:
+        booking, order = split.booking, (split.order if split.order_id else None)
+    if booking is not None:
+        ids = [booking.pk]
+    elif order is not None:
+        ids = list(order.bookings.values_list("id", flat=True))
+    else:
+        raise SplitError("Nothing to collect for.", code="no_target")
+
+    rows = list(Booking.objects.select_for_update().filter(id__in=ids).order_by("id"))
+    return sorted(rows, key=lambda b: (b.scheduled_date, b.scheduled_time))
+
+
+def split_bookings(split):
+    """The bookings a split covers, chronologically. No locking: read-only."""
+    if split.booking_id:
+        return [split.booking]
+    return list(split.order.bookings.select_related("club", "facility_type")
+                .order_by("scheduled_date", "scheduled_time"))
+
+
+def collectable_bookings(bookings):
+    """The slots a split may still take money for.
+
+    A cancelled slot simply drops out of a multi-slot order rather than
+    stopping the whole arrangement: the other slots are still owed.
+    """
+    from apps.bookings.models import BookingStatus
+
+    live = [b for b in bookings
+            if b.status not in (BookingStatus.CANCELLED, BookingStatus.NO_SHOW)]
+    if not live:
+        raise SplitError("This booking has been cancelled.", code="booking_cancelled")
+    return live
+
+
+def target_outstanding(bookings) -> Decimal:
+    """What the slots of a split still owe between them."""
+    from apps.bookings.services import booking_outstanding
+
+    return sum((booking_outstanding(b) for b in bookings), Decimal("0"))
+
+
+def allocate_across(bookings, amount, currency):
+    """Spread one payment across slots, in proportion to what each still owes.
+
+    Confirmed policy: a share is an amount of the ORDER, not a set of slots. So
+    a friend paying 100 of a 300 order pays a third of each slot, and each of
+    those parts raises its own invoice against its own booking. Proportional
+    rather than filling slots one at a time, because a refund of one slot must
+    return what that slot's payers actually put in.
+
+    Returns `[(booking, amount)]`, skipping slots allocated nothing.
+    """
+    from apps.bookings.services import booking_outstanding
+
+    dues = [booking_outstanding(b) for b in bookings]
+    total = sum(dues, Decimal("0"))
+    amount = quantize_money(Decimal(str(amount)), currency)
+    if total <= 0 or amount <= 0:
+        return []
+    if amount >= total:
+        return [(b, due) for b, due in zip(bookings, dues) if due > 0]
+
+    # Largest-remainder over the currency's own minor unit (the same one
+    # `allocate_equal` divides in), so the parts always add back to exactly the
+    # amount charged and no part is a fraction the currency cannot express.
+    step = money_exponent(currency)
+    units_total = int((amount / step).to_integral_value(rounding=ROUND_HALF_UP))
+    raw = [(due / total) * units_total for due in dues]
+    floors = [int(value) for value in raw]
+    leftover = units_total - sum(floors)
+    order = sorted(range(len(raw)), key=lambda i: raw[i] - floors[i], reverse=True)
+    for index in order[:leftover]:
+        floors[index] += 1
+
+    allocation = []
+    for booking, units, due in zip(bookings, floors, dues):
+        part = min(Decimal(units) * step, due)
+        if part > 0:
+            allocation.append((booking, part))
+    return allocation
+
+
+def _settle_across(bookings, amount, *, method, card, request, payer_label, notes):
+    """Take `amount` across the slots, one payment and invoice per slot.
+
+    NOTE for a real provider: with a card this performs one authorisation per
+    slot, inside the caller's transaction, because invoices in this system are
+    raised per booking and a single payment row spanning several bookings would
+    have no invoice it could belong to. The demo provider is synchronous and
+    side-effect free, so a rollback costs nothing. Anyone wiring a live gateway
+    must move the authorisation outside the transaction (as the checkout path
+    already does) or capture once and record the parts.
+
+    Returns the list of payments taken.
+    """
+    from apps.bookings.services import settle_booking_payment
+
+    allocation = allocate_across(bookings, amount, bookings[0].currency)
+    if not allocation:
+        # Should be unreachable: the caller has already established that the
+        # amount and the outstanding balance are both above zero. Failing
+        # loudly here beats an IndexError on the money path if that ever stops
+        # being true.
+        raise SplitError("There is nothing left to pay on this booking.",
+                         code="nothing_due")
+
+    payments = []
+    for booking, part in allocation:
+        payment, _invoice = settle_booking_payment(
+            booking, method=method, amount=part, request=request, card=card,
+            payer_label=payer_label, notes=notes)
+        payments.append(payment)
+    return payments
+
+
 def _new_token() -> tuple[str, str]:
     """A fresh link token as (raw, digest). The raw value is returned once."""
     raw = secrets.token_urlsafe(TOKEN_BYTES)
@@ -107,35 +243,41 @@ def manage_link(raw_token: str) -> str:
 # Creation
 # --------------------------------------------------------------------------- #
 @transaction.atomic
-def create_split(booking, participants, *, request=None, expires_in_minutes=None):
-    """Arrange a split over a booking's outstanding balance.
+def create_split(target, participants, *, request=None, expires_in_minutes=None):
+    """Arrange a split over the outstanding balance of a booking or an order.
+
+    `target` is a `Booking` (one slot) or a `BookingOrder` (a multi-slot
+    checkout). In both cases the money belongs to the bookings; the order is
+    only the thread that ties them together.
 
     `participants` is an ordered list of dicts: `amount` (required), plus the
     optional `name`, `email`, `phone` and `is_organizer`. Amounts must add up to
-    exactly what the booking still owes - the caller may have used
-    `allocate_equal`, or the organizer may have typed custom figures, but either
-    way the sum is checked against the backend's own outstanding balance rather
-    than anything the browser reported.
+    exactly what is still owed - the caller may have used `allocate_equal`, or
+    the organizer may have typed custom figures, but either way the sum is
+    checked against the backend's own outstanding balance rather than anything
+    the browser reported.
 
     Returns `(split, links)` where `links` maps each share id to its raw token.
     Those raw values exist only in this return: after it, only digests remain.
     """
-    from apps.bookings.models import Booking
-    from apps.bookings.services import booking_outstanding
+    from apps.bookings.models import BookingOrder
 
-    # Lock the booking first, and everywhere else in this module, so concurrent
+    is_order = isinstance(target, BookingOrder)
+    # Lock the bookings first, and everywhere else in this module, so concurrent
     # split and payment operations always take their locks in the same order and
     # cannot deadlock against each other.
-    booking = Booking.objects.select_for_update().get(pk=booking.pk)
-    _assert_booking_collectable(booking)
+    bookings = collectable_bookings(
+        _lock_bookings(order=target) if is_order else _lock_bookings(booking=target))
+    currency = bookings[0].currency
 
-    outstanding = booking_outstanding(booking)
+    outstanding = target_outstanding(bookings)
     if outstanding <= 0:
         raise SplitError("This booking is already paid in full.", code="nothing_due")
 
+    scope = {"order": target} if is_order else {"booking": target}
     existing = (BookingPaymentSplit.objects
                 .select_for_update()
-                .filter(booking=booking, status=SplitStatus.ACTIVE)
+                .filter(status=SplitStatus.ACTIVE, **scope)
                 .first())
     if existing is not None:
         if existing.is_expired:
@@ -145,18 +287,18 @@ def create_split(booking, participants, *, request=None, expires_in_minutes=None
                 "This booking already has a split payment in progress.",
                 code="split_exists")
 
-    cleaned = _clean_participants(participants, booking.currency)
-    _assert_allocation_matches(cleaned, outstanding, booking.currency)
+    cleaned = _clean_participants(participants, currency)
+    _assert_allocation_matches(cleaned, outstanding, currency)
 
     minutes = int(expires_in_minutes or getattr(settings, "SPLIT_PAYMENT_MINUTES", 60))
     raw_organizer, organizer_digest = _new_token()
     split = BookingPaymentSplit.objects.create(
-        booking=booking,
-        organizer=booking.customer,
-        currency=booking.currency,
-        amount_allocated=quantize_money(outstanding, booking.currency),
+        organizer=target.customer,
+        currency=currency,
+        amount_allocated=quantize_money(outstanding, currency),
         organizer_token_hash=organizer_digest,
         expires_at=timezone.now() + timedelta(minutes=minutes),
+        **scope,
     )
 
     links = {"organizer": raw_organizer}
@@ -227,14 +369,6 @@ def _assert_allocation_matches(cleaned, target, currency):
             f"{format_currency(target, currency)} (they currently add up to "
             f"{format_currency(allocated, currency)}).",
             code="allocation_mismatch")
-
-
-def _assert_booking_collectable(booking):
-    """Refuse to arrange or take split money on a booking that is not live."""
-    from apps.bookings.models import BookingStatus
-
-    if booking.status in (BookingStatus.CANCELLED, BookingStatus.NO_SHOW):
-        raise SplitError("This booking has been cancelled.", code="booking_cancelled")
 
 
 # --------------------------------------------------------------------------- #
@@ -320,18 +454,14 @@ def _record_declined_attempt(share_id, *, request=None):
 @transaction.atomic
 def _pay_share_locked(raw_token, *, card=None, method="card", request=None):
     """The locked critical section. See `pay_share` for why it is separate."""
-    from apps.bookings.models import Booking
-    from apps.bookings.services import (
-        PaymentDeclined, booking_outstanding, settle_booking_payment,
-        slot_is_available,
-    )
+    from apps.bookings.services import PaymentDeclined, slot_is_available
 
     share = resolve_share(raw_token)
     if share is None:
         raise SplitError("This payment link is not valid.", code="invalid_link")
 
-    # Consistent lock order: booking, then split, then share.
-    booking = Booking.objects.select_for_update().get(pk=share.split.booking_id)
+    # Consistent lock order: bookings, then split, then share.
+    bookings = _lock_bookings(share.split)
     split = BookingPaymentSplit.objects.select_for_update().get(pk=share.split_id)
     share = BookingPaymentShare.objects.select_for_update().get(pk=share.pk)
     share.split = split
@@ -347,40 +477,45 @@ def _pay_share_locked(raw_token, *, card=None, method="card", request=None):
     if share.status not in OPEN_SHARE_STATUSES:
         raise SplitError("This payment link is no longer valid.", code="invalid_link")
 
-    _assert_booking_collectable(booking)
+    bookings = collectable_bookings(bookings)
 
     # Availability stays the authoritative gate right up to the money moving: if
-    # the facility can no longer serve this booking, we must not collect for it.
-    # `exclude_pk` asks the real question - is there still capacity for me, not
-    # counting myself.
-    if not slot_is_available(
-            booking.scheduled_date, booking.scheduled_time, club=booking.club,
-            facility_type=booking.facility_type, duration=booking.duration_minutes,
-            exclude_pk=booking.pk):
-        raise SplitError(
-            "That slot is no longer available. Please contact the club.",
-            code="slot_unavailable")
+    # a facility can no longer serve one of these slots, we must not collect for
+    # it. `exclude_pk` asks the real question - is there still capacity for me,
+    # not counting myself.
+    for booking in bookings:
+        if not slot_is_available(
+                booking.scheduled_date, booking.scheduled_time, club=booking.club,
+                facility_type=booking.facility_type,
+                duration=booking.duration_minutes, exclude_pk=booking.pk):
+            raise SplitError(
+                "That slot is no longer available. Please contact the club.",
+                code="slot_unavailable")
 
-    outstanding = booking_outstanding(booking)
+    currency = bookings[0].currency
+    outstanding = target_outstanding(bookings)
     if outstanding <= 0:
         # Somebody else covered the balance first. Do not charge them.
-        _settle_if_complete(split, booking, request=request)
+        _settle_if_complete(split, bookings, request=request)
         raise SplitError("This payment is no longer required.", code="not_required")
 
     # Never more than the share was assigned, and never more than is owed. The
     # second bound is what makes a stale link harmless after the booking was
     # repriced down or partly settled elsewhere.
-    amount = min(quantize_money(share.amount, booking.currency), outstanding)
+    amount = min(quantize_money(share.amount, currency), outstanding)
 
     payer = share.participant_name or ("Organizer" if share.is_organizer else "Guest")
     try:
-        payment, _invoice = settle_booking_payment(
-            booking, method=method, amount=amount, request=request, card=card,
-            payer_label=payer,
-            notes=f"Split payment share #{share.id}")
+        payments = _settle_across(
+            bookings, amount, method=method, card=card, request=request,
+            payer_label=payer, notes=f"Split payment share #{share.id}")
     except PaymentDeclined as exc:
         # Unwind to release the locks, then record the attempt outside.
         raise _Declined(str(exc), share_id=share.id) from exc
+    # A share is one participant's commitment, so it points at the first of the
+    # payments it produced; the rest are tied to it by the same payer label and
+    # note, and each keeps its own invoice against its own slot.
+    payment = payments[0]
 
     share.status = ShareStatus.PAID
     share.payment = payment
@@ -394,25 +529,24 @@ def _pay_share_locked(raw_token, *, card=None, method="card", request=None):
 
     _audit(request, "split_share_paid", split, {
         "share": share.id, "amount": str(amount), "payment": payment.reference,
+        "payments": [p.reference for p in payments], "slots": len(payments),
         "payer": payer,
     })
-    _settle_if_complete(split, booking, request=request)
+    _settle_if_complete(split, bookings, request=request)
     return share, payment
 
 
-def _settle_if_complete(split, booking, *, request=None):
-    """Close the arrangement once the booking owes nothing.
+def _settle_if_complete(split, bookings, *, request=None):
+    """Close the arrangement once every slot it covers owes nothing.
 
-    Driven by the booking's outstanding balance rather than by counting paid
-    shares, so an organizer who settles the remainder directly, or a staff member
-    who takes the balance at the counter, closes the split just as correctly as
-    the last friend paying would.
+    Driven by the outstanding balances rather than by counting paid shares, so
+    an organizer who settles the remainder directly, or a staff member who
+    takes the balance at the counter, closes the split just as correctly as the
+    last friend paying would.
     """
-    from apps.bookings.services import booking_outstanding
-
     if split.status != SplitStatus.ACTIVE:
         return split
-    if booking_outstanding(booking) > 0:
+    if target_outstanding(bookings) > 0:
         return split
 
     split.status = SplitStatus.COMPLETED
@@ -443,23 +577,20 @@ def pay_remaining(split, *, card=None, method="card", request=None):
     through the same settle path, is bounded by the same outstanding balance, and
     closes the split through the same completion check.
     """
-    from apps.bookings.models import Booking
-    from apps.bookings.services import (
-        PaymentDeclined, booking_outstanding, settle_booking_payment,
-    )
+    from apps.bookings.services import PaymentDeclined
 
-    booking = Booking.objects.select_for_update().get(pk=split.booking_id)
+    bookings = _lock_bookings(split)
     split = BookingPaymentSplit.objects.select_for_update().get(pk=split.pk)
-    _assert_booking_collectable(booking)
+    bookings = collectable_bookings(bookings)
 
-    outstanding = booking_outstanding(booking)
+    outstanding = target_outstanding(bookings)
     if outstanding <= 0:
-        _settle_if_complete(split, booking, request=request)
+        _settle_if_complete(split, bookings, request=request)
         raise SplitError("This booking is already paid in full.", code="nothing_due")
 
     try:
-        payment, _invoice = settle_booking_payment(
-            booking, method=method, amount=outstanding, request=request, card=card,
+        payments = _settle_across(
+            bookings, outstanding, method=method, card=card, request=request,
             payer_label="Organizer", notes="Split payment: remaining balance")
     except PaymentDeclined as exc:
         raise SplitError(str(exc), code="declined") from exc
@@ -468,9 +599,10 @@ def pay_remaining(split, *, card=None, method="card", request=None):
     # it must not stay open and payable through its link.
     _revoke_open_shares(split, ShareStatus.CANCELLED)
     _audit(request, "split_remaining_paid", split,
-           {"amount": str(outstanding), "payment": payment.reference})
-    _settle_if_complete(split, booking, request=request)
-    return payment
+           {"amount": str(outstanding), "payment": payments[0].reference,
+            "payments": [p.reference for p in payments]})
+    _settle_if_complete(split, bookings, request=request)
+    return payments[0]
 
 
 @transaction.atomic
@@ -501,10 +633,7 @@ def add_shares(split, participants, *, request=None):
     allocated to open shares, so adding people can never push the arrangement
     past the booking total no matter how the organizer got here.
     """
-    from apps.bookings.models import Booking
-    from apps.bookings.services import booking_outstanding
-
-    booking = Booking.objects.select_for_update().get(pk=split.booking_id)
+    bookings = _lock_bookings(split)
     split = BookingPaymentSplit.objects.select_for_update().get(pk=split.pk)
     if split.status != SplitStatus.ACTIVE:
         raise SplitError("This split payment is no longer active.", code="split_closed")
@@ -512,18 +641,20 @@ def add_shares(split, participants, *, request=None):
         _expire(split, request=request)
         raise SplitError("This split payment has expired.", code="expired")
 
+    bookings = collectable_bookings(bookings)
+    currency = bookings[0].currency
     unallocated = quantize_money(
-        booking_outstanding(booking) - split.open_total, booking.currency)
+        target_outstanding(bookings) - split.open_total, currency)
     if unallocated <= 0:
         raise SplitError("Every part of the balance is already allocated.",
                          code="nothing_unallocated")
 
-    cleaned = _clean_participants(participants, booking.currency)
+    cleaned = _clean_participants(participants, currency)
     cap = int(getattr(settings, "SPLIT_PAYMENT_MAX_SHARES", 20))
     if split.shares.exclude(status=ShareStatus.CANCELLED).count() + len(cleaned) > cap:
         raise SplitError(f"A booking can be split between at most {cap} people.",
                          code="too_many_shares")
-    _assert_allocation_matches(cleaned, unallocated, booking.currency)
+    _assert_allocation_matches(cleaned, unallocated, currency)
 
     start = (split.shares.aggregate(top=models.Max("position"))["top"] or 0) + 1
     links, created = {}, []
@@ -668,11 +799,15 @@ def _audit(request, event, split, extra=None):
     payload = {
         "split": split.id,
         "booking": split.booking.reference if split.booking_id else None,
+        "order": split.order.reference if split.order_id else None,
         "currency": split.currency,
     }
     if extra:
         payload.update(extra)
-    subject = ("booking", split.booking_id)
+    # A multi-slot split is about the order, so the timeline hangs off that
+    # rather than off whichever slot happened to be first.
+    subject = (("booking", split.booking_id) if split.booking_id
+               else ("booking_order", split.order_id))
     if request is None:
         log_system_event(event, payload, subject=subject)
     else:

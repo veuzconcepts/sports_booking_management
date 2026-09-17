@@ -145,6 +145,86 @@ class RecurrenceRule(models.TextChoices):
     FORTNIGHTLY = "fortnightly", _("Fortnightly")
 
 
+class BookingOrder(models.Model):
+    """One customer checkout that produced several bookings.
+
+    A multi-slot selection stays N ordinary `Booking` rows, one per slot. That
+    is deliberate: availability, the calendar, staff assignment, reports,
+    notifications and the `(facility, date, time)` unique index that prevents
+    double-booking all work per booking, and every one of them keeps working
+    untouched. The order is only the thread that ties them to a single
+    checkout.
+
+    It holds NO money. Each booking keeps its own authoritative price snapshot,
+    because slots can be priced differently (a peak evening costs more than an
+    afternoon) and a later refund of one slot has to return what that slot
+    actually cost. Totals here are summed from the bookings, so there is never
+    a second figure that can drift from them.
+    """
+
+    reference = models.CharField(
+        max_length=14, unique=True, editable=False, db_index=True,
+    )
+    customer = models.ForeignKey(
+        "customers.Customer", on_delete=models.PROTECT, related_name="booking_orders",
+    )
+    # Every slot in one order shares a club and an activity. Mixing facilities
+    # in one checkout is a shopping cart, which is deliberately out of scope.
+    club = models.ForeignKey(
+        "clubs.Club", on_delete=models.PROTECT, related_name="booking_orders",
+    )
+    facility_type = models.ForeignKey(
+        "facilities.FacilityType", on_delete=models.PROTECT,
+        related_name="booking_orders", null=True, blank=True,
+    )
+    currency = models.CharField(max_length=3, default=get_default_currency)
+    source = models.CharField(
+        max_length=20, choices=BookingSource.choices, default=BookingSource.WEBSITE,
+    )
+    created_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.SET_NULL,
+        related_name="created_booking_orders", null=True, blank=True,
+    )
+    created_at = models.DateTimeField(auto_now_add=True, db_index=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ("-created_at",)
+        indexes = [models.Index(fields=["customer", "-created_at"])]
+
+    def __str__(self):
+        return f"{self.reference} ({self.slot_count} slots)"
+
+    def save(self, *args, **kwargs):
+        if not self.reference:
+            for _attempt in range(5):
+                candidate = f"ORD-{secrets.token_hex(4).upper()}"
+                if not BookingOrder.objects.filter(reference=candidate).exists():
+                    self.reference = candidate
+                    break
+        super().save(*args, **kwargs)
+
+    @property
+    def live_bookings(self):
+        """Slots that still count: a cancelled one is history, not part of the order."""
+        return [b for b in self.bookings.all()
+                if b.status not in (BookingStatus.CANCELLED, BookingStatus.NO_SHOW)]
+
+    @property
+    def slot_count(self) -> int:
+        return len(self.live_bookings)
+
+    @property
+    def total_amount(self):
+        """Summed from the bookings, never stored. One source of truth per slot."""
+        return sum((Decimal(str(b.total_amount or 0)) for b in self.live_bookings),
+                   Decimal("0"))
+
+    @property
+    def total_duration_minutes(self) -> int:
+        return sum(b.duration_minutes or 0 for b in self.live_bookings)
+
+
 class Booking(models.Model):
     reference = models.CharField(
         max_length=14, unique=True, editable=False, db_index=True,
@@ -293,6 +373,19 @@ class Booking(models.Model):
         null=True, blank=True,
     )
 
+    # --- Multi-slot checkout -------------------------------------------------
+    # The order this slot was bought in, when the customer picked several at
+    # once. Null for an ordinary single-slot booking, which is most of them.
+    # Distinct from `parent_booking`, which means "a repeat of": a weekly
+    # series and a three-slot checkout are different things and must stay
+    # tellable apart in reports and cancellation.
+    order = models.ForeignKey(
+        "BookingOrder",
+        on_delete=models.SET_NULL,
+        related_name="bookings",
+        null=True, blank=True,
+    )
+
     customer_notes = models.TextField(blank=True)
     internal_notes = models.TextField(blank=True)
     special_instructions = models.TextField(blank=True)
@@ -378,7 +471,8 @@ class Booking(models.Model):
     # ------------------------------------------------------------------ #
     # Pricing
     # ------------------------------------------------------------------ #
-    def compute_pricing(self, addons=None, covered_override=None):
+    def compute_pricing(self, addons=None, covered_override=None,
+                        promo_discount_override=None):
         """Recompute the price snapshot from the current catalogue selection.
 
         `covered_override` (a cov-shaped dict, or {} for "nothing covered") forces
@@ -481,7 +575,14 @@ class Booking(models.Model):
         # against the UNPAID portion. A promo added against a later add-on balance
         # must never re-discount services that were already invoiced and paid.
         promo_discount = Decimal("0.00")
-        if self.promo_code_id:
+        if promo_discount_override is not None:
+            # A multi-slot order redeems one promo ONCE and hands each slot its
+            # allocated share. Recomputing per slot here would consume a
+            # redemption per slot, apply `max_discount_amount` per slot, and
+            # test `min_order_amount` against one slot instead of the order.
+            promo_discount = min(Decimal(str(promo_discount_override)),
+                                 adjusted_subtotal)
+        elif self.promo_code_id:
             from apps.promotions.services import compute_discount
             promo_base = adjusted_subtotal
             if self.pk:
@@ -714,9 +815,45 @@ class BookingPolicy(models.Model):
         related_name="booking_policy",
         help_text="Leave empty for the organization-wide default.",
     )
+    facility = models.OneToOneField(
+        "facilities.Facility", on_delete=models.CASCADE, null=True, blank=True,
+        related_name="booking_policy",
+        help_text="A policy for one physical unit. Leave empty for a club or "
+                  "organization policy.",
+    )
     is_default = models.BooleanField(
         default=False,
         help_text="The organization-wide policy. Exactly one row may set this.",
+    )
+
+    # --- Multiple slots in one booking --------------------------------------
+    # These four are NULLABLE, and null means "inherit from the level above".
+    #
+    # That differs from the older fields on this model, which replace their
+    # parent wholesale, and the difference is deliberate: a court that wants to
+    # cap itself at two slots should not have to restate the club's lead time,
+    # advance window and cancellation cutoff just to say so. The older fields
+    # keep their existing behaviour untouched; only these new ones merge.
+    allow_multiple_slots = models.BooleanField(
+        null=True, blank=True,
+        help_text="Let a customer put several time slots in one booking. "
+                  "Empty inherits.",
+    )
+    allow_multiple_dates = models.BooleanField(
+        null=True, blank=True,
+        help_text="Let those slots fall on different dates. Empty inherits.",
+    )
+    require_consecutive_slots = models.BooleanField(
+        null=True, blank=True,
+        help_text="Selected slots must run back to back. Empty inherits.",
+    )
+    min_slots_per_booking = models.PositiveSmallIntegerField(
+        null=True, blank=True,
+        help_text="Fewest slots a multi-slot booking may contain. Empty inherits.",
+    )
+    max_slots_per_booking = models.PositiveSmallIntegerField(
+        null=True, blank=True,
+        help_text="Most slots one booking may contain. Empty inherits.",
     )
 
     # --- When a booking may be made -----------------------------------------
@@ -767,16 +904,29 @@ class BookingPolicy(models.Model):
         ]
 
     def __str__(self):
-        return f"Booking policy - {self.club.name if self.club_id else 'organization default'}"
+        return f"Booking policy - {self.scope_label}"
+
+    @property
+    def scope_label(self) -> str:
+        if self.facility_id:
+            return self.facility.name
+        if self.club_id:
+            return self.club.name
+        return "Organization default"
 
     def clean(self):
         super().clean()
-        if self.is_default and self.club_id:
+        # A row names exactly one scope. Two would make "which policy applies"
+        # ambiguous, and none would make the row unreachable.
+        scopes = [bool(self.is_default), bool(self.club_id), bool(self.facility_id)]
+        if sum(scopes) > 1:
+            raise ValidationError(_(
+                "A booking policy belongs to one scope: the organization, a club, "
+                "or a facility."))
+        if not any(scopes):
             raise ValidationError(
-                {"club": _("The organization default policy cannot belong to a club.")})
-        if not self.is_default and not self.club_id:
-            raise ValidationError(
-                {"club": _("Choose a club, or mark this as the organization default.")})
+                {"club": _("Choose a club or a facility, or mark this as the "
+                           "organization default.")})
 
     # ------------------------------------------------------------------ #
     # Window helpers - one place that answers "is this bookable now?"

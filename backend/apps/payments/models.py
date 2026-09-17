@@ -725,8 +725,16 @@ class BookingPaymentSplit(models.Model):
     that a split exists.
     """
 
+    # Exactly one of these is set. A split covers either a single booking or a
+    # whole multi-slot order; in both cases it allocates money that the
+    # BOOKINGS own, never a total of its own.
     booking = models.ForeignKey(
         "bookings.Booking", on_delete=models.CASCADE, related_name="payment_splits",
+        null=True, blank=True,
+    )
+    order = models.ForeignKey(
+        "bookings.BookingOrder", on_delete=models.CASCADE,
+        related_name="payment_splits", null=True, blank=True,
     )
     # The person who arranged the split: always the booking's own customer, kept
     # as an explicit column so organizer-only actions can be scoped without
@@ -761,14 +769,27 @@ class BookingPaymentSplit(models.Model):
             # so two organizers can never allocate the same outstanding balance.
             models.UniqueConstraint(
                 fields=["booking"],
-                condition=models.Q(status="active"),
+                condition=models.Q(status="active", booking__isnull=False),
                 name="unique_active_split_per_booking",
+            ),
+            models.UniqueConstraint(
+                fields=["order"],
+                condition=models.Q(status="active", order__isnull=False),
+                name="unique_active_split_per_order",
+            ),
+            # A split that claimed both would allocate the same money twice.
+            models.CheckConstraint(
+                check=(models.Q(booking__isnull=False, order__isnull=True)
+                       | models.Q(booking__isnull=True, order__isnull=False)),
+                name="split_targets_one_of_booking_or_order",
             ),
         ]
         indexes = [models.Index(fields=["status", "expires_at"])]
 
     def __str__(self):
-        return f"Split on booking {self.booking_id} ({self.status})"
+        target = (f"booking {self.booking_id}" if self.booking_id
+                  else f"order {self.order_id}")
+        return f"Split on {target} ({self.status})"
 
     @property
     def is_expired(self) -> bool:

@@ -135,6 +135,48 @@ def test_an_unrestricted_facility_can_still_be_booked_for_any_type(
     assert spare in eligible, "an unrestricted facility stopped being eligible"
 
 
+def test_booking_offers_only_what_the_club_can_serve(api, bookable, club, facilities,
+                                                     facility_category):
+    """Reported from the field: picking a club still listed every activity.
+
+    The catalogue is organization-wide, so the booking step offered a swimming
+    lane at a club with three courts, and the customer reached the calendar to
+    find every slot unavailable.
+    """
+    from apps.facilities.models import FacilityType
+
+    pool = FacilityType.objects.create(
+        name="Swimming Lane", price="50.000", duration_minutes=60,
+        is_active=True, online_booking_enabled=True)
+    pool.categories.add(facility_category)
+    for unit in facilities:
+        unit.facility_types.add(bookable)
+
+    entry = api.get("/api/v1/website/public/clubs/").json()["clubs"][0]
+    names = [t["name"] for t in entry["facility_types"]]
+    assert names == ["Tennis Court"], names
+
+
+def test_a_club_that_configured_nothing_offers_nothing(api, bookable, db):
+    """One rule for the card and the booking flow alike.
+
+    An unconfigured facility could technically serve anything, but offering a
+    swimming lane at a club with none sends the customer to a calendar where
+    every slot is unavailable. Better to offer nothing and say so; the admin
+    explains the cause on the facility row.
+    """
+    from apps.clubs.models import Club
+    from apps.facilities.models import Facility
+
+    flexible = Club.objects.create(code="flex2", name="Flexible Club", is_active=True)
+    Facility.objects.create(club=flexible, name="Multi Court", is_active=True)
+
+    body = api.get("/api/v1/website/public/clubs/").json()["clubs"]
+    entry = next(c for c in body if c["id"] == flexible.id)
+    assert entry["facility_types"] == []
+    assert entry["sports"] == []
+
+
 def test_a_type_taken_offline_disappears_from_its_club(api, bookable, club, facilities):
     """The card follows the operational flags, like the rest of the site."""
     facilities[0].facility_types.add(bookable)

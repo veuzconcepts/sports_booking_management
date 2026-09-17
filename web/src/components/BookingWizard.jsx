@@ -48,6 +48,47 @@ function isValidMobile(value) {
 // Club first: where you play narrows everything after it, and it is the
 // question a customer can always answer. Add-ons are their own step rather than
 // a modal, so they can be revisited from the timeline like any other choice.
+/** A multi-slot selection in a URL: `2026-09-17T21:00~21:45,2026-09-18T09:00~09:45`.
+ *  Compact enough to stay readable, and strictly validated on the way back in
+ *  because a URL is user input like any other. */
+const SLOT_PARAM = /^(\d{4}-\d{2}-\d{2})T(\d{2}:\d{2})~(\d{2}:\d{2})$/;
+
+export function formatSlotsParam(slots) {
+  return slots.map((s) => `${s.date}T${s.time}~${s.end}`).join(',');
+}
+
+/** A real calendar date, not merely four digits, a dash and two more. */
+function isRealDate(iso) {
+  const [y, m, d] = iso.split('-').map(Number);
+  if (m < 1 || m > 12 || d < 1) return false;
+  const probe = new Date(Date.UTC(y, m - 1, d));
+  return probe.getUTCFullYear() === y && probe.getUTCMonth() === m - 1
+    && probe.getUTCDate() === d;
+}
+
+const isRealTime = (hhmm) => {
+  const [h, min] = hhmm.split(':').map(Number);
+  return h >= 0 && h <= 23 && min >= 0 && min <= 59;
+};
+
+export function parseSlotsParam(raw) {
+  const out = [];
+  const seen = new Set();
+  for (const part of String(raw || '').split(',')) {
+    const m = SLOT_PARAM.exec(part.trim());
+    // The shape is not enough: `2026-13-99T99:99` matches every `\d{2}` in the
+    // pattern. A URL is user input, so anything that is not a real date and a
+    // real clock time is dropped rather than carried into a booking request.
+    if (!m || !isRealDate(m[1]) || !isRealTime(m[2]) || !isRealTime(m[3])) continue;
+    const key = `${m[1]}T${m[2]}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push({ date: m[1], time: m[2], end: m[3] });
+  }
+  return out.sort((a, b) => (a.date === b.date
+    ? a.time.localeCompare(b.time) : a.date.localeCompare(b.date)));
+}
+
 const STEP_KEYS = ['club', 'facility', 'addons', 'when', 'pay'];
 const STEP_CLUB = 0, STEP_FACILITY = 1, STEP_ADDONS = 2, STEP_WHEN = 3, STEP_PAY = 4;
 const BLANK_DETAILS = { name: '', phone: '', email: '', notes: '' };
@@ -169,7 +210,10 @@ function Wizard({ categories = [], facilityTypes = [], clubs = [], currency = ''
   const [category, setCategory] = useState(null);
   const [facilityType, setFacilityType] = useState(null);
   const [club, setClub] = useState(null);
-  const [slot, setSlot] = useState(null);      // { date, time, end }
+  // The chosen times. An array even when the club allows only one, so every
+  // screen below reads the same shape; `slot` stays as the first of them for
+  // the parts of the flow that are genuinely about a single time.
+  const [slots, setSlots] = useState([]);      // [{ date, time, end }]
   const [addons, setAddons] = useState([]);    // selected add-on ids
   const [query, setQuery] = useState('');
   const [restored, setRestored] = useState(false);
@@ -180,17 +224,40 @@ function Wizard({ categories = [], facilityTypes = [], clubs = [], currency = ''
   const [details, setDetails] = useState({ ...BLANK_DETAILS });
   const [pay, setPay] = useState({ method: 'card', coupon: '', applied: null, card: blankCard(), split: blankSplit() });
   const [bookingDone, setBookingDone] = useState(null);
+  const slot = slots[0] || null;
 
   // Start a brand-new booking after a confirmed one.
   const reset = () => {
-    setCategory(null); setFacilityType(null); setClub(null); setSlot(null); setAddons([]);
+    setCategory(null); setFacilityType(null); setClub(null); setSlots([]); setAddons([]);
     setDetails({ ...BLANK_DETAILS }); setPay({ method: 'card', coupon: '', applied: null, card: blankCard(), split: blankSplit() });
     setBookingDone(null); setQuery(''); go(0);
   };
 
+  // Only what the CHOSEN club offers. The catalogue is organization-wide, so
+  // without this a club with three courts offered a swimming lane it does not
+  // have, and the customer reached the calendar to find every slot
+  // unavailable. A club that has configured nothing offers nothing, and says
+  // so, rather than quietly listing the whole catalogue.
+  const clubFacilityTypes = useMemo(() => {
+    const allowed = club?.facility_types;
+    if (!allowed) return facilityTypes;
+    const ids = new Set(allowed.map((entry) => entry.id));
+    return facilityTypes.filter((s) => ids.has(s.id));
+  }, [club, facilityTypes]);
+
+  // A category with nothing behind it at this club would filter to an empty
+  // list, so it is not offered.
+  const clubCategories = useMemo(() => {
+    const ids = new Set(
+      clubFacilityTypes.flatMap((s) => s.category_ids || []));
+    return categories.filter((c) => ids.has(c.id));
+  }, [categories, clubFacilityTypes]);
+
   const catFacilityTypes = useMemo(
-    () => (category ? facilityTypes.filter((s) => (s.category_ids || []).includes(category.id)) : []),
-    [category, facilityTypes],
+    () => (category
+      ? clubFacilityTypes.filter((s) => (s.category_ids || []).includes(category.id))
+      : []),
+    [category, clubFacilityTypes],
   );
 
   const filteredClubes = useMemo(() => {
@@ -214,7 +281,16 @@ function Wizard({ categories = [], facilityTypes = [], clubs = [], currency = ''
     if (aIds.length && svc) setAddons(aIds.filter((id) => (svc.add_ons || []).some((a) => a.id === id)));
     const sd = sp.get('d'), st = sp.get('t'), se = sp.get('e');
     let restoredSlot = null;
-    if (sd && st && se) { restoredSlot = { date: sd, time: st, end: se }; setSlot(restoredSlot); }
+    // `s` carries a whole multi-slot selection; `d`/`t`/`e` remain for a single
+    // time so older links, and links people have already shared, still open.
+    const restoredSlots = parseSlotsParam(sp.get('s'));
+    if (restoredSlots.length) {
+      restoredSlot = restoredSlots[0];
+      setSlots(restoredSlots);
+    } else if (sd && st && se) {
+      restoredSlot = { date: sd, time: st, end: se };
+      setSlots([restoredSlot]);
+    }
     // A bare `d` is a requested day, not a booked slot: open the calendar there.
     else if (/^\d{4}-\d{2}-\d{2}$/.test(sd || '')) setStartDate(sd);
     // Clamp the requested step to what the restored selections actually unlock,
@@ -244,11 +320,14 @@ function Wizard({ categories = [], facilityTypes = [], clubs = [], currency = ''
     if (addons.length && step >= STEP_WHEN) params.set('a', addons.join(','));
     if (slot && step >= STEP_PAY) {
       params.set('d', slot.date); params.set('t', slot.time); params.set('e', slot.end);
+      // Without this a refresh on the payment step would silently drop every
+      // time after the first, and the customer would pay for one slot.
+      if (slots.length > 1) params.set('s', formatSlotsParam(slots));
     }
     if (step > 0) params.set('step', String(step));
     const qs = params.toString();
     window.history.replaceState({}, '', qs ? `?${qs}` : window.location.pathname);
-  }, [step, category, facilityType, addons, club, slot, restored, bookingDone]);
+  }, [step, category, facilityType, addons, club, slots, slot, restored, bookingDone]);
 
   const go = (n) => setStep(Math.max(0, Math.min(STEP_KEYS.length - 1, n)));
 
@@ -258,15 +337,15 @@ function Wizard({ categories = [], facilityTypes = [], clubs = [], currency = ''
 
   // Category is a filter on the facility step now, not a step of its own.
   const pickCategory = (c) => {
-    setCategory(c); setFacilityType(null); setSlot(null); setAddons([]);
+    setCategory(c); setFacilityType(null); setSlots([]); setAddons([]);
   };
   const pickFacilityType = (s) => {
-    setFacilityType(s); setSlot(null); setAddons([]); setBookingDone(null);
+    setFacilityType(s); setSlots([]); setAddons([]); setBookingDone(null);
     go(s.add_ons?.length ? STEP_ADDONS : STEP_WHEN);
   };
   const confirmAddons = (ids) => { setAddons(ids); go(STEP_WHEN); };
   // Choosing a club auto-advances to the facility list.
-  const pickClub = (b) => { setClub(b); setSlot(null); go(STEP_FACILITY); };
+  const pickClub = (b) => { setClub(b); setSlots([]); go(STEP_FACILITY); };
 
   const back = () => go(step === STEP_WHEN && !hasAddons ? STEP_FACILITY : step - 1);
 
@@ -275,7 +354,7 @@ function Wizard({ categories = [], facilityTypes = [], clubs = [], currency = ''
     || (i === STEP_FACILITY && !!club)
     || (i === STEP_ADDONS && !!facilityType && hasAddons)
     || (i === STEP_WHEN && !!facilityType)
-    || (i === STEP_PAY && !!slot);
+    || (i === STEP_PAY && slots.length > 0);
   const jump = (i) => { if (reachable(i)) go(i); };
 
   const TITLES = {
@@ -309,8 +388,8 @@ function Wizard({ categories = [], facilityTypes = [], clubs = [], currency = ''
         )}
         {step === STEP_FACILITY && (
           <FacilityBrowser
-            categories={categories} category={category} onCategory={pickCategory}
-            list={category ? catFacilityTypes : facilityTypes}
+            categories={clubCategories} category={category} onCategory={pickCategory}
+            list={category ? catFacilityTypes : clubFacilityTypes}
             currency={currency} onPick={pickFacilityType}
           />
         )}
@@ -322,12 +401,13 @@ function Wizard({ categories = [], facilityTypes = [], clubs = [], currency = ''
           <Schedule
             facilityType={facilityType} category={category} club={club} currency={currency}
             initialDate={startDate}
-            value={slot} onChange={setSlot} onContinue={() => go(STEP_PAY)}
+            values={slots} onChange={setSlots} onContinue={() => go(STEP_PAY)}
           />
         )}
         {step === STEP_PAY && (
           <Details
-            facilityType={facilityType} category={category} club={club} slot={slot} currency={currency}
+            facilityType={facilityType} category={category} club={club}
+            slot={slot} slots={slots} currency={currency}
             country={country}
             addons={addons}
             details={details} setDetails={setDetails} pay={pay} setPay={setPay}
@@ -412,11 +492,14 @@ const PERFORMED_GROUPS = [
 
 ];
 
-function FacilityTypes({ list, currency, onPick }) {
+function FacilityTypes({ list, currency, onPick, emptyKey = 'wizard.facility.empty' }) {
   const { t } = useTranslation();
   const [detail, setDetail] = useState(null);
   if (list.length === 0) {
-    return <p className="bw__empty">{t('wizard.facility.empty')}</p>;
+    // "Nothing in this category" and "nothing at this club at all" are
+    // different problems, and only one of them the customer can fix by
+    // picking another category.
+    return <p className="bw__empty">{t(emptyKey)}</p>;
   }
   const groups = PERFORMED_GROUPS
     .map((g) => ({ ...g, items: list.filter((s) => s.performed_at === g.key) }))
@@ -603,7 +686,9 @@ function FacilityBrowser({ categories, category, onCategory, list, currency, onP
           ))}
         </div>
       )}
-      <FacilityTypes list={list} currency={currency} onPick={onPick} />
+      <FacilityTypes list={list} currency={currency} onPick={onPick}
+        emptyKey={categories.length === 0
+          ? 'wizard.facility.emptyClub' : 'wizard.facility.empty'} />
     </div>
   );
 }
@@ -742,8 +827,12 @@ const _availKey = (club, facilityType, date) => `${club?.id}|${facilityType?.id}
 const availInvalidate = (club, facilityType, date) =>
   _availCache.delete(_availKey(club, facilityType, date));
 
+const sameSlot = (a, b) => a.date === b.date && a.time === b.time;
+const sortSlots = (list) => [...list].sort((a, b) => (a.date === b.date
+  ? a.time.localeCompare(b.time) : a.date.localeCompare(b.date)));
+
 function Schedule({ facilityType, category, club, currency, initialDate = null,
-                   value, onChange, onContinue }) {
+                   values = [], onChange, onContinue }) {
   const { t, i18n } = useTranslation();
   const locale = i18n.language;
   const today = startOfToday();
@@ -777,7 +866,30 @@ function Schedule({ facilityType, category, club, currency, initialDate = null,
 
   const is24 = data?.time_format_24h;
   const weekdays = data?.weekdays || {};
-  const selectedTime = value && value.date === date ? value.time : null;
+
+  // How many times one booking may hold here, decided by the backend and
+  // carried with availability. The browser never works this out for itself.
+  const rules = data?.slot_rules || null;
+  const multi = rules?.allow_multiple_slots === true;
+  const maxSlots = Math.max(1, Number(rules?.max_slots_per_booking) || 1);
+  const minSlots = Math.max(1, Number(rules?.min_slots_per_booking) || 1);
+  const isPicked = (time) => values.some((v) => v.date === date && v.time === time);
+  const atCapacity = multi && values.length >= maxSlots;
+
+  const pick = (s) => {
+    const entry = { date, time: s.time, end: s.end };
+    if (!multi) { onChange([entry]); return; }
+    if (values.some((v) => sameSlot(v, entry))) {
+      onChange(values.filter((v) => !sameSlot(v, entry)));
+      return;
+    }
+    // A club that does not allow several dates starts the selection again
+    // rather than silently keeping a time the server would reject.
+    const base = rules?.allow_multiple_dates
+      ? values : values.filter((v) => v.date === entry.date);
+    if (base.length >= maxSlots) return;
+    onChange(sortSlots([...base, entry]));
+  };
 
   // Month grid (leading blanks + days of the month).
   const y = view.getFullYear(), m = view.getMonth();
@@ -876,22 +988,71 @@ function Schedule({ facilityType, category, club, currency, initialDate = null,
             : data?.closed ? <p className="bw__cal-none">{t('wizard.when.closed')}</p>
               : data?.slots?.length ? data.slots.map((s) => {
                 const off = s.available <= 0;
-                const sel = selectedTime === s.time;
+                const sel = isPicked(s.time);
                 const tone = off ? ' is-off' : ' is-cool';
                 return (
                   <div key={s.time} className={`bw__time-row${sel ? ' is-sel' : ''}`}>
-                    <button type="button" className={`bw__time${sel ? ' is-sel' : tone}`} disabled={off}
-                      onClick={() => onChange({ date, time: s.time, end: s.end })}>
+                    <button type="button" className={`bw__time${sel ? ' is-sel' : tone}`}
+                      disabled={off || (atCapacity && !sel)}
+                      aria-pressed={multi ? sel : undefined}
+                      onClick={() => pick(s)}>
                       <span className="bw__time-t"><bdi>{fmtTime(s.time, is24)}</bdi></span>
                       {off ? <span className="bw__time-tag">{t('wizard.when.fullyBooked')}</span>
                         : null}
                     </button>
-                    <button type="button" className="bw__time-go" tabIndex={sel ? 0 : -1}
-                      aria-hidden={!sel} onClick={onContinue}>{t('common.continue')}</button>
+                    {/* In multi-select the Continue lives once at the foot of
+                        the list, so it is not repeated beside every chosen time. */}
+                    {!multi && (
+                      <button type="button" className="bw__time-go" tabIndex={sel ? 0 : -1}
+                        aria-hidden={!sel} onClick={onContinue}>{t('common.continue')}</button>
+                    )}
                   </div>
                 );
               }) : <p className="bw__cal-none">{t('wizard.when.noTimes')}</p>}
         </div>
+
+        {/* Everything chosen so far, including times on other days, so the
+            customer is never asked to remember what is already in the basket. */}
+        {multi && (
+          <div className="bw__pick">
+            {values.length === 0 ? (
+              <p className="bw__pick-hint">
+                {t('wizard.when.pickUpTo', { count: maxSlots })}
+              </p>
+            ) : (
+              <>
+                <ul className="bw__pick-list">
+                  {values.map((v) => (
+                    <li key={`${v.date}T${v.time}`} className="bw__pick-item">
+                      <span>
+                        <bdi>{longDate(v.date, locale)}</bdi>
+                        {' '}
+                        <bdi>{fmtTime(v.time, is24)} - {fmtTime(v.end, is24)}</bdi>
+                      </span>
+                      <button type="button" className="bw__pick-x"
+                        aria-label={t('wizard.when.removeTime')}
+                        onClick={() => onChange(values.filter((x) => !sameSlot(x, v)))}>
+                        &times;
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+                <p className="bw__pick-hint">
+                  {atCapacity
+                    ? t('wizard.when.maxReached', { count: maxSlots })
+                    : t('wizard.when.chosenOf', { chosen: values.length, max: maxSlots })}
+                </p>
+              </>
+            )}
+            <button type="button" className="bw__pick-go"
+              disabled={values.length < minSlots}
+              onClick={onContinue}>
+              {values.length < minSlots
+                ? t('wizard.when.chooseAtLeast', { count: minSlots })
+                : t('common.continue')}
+            </button>
+          </div>
+        )}
       </div>
     </div>
   );
@@ -908,7 +1069,11 @@ function Money({ amount, currency }) {
   return <bdi>{sym} {v}</bdi>;
 }
 
-function Details({ facilityType, category, club, slot, currency, country = '', addons = [], details, setDetails, pay, setPay, done, setDone, onReset, onEditBooking }) {
+function Details({ facilityType, category, club, slot, slots = [], currency, country = '', addons = [], details, setDetails, pay, setPay, done, setDone, onReset, onEditBooking }) {
+  // One checkout may hold several times. Everything priced or paid for below
+  // is the whole selection, never just the first slot.
+  const chosen = slots.length ? slots : (slot ? [slot] : []);
+  const slotCount = Math.max(1, chosen.length);
   const { t, i18n } = useTranslation();
   const locale = i18n.language;
   const selectedAddons = (facilityType?.add_ons || []).filter((a) => addons.includes(a.id));
@@ -1136,7 +1301,7 @@ function Details({ facilityType, category, club, slot, currency, country = '', a
   }, [tiles, method]);
 
   function splitProblem() {
-    const total = Number(quote?.summary?.total ?? quote?.total_amount ?? 0);
+    const total = Number(quote?.summary?.total ?? quote?.total_amount ?? 0) * slotCount;
     if (split.mode === 'custom') {
       if (!split.custom.length) return t('errors.addOnePerson');
       const allocated = split.custom.reduce(
@@ -1177,17 +1342,23 @@ function Details({ facilityType, category, club, slot, currency, country = '', a
     if (!valid || busy) return;
     setBusy(true); setError('');
     try {
-      const res = await fetch('/api/book', {
+      // One time keeps the original endpoint, so nothing about the existing
+      // single-slot checkout changes. Several times go to the order endpoint.
+      const many = chosen.length > 1;
+      const common = {
+        facility_type: facilityType?.id, club: club?.id, add_ons: addons,
+        name: form.name, phone: form.phone, email: form.email, notes: form.notes,
+        coupon: applied?.code || '', verification_token: tokenValid ? token : undefined,
+        payment: paymentRequest(mode),
+      };
+      const res = await fetch(many ? '/api/order' : '/api/book', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          facility_type: facilityType?.id, club: club?.id, add_ons: addons, date: slot?.date, time: slot?.time,
-          name: form.name, phone: form.phone, email: form.email, notes: form.notes,
-          coupon: applied?.code || '', verification_token: tokenValid ? token : undefined,
-          payment: paymentRequest(mode),
-        }),
+        body: JSON.stringify(many
+          ? { ...common, slots: chosen.map((c) => ({ date: c.date, time: c.time })) }
+          : { ...common, date: slot?.date, time: slot?.time }),
       });
       const data = await res.json().catch(() => null);
-      if (res.ok && data?.reference) {
+      if (res.ok && (data?.reference || data?.order_reference)) {
         setDone(data);
         // A booking is always created; the payment is a separate outcome the
         // confirmation screen reports honestly rather than hiding.
@@ -1204,7 +1375,7 @@ function Details({ facilityType, category, club, slot, currency, country = '', a
       else if (res.status === 409) {
         // Slot was taken between viewing and booking - drop the stale cache so
         // re-opening the date shows the truth, and ask them to pick again.
-        availInvalidate(club, facilityType, slot?.date);
+        chosen.forEach((c) => availInvalidate(club, facilityType, c.date));
         setError(data?.detail || t('errors.slotTaken'));
       } else setError(data?.detail || t('errors.generic'));
     } catch {
@@ -1230,14 +1401,30 @@ function Details({ facilityType, category, club, slot, currency, country = '', a
               {t('success.subtitle',
                 { name: form.name ? `, ${form.name.split(' ')[0]}` : '' })}
             </p>
-            <span className="bw__success-ref">{t('success.reference')}&nbsp;<strong>{done.reference}</strong></span>
+            <span className="bw__success-ref">{t('success.reference')}&nbsp;<strong>{done.reference || done.order_reference}</strong></span>
           </div>
         </div>
 
         <div className="bw__success-card">
           <div className="bw__success-grid">
             <div className="bw__sx-item"><span className="bw__sx-ic"><Droplet /></span><div><span>{t('success.facility')}</span><strong>{facilityType?.name}</strong></div></div>
-            {slot && <div className="bw__sx-item"><span className="bw__sx-ic"><Clock /></span><div><span>{t('success.dateTime')}</span><strong>{longDate(slot.date, locale)}</strong><em><bdi>{fmtTime(slot.time)} - {fmtTime(slot.end)}</bdi></em></div></div>}
+            {(done.bookings?.length > 1 ? done.bookings : null) ? (
+              <div className="bw__sx-item">
+                <span className="bw__sx-ic"><Clock /></span>
+                <div>
+                  <span>{t('success.times', { count: done.bookings.length })}</span>
+                  <ul className="bw__sx-times">
+                    {done.bookings.map((b) => (
+                      <li key={b.reference}>
+                        <strong>{longDate(b.scheduled_date, locale)}</strong>
+                        {' '}
+                        <em><bdi>{fmtTime(b.scheduled_time)} - {fmtTime(b.end_time)}</bdi></em>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              </div>
+            ) : slot && <div className="bw__sx-item"><span className="bw__sx-ic"><Clock /></span><div><span>{t('success.dateTime')}</span><strong>{longDate(slot.date, locale)}</strong><em><bdi>{fmtTime(slot.time)} - {fmtTime(slot.end)}</bdi></em></div></div>}
             <div className="bw__sx-item"><span className="bw__sx-ic"><Pin /></span><div><span>{t('success.club')}</span><strong>{club?.name}</strong><em>{[club?.address, club?.city].filter(Boolean).join(', ')}</em></div></div>
           </div>
           <div className="bw__success-foot">
@@ -1256,7 +1443,7 @@ function Details({ facilityType, category, club, slot, currency, country = '', a
 
         {/* A declined card must not dead-end the customer. Their slot is held, so
             the honest thing is to let them try again right here. */}
-        {done.payment?.status === 'failed' && done.checkout_token && (
+        {['failed', 'partial'].includes(done.payment?.status) && done.checkout_token && (
           <RetryCard checkoutToken={done.checkout_token} config={payCfg}
             amount={done.payment.outstanding} currency={done.currency} />
         )}
@@ -1269,7 +1456,13 @@ function Details({ facilityType, category, club, slot, currency, country = '', a
   const cur = quote?.currency || currency;
   const num = (v) => Number(v || 0);
 
-  const bookingTotal = quote?.summary?.total ?? quote?.total_amount ?? facilityType?.from_price;
+  // The quote prices one slot; a checkout may hold several of them. The
+  // backend remains authoritative and recomputes every slot on submit, so this
+  // is what the customer is about to agree to, not what they will be charged
+  // by some separate calculation.
+  const perSlotTotal = quote?.summary?.total ?? quote?.total_amount ?? facilityType?.from_price;
+  const bookingTotal = slotCount > 1
+    ? (num(perSlotTotal) * slotCount).toFixed(2) : perSlotTotal;
   const shares = split.on && split.mode === 'equal'
     ? previewEqualSplit(bookingTotal, split.people)
     : split.custom.map((row) => row.amount);
@@ -1286,7 +1479,7 @@ function Details({ facilityType, category, club, slot, currency, country = '', a
   // so the customer can see the offer worked.
   const savings = (quote?.summary?.adjustments || [])
     .filter((a) => a.kind !== 'surcharge')
-    .reduce((total, a) => total + num(a.amount), 0);
+    .reduce((total, a) => total + num(a.amount), 0) * slotCount;
 
   return (
     <div className="ck">
@@ -1450,17 +1643,18 @@ function Details({ facilityType, category, club, slot, currency, country = '', a
 
           <ul className="ck__sum-meta">
             <li><Pin /> <span>{club?.name}{club?.city ? `, ${club.city}` : ''}</span></li>
-            {slot && <li><Sun /> <span>{longDate(slot.date, locale)}</span></li>}
-            {slot && (
-              <li>
+            {chosen.map((c) => (
+              <li key={`${c.date}T${c.time}`}>
                 <ClockIcon />
                 <span>
-                  <bdi>{fmtTime(slot.time)} - {fmtTime(slot.end)}</bdi>
+                  <bdi>{longDate(c.date, locale)}</bdi>
+                  {', '}
+                  <bdi>{fmtTime(c.time)} - {fmtTime(c.end)}</bdi>
                   {facilityType?.duration_minutes
                     ? ` (${duration(facilityType.duration_minutes, t)})` : ''}
                 </span>
               </li>
-            )}
+            ))}
             {selectedAddons.length > 0 && (
               <li><Sparkle /> <span>{selectedAddons.map((a) => a.name).join(', ')}</span></li>
             )}
@@ -1490,6 +1684,14 @@ function Details({ facilityType, category, club, slot, currency, country = '', a
                     </div>
                   );
                 })}
+                {/* The lines above price one time. Saying so, and showing the
+                    multiplier, is honest; restating every line N times is not. */}
+                {slotCount > 1 && (
+                  <div className="ck__line ck__line--sub">
+                    <span>{t('checkout.perTime')}</span>
+                    <span>&times; {slotCount}</span>
+                  </div>
+                )}
               </div>
             );
           })() : (
@@ -1641,6 +1843,15 @@ function PaidBadge({ payment, currency }) {
   }
   if (outcome.status === 'started') {
     return <span className="bw__success-pay is-split"><SplitIcon /> {t('success.splitInProgress')}</span>;
+  }
+  if (outcome.status === 'partial') {
+    // Some slots were charged and some were not. Calling this "failed" would
+    // invite a second payment for times that are already settled.
+    return (
+      <span className="bw__success-pay is-failed">
+        {t('success.partlyPaid', { paid: outcome.slots_paid, total: outcome.slots_total })}
+      </span>
+    );
   }
   if (outcome.status === 'failed' || outcome.status === 'unavailable') {
     return <span className="bw__success-pay is-failed">{t('success.notCompleted')}</span>;

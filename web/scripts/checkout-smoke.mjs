@@ -548,6 +548,92 @@ check('an inferred language is not written to a cookie', () => {
   return assert(written.length === 0, `wrote ${JSON.stringify(written)}`);
 });
 
+// --------------------------------------------------------------------------- //
+console.log('\nMulti-slot booking:');
+
+const wizardPath = join(workDir, 'wizard.mjs');
+await esbuild.build({
+  entryPoints: ['src/components/BookingWizard.jsx'],
+  bundle: true,
+  format: 'esm',
+  platform: 'node',
+  outfile: wizardPath,
+  jsx: 'automatic',
+  loader: { '.css': 'empty' },
+  logLevel: 'silent',
+});
+const wizard = await import(pathToFileURL(wizardPath).href);
+const wizardSource = readFileSync('src/components/BookingWizard.jsx', 'utf8');
+
+check('a selection survives a refresh on the payment step', () => {
+  // Without this every time after the first was dropped and the customer paid
+  // for one slot of the several they chose.
+  const chosen = [
+    { date: '2026-09-17', time: '21:00', end: '21:45' },
+    { date: '2026-09-18', time: '09:00', end: '09:45' },
+  ];
+  const restored = wizard.parseSlotsParam(wizard.formatSlotsParam(chosen));
+  return assert(JSON.stringify(restored) === JSON.stringify(chosen),
+    JSON.stringify(restored));
+});
+
+check('a tampered slot parameter is discarded, not trusted', () => {
+  // A URL is user input. Anything that is not exactly a date and two times is
+  // dropped rather than carried into a booking request.
+  const parsed = wizard.parseSlotsParam(
+    'not-a-slot,2026-13-99T99:99~10:00,<script>,2026-09-17T21:00~21:45');
+  assert(parsed.length === 1, `kept ${parsed.length}`);
+  return assert(parsed[0].date === '2026-09-17', JSON.stringify(parsed));
+});
+
+check('a duplicate time cannot be smuggled in twice', () => {
+  const parsed = wizard.parseSlotsParam(
+    '2026-09-17T21:00~21:45,2026-09-17T21:00~21:45');
+  return assert(parsed.length === 1, `kept ${parsed.length}`);
+});
+
+check('slots always arrive in chronological order', () => {
+  const parsed = wizard.parseSlotsParam(
+    '2026-09-19T08:00~08:45,2026-09-17T21:00~21:45,2026-09-17T09:00~09:45');
+  return assert(
+    parsed.map((s) => `${s.date}T${s.time}`).join(',')
+      === '2026-09-17T09:00,2026-09-17T21:00,2026-09-19T08:00',
+    JSON.stringify(parsed));
+});
+
+check('the wizard never decides the rules for itself', () => {
+  // The backend resolves the chain and sends `slot_rules` with availability.
+  // A number hard-coded here would drift from it the first time somebody
+  // changed a facility.
+  assert(wizardSource.includes('data?.slot_rules'), 'slot_rules is not read');
+  return assert(!/max_slots_per_booking\s*[:=]\s*\d/.test(wizardSource),
+    'a slot maximum is hard-coded in the wizard');
+});
+
+check('one time still uses the single-booking endpoint', () => {
+  // The proven single-slot checkout must not change shape just because a
+  // multi-slot path now exists beside it.
+  assert(wizardSource.includes("const many = chosen.length > 1;"),
+    'the endpoint is not chosen by slot count');
+  return assert(wizardSource.includes("many ? '/api/order' : '/api/book'"),
+    'the two endpoints are not selected as expected');
+});
+
+check('a partly paid order is never reported as simply paid', () => {
+  // Several slots means several charges, so the run can stop halfway. Calling
+  // that "failed" would invite paying twice for the settled slots.
+  assert(wizardSource.includes("outcome.status === 'partial'"),
+    'the partial outcome is not handled');
+  return assert(wizardSource.includes('success.partlyPaid'),
+    'no message for a partly paid order');
+});
+
+check('the order proxy hides the backend like the booking one does', () => {
+  const proxy = readFileSync('src/pages/api/order.js', 'utf8');
+  assert(proxy.includes('createOrder'), 'does not call the shared client');
+  return assert(!proxy.includes('http'), 'the proxy names a backend URL');
+});
+
 rmSync(workDir, { recursive: true, force: true });
 
 if (failures.length) {

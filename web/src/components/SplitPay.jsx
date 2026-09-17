@@ -69,9 +69,28 @@ function BookingFacts({ booking }) {
           {booking.club_city && <em>{booking.club_city}</em>}</div></li>
       <li><span className="sp__fact-ic"><Court /></span>
         <div><span>{t('pay.facility')}</span><strong>{booking.facility}</strong></div></li>
-      <li><span className="sp__fact-ic"><Clock /></span>
-        <div><span>{t('pay.when')}</span><strong>{longDate(booking.date, i18n.language)}</strong>
-          <em><bdi>{timeRange(booking.time, booking.end_time)}</bdi></em></div></li>
+      {/* A multi-slot order has no single date. Showing the first one and
+          calling it "when" would tell a payer they are covering one evening
+          when they are actually covering several. */}
+      {booking.slots?.length > 1 ? (
+        <li><span className="sp__fact-ic"><Clock /></span>
+          <div>
+            <span>{t('pay.whenTimes', { count: booking.slots.length })}</span>
+            <ul className="sp__times">
+              {booking.slots.map((slot) => (
+                <li key={`${slot.date}T${slot.time}`}>
+                  <strong>{longDate(slot.date, i18n.language)}</strong>
+                  {' '}
+                  <em><bdi>{timeRange(slot.time, slot.end_time)}</bdi></em>
+                </li>
+              ))}
+            </ul>
+          </div></li>
+      ) : (
+        <li><span className="sp__fact-ic"><Clock /></span>
+          <div><span>{t('pay.when')}</span><strong>{longDate(booking.date, i18n.language)}</strong>
+            <em><bdi>{timeRange(booking.time, booking.end_time)}</bdi></em></div></li>
+      )}
     </ul>
   );
 }

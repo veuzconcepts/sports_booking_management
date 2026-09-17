@@ -88,7 +88,8 @@
       "empty": "لا توجد أنشطة متاحة في هذه الفئة حتى الآن.",
       "included": "ما الذي يشمله",
       "select": "اختيار",
-      "selectCta": "اختر هذا النشاط"
+      "selectCta": "اختر هذا النشاط",
+      "emptyClub": "لا توجد أنشطة متاحة للحجز عبر الإنترنت في هذا النادي حتى الآن. يرجى التواصل مع النادي."
     },
     "addons": {
       "title": "إضافات مقترحة",
@@ -112,7 +113,27 @@
       "fullyBooked": "محجوز بالكامل",
       "yourBooking": "حجزك",
       "payOnCompletion": "الدفع عند الانتهاء",
-      "appointment": "الموعد"
+      "appointment": "الموعد",
+      "pickUpTo_zero": "اختر حتى {{count}} وقت",
+      "pickUpTo_one": "اختر وقتا واحدا",
+      "pickUpTo_two": "اختر حتى وقتين",
+      "pickUpTo_few": "اختر حتى {{count}} أوقات",
+      "pickUpTo_many": "اختر حتى {{count}} وقتا",
+      "pickUpTo_other": "اختر حتى {{count}} وقت",
+      "chosenOf": "تم اختيار {{chosen}} من {{max}}",
+      "maxReached_zero": "بلغت الحد الأقصى: {{count}} وقت",
+      "maxReached_one": "بلغت الحد الأقصى: وقت واحد",
+      "maxReached_two": "بلغت الحد الأقصى: وقتان",
+      "maxReached_few": "بلغت الحد الأقصى: {{count}} أوقات",
+      "maxReached_many": "بلغت الحد الأقصى: {{count}} وقتا",
+      "maxReached_other": "بلغت الحد الأقصى: {{count}} وقت",
+      "chooseAtLeast_zero": "اختر {{count}} وقت على الأقل",
+      "chooseAtLeast_one": "اختر وقتا واحدا على الأقل",
+      "chooseAtLeast_two": "اختر وقتين على الأقل",
+      "chooseAtLeast_few": "اختر {{count}} أوقات على الأقل",
+      "chooseAtLeast_many": "اختر {{count}} وقتا على الأقل",
+      "chooseAtLeast_other": "اختر {{count}} وقت على الأقل",
+      "removeTime": "إزالة هذا الوقت"
     }
   },
   "checkout": {
@@ -150,7 +171,8 @@
     "legalSplit": "ستحصل على رابط تشاركه مع أصدقائك مباشرة بعد الدفع.",
     "promoAsk": "لديك رمز ترويجي؟",
     "promoPlaceholder": "الرمز الترويجي",
-    "removePromo": "إزالة الرمز الترويجي"
+    "removePromo": "إزالة الرمز الترويجي",
+    "perTime": "السعر أعلاه لوقت واحد"
   },
   "otp": {
     "titleEmail": "لدينا حساب مسجّل بهذا البريد الإلكتروني",
@@ -246,7 +268,14 @@
     "splitInProgress": "الدفع المقسّم قيد التنفيذ",
     "notCompleted": "لم يكتمل الدفع",
     "cash": "نقدًا، الدفع عند الانتهاء",
-    "bookAnother": "احجز مرفقًا آخر"
+    "bookAnother": "احجز مرفقًا آخر",
+    "times_zero": "الأوقات",
+    "times_one": "الوقت",
+    "times_two": "الوقتان",
+    "times_few": "الأوقات",
+    "times_many": "الأوقات",
+    "times_other": "الأوقات",
+    "partlyPaid": "تم الدفع لـ {{paid}} من {{total}}"
   },
   "pay": {
     "loading": "جارٍ تحميل صفحة الدفع…",
@@ -273,7 +302,13 @@
     "unavailable": "الدفع الإلكتروني غير متاح حاليًا. يرجى التواصل مع النادي.",
     "club": "النادي",
     "facility": "النشاط",
-    "when": "الموعد"
+    "when": "الموعد",
+    "whenTimes_zero": "الأوقات",
+    "whenTimes_one": "الوقت",
+    "whenTimes_two": "الوقتان",
+    "whenTimes_few": "الأوقات ({{count}})",
+    "whenTimes_many": "الأوقات ({{count}})",
+    "whenTimes_other": "الأوقات ({{count}})"
   },
   "progress": {
     "loading": "جارٍ تحميل حالة الدفع…",

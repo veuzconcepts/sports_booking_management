@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { Plus, Trash2, Pencil, Wrench, Clock, X } from 'lucide-react';
+import { Plus, Trash2, Pencil, Wrench, Clock, X, SlidersHorizontal } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import toast from 'react-hot-toast';
 
@@ -9,6 +9,7 @@ import { ConfirmDialog } from '../../components/ConfirmDialog.jsx';
 import { FormField } from '../../components/FormField.jsx';
 import { ClubLocationPicker } from '../../components/ClubLocationPicker.jsx';
 import { ScheduleScopePanel } from '../../components/ScheduleScopePanel.jsx';
+import { BookingRulesModal } from './BookingRulesModal.jsx';
 import { PhoneField, isPhoneValid } from '../../components/PhoneField.jsx';
 import { useApiList } from '../../hooks/useApiList.js';
 import { useAuth } from '../../hooks/useAuth.jsx';
@@ -270,6 +271,7 @@ function FacilitiesModal({ club, onClose, onChanged }) {
   const [editTypes, setEditTypes] = useState([]);
   const [blocksFor, setBlocksFor] = useState(null);   // facility whose blocks are open
   const [hoursFor, setHoursFor] = useState(null);     // facility whose hours are open
+  const [rulesFor, setRulesFor] = useState(null);     // facility whose booking rules are open
 
   useEffect(() => {
     if (!club) return;
@@ -407,6 +409,10 @@ function FacilitiesModal({ club, onClose, onChanged }) {
                       <button className="icon-btn" onClick={() => setBlocksFor(f)} aria-label={t('maintenance')} title={t('maintenance')}>
                         <Wrench size={15} />
                       </button>
+                      <button className="icon-btn" onClick={() => setRulesFor(f)}
+                        aria-label={t('bookingRules')} title={t('bookingRules')}>
+                        <SlidersHorizontal size={15} />
+                      </button>
                       <button className="icon-btn" onClick={() => startEdit(f)} aria-label={t('common:actions.edit')}><Pencil size={14} /></button>
                       <button className="icon-btn" onClick={() => removeFacility(f.id)} aria-label={t('common:actions.remove')}><Trash2 size={15} /></button>
                     </span>
@@ -430,6 +436,16 @@ function FacilitiesModal({ club, onClose, onChanged }) {
         onChanged?.();
       }}
     />
+    {/* Guarded on the facility, not on any derived state: React evaluates a
+        modal's children before the modal can decide it is closed, so a null
+        here would be dereferenced on the render that closes it. */}
+    {rulesFor && (
+      <BookingRulesModal
+        scope={{ facility: rulesFor, club }}
+        onClose={() => setRulesFor(null)}
+        onSaved={() => onChanged?.()}
+      />
+    )}
     </>
   );
 }

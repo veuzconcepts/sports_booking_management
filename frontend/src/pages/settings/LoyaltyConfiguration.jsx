@@ -178,8 +178,8 @@ export default function LoyaltyConfiguration() {
                       <td>{tier.min_points ?? '-'}</td>
                       <td>{tier.min_spend ?? '-'}</td>
                       <td>{tier.discount_percent}</td>
-                      <td>{tier.priority_booking ? t('common:labels.yes') : '-'}</td>
-                      <td>{tier.is_active ? t('common:labels.yes') : t('common:labels.no')}</td>
+                      <td>{tier.priority_booking ? t('common:state.yes') : '-'}</td>
+                      <td>{tier.is_active ? t('common:state.yes') : t('common:state.no')}</td>
                       {canTiers && (
                         <td style={{ textAlign: 'right', whiteSpace: 'nowrap' }}>
                           <button className="icon-btn" title={t('common:actions.edit')} onClick={() => setTierModal({ ...tier })}><Pencil size={15} /></button>

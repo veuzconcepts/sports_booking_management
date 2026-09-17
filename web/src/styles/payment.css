@@ -1401,3 +1401,7 @@ bdi,
 
 /* The progress bar fills from the reading edge. */
 [dir="rtl"] .sp__bar span { float: inline-start; }
+
+/* Every slot a share covers, on the friend's payment page. */
+.sp__times { list-style: none; margin: 2px 0 0; padding: 0; display: grid; gap: 3px; }
+.sp__times li { font-size: 13px; }

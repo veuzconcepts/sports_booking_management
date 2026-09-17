@@ -414,11 +414,97 @@ def public_availability(on_date, club=None, facility_type=None, facility=None) -
         "timezone": org.timezone,
         "weekdays": weekdays,
         "slots": slots,
+        # How many of those slots one booking may hold here. The wizard needs
+        # this to know whether to offer multi-select at all; it is resolved by
+        # the backend, never worked out in the browser.
+        "slot_rules": resolve_booking_slot_rules(club=club,
+                                                 facility_type=facility_type),
         # Why the day looks the way it does, for the website's "closed" notice.
         "exception": day.exception,
         "breaks": [{"open": sched.fmt(b.start_time), "close": sched.fmt(b.end_time)}
                    for b in day.breaks],
     }
+
+
+def resolve_booking_slot_rules(club=None, facility_type=None) -> dict:
+    """The slot rules a customer booking an ACTIVITY may rely on.
+
+    The website picks a club and an activity, never a named facility: which
+    court actually serves the booking is decided by the allocator at save time.
+    So the offer is the most permissive of what the eligible facilities allow,
+    and the order is then re-checked against the facility each slot really
+    landed on (`facility_rule_breaches`).
+
+    Offering the strictest instead would be wrong in the common case: a club
+    with one court capped at a single slot and another allowing ten would stop
+    offering multi-slot altogether, even though every slot could have gone to
+    the second court.
+    """
+    facilities = list(eligible_facilities(club=club, facility_type=facility_type))
+    if not facilities:
+        return resolve_slot_rules(club=club)
+
+    best = None
+    for facility in facilities:
+        rules = resolve_slot_rules(club=facility.club, facility=facility)
+        if best is None:
+            best = dict(rules)
+            continue
+        best["allow_multiple_slots"] = (best["allow_multiple_slots"]
+                                        or rules["allow_multiple_slots"])
+        best["allow_multiple_dates"] = (best["allow_multiple_dates"]
+                                        or rules["allow_multiple_dates"])
+        # "Must be back to back" is a restriction, so the permissive union
+        # only keeps it when every candidate insists on it.
+        best["require_consecutive_slots"] = (best["require_consecutive_slots"]
+                                             and rules["require_consecutive_slots"])
+        best["min_slots_per_booking"] = min(best["min_slots_per_booking"],
+                                            rules["min_slots_per_booking"])
+        best["max_slots_per_booking"] = max(best["max_slots_per_booking"],
+                                            rules["max_slots_per_booking"])
+
+    if not best["allow_multiple_slots"]:
+        best["min_slots_per_booking"] = 1
+        best["max_slots_per_booking"] = 1
+        best["allow_multiple_dates"] = False
+    return best
+
+
+def facility_rule_breaches(bookings) -> list:
+    """Slot rules broken once the allocator has chosen the actual facilities.
+
+    `resolve_booking_slot_rules` offers the union of what the candidates allow,
+    because the facility is unknown while the customer is choosing. This is the
+    other half of that bargain: after allocation, each facility's own rules are
+    checked against the slots it really received, so a permissive neighbour can
+    never be used to overfill a court that caps itself.
+
+    Returns human-readable reasons, empty when the allocation is sound.
+    """
+    from collections import defaultdict
+
+    by_facility = defaultdict(list)
+    for booking in bookings:
+        if booking.facility_id:
+            by_facility[booking.facility].append(booking)
+
+    reasons = []
+    for facility, rows in by_facility.items():
+        rules = resolve_slot_rules(club=facility.club, facility=facility)
+        count = len(rows)
+        if count > 1 and not rules["allow_multiple_slots"]:
+            reasons.append(
+                f"{facility.name} can only take one time slot per booking.")
+            continue
+        if count > rules["max_slots_per_booking"]:
+            reasons.append(
+                f"{facility.name} allows up to "
+                f"{rules['max_slots_per_booking']} time slots per booking.")
+        dates = {row.scheduled_date for row in rows}
+        if len(dates) > 1 and not rules["allow_multiple_dates"]:
+            reasons.append(
+                f"{facility.name} needs all of your times on the same date.")
+    return reasons
 
 
 def slot_is_available(on_date, at_time, club=None, facility_type=None,
@@ -463,23 +549,105 @@ class BookingRuleViolation(Exception):
         super().__init__(" ".join(self.reasons))
 
 
-def resolve_policy(club=None):
-    """The policy in force for `club` - its own row, else the organization default.
+# Multi-slot settings inherit field by field; everything older on BookingPolicy
+# replaces its parent wholesale. See the model for why the two differ.
+MULTI_SLOT_FIELDS = (
+    "allow_multiple_slots",
+    "allow_multiple_dates",
+    "require_consecutive_slots",
+    "min_slots_per_booking",
+    "max_slots_per_booking",
+)
 
-    The default row is created on first access so a fresh install always has a
-    policy to answer with, exactly like `Organization.get_solo()`.
+# What a fresh install does before anybody configures anything: one slot at a
+# time, exactly as the product behaved before multi-slot existed.
+MULTI_SLOT_DEFAULTS = {
+    "allow_multiple_slots": False,
+    "allow_multiple_dates": False,
+    "require_consecutive_slots": False,
+    "min_slots_per_booking": 1,
+    "max_slots_per_booking": 1,
+}
+
+
+def policy_chain(club=None, facility=None):
+    """The policy rows that apply, most specific first.
+
+    A facility implies its club even when the caller did not pass one, so a
+    facility is never resolved against the wrong club's rules - the same rule
+    the schedule engine follows.
     """
     from .models import BookingPolicy
 
+    if facility is not None and club is None:
+        club = facility.club
+
+    chain = []
+    if facility is not None:
+        own = BookingPolicy.objects.filter(facility=facility).first()
+        if own is not None:
+            chain.append(own)
     if club is not None:
         own = BookingPolicy.objects.filter(club=club).first()
         if own is not None:
-            return own
+            chain.append(own)
+    chain.append(_default_policy())
+    return chain
+
+
+def _default_policy():
+    """The organization row, created on first access like `Organization.get_solo`."""
+    from .models import BookingPolicy
+
     default = BookingPolicy.objects.filter(is_default=True).first()
     if default is None:
-        default, _ = BookingPolicy.objects.get_or_create(
-            is_default=True, defaults={"club": None})
+        default, _created = BookingPolicy.objects.get_or_create(
+            is_default=True, defaults={"club": None, "facility": None})
     return default
+
+
+def resolve_policy(club=None, facility=None):
+    """The policy row in force - the most specific one that exists.
+
+    Unchanged for the older fields: a club (or now a facility) row replaces its
+    parent wholesale. Use `resolve_slot_rules` for the multi-slot settings,
+    which inherit individually.
+    """
+    return policy_chain(club, facility)[0]
+
+
+def resolve_slot_rules(club=None, facility=None) -> dict:
+    """The effective multi-slot rules, merged down the chain.
+
+    Each setting is taken from the most specific row that actually states it,
+    so a court can cap itself at two slots without restating its club's lead
+    time and cancellation window.
+
+    Returns plain values, never None, so every caller gets a usable answer:
+
+        {"allow_multiple_slots", "allow_multiple_dates",
+         "require_consecutive_slots", "min_slots_per_booking",
+         "max_slots_per_booking"}
+    """
+    rules = dict(MULTI_SLOT_DEFAULTS)
+    # Least specific first, so the more specific row overwrites it.
+    for policy in reversed(policy_chain(club, facility)):
+        for field in MULTI_SLOT_FIELDS:
+            value = getattr(policy, field, None)
+            if value is not None:
+                rules[field] = value
+
+    # A cap below the floor would make every booking impossible, and a floor of
+    # zero is meaningless. Normalise rather than trusting the stored numbers.
+    rules["min_slots_per_booking"] = max(1, int(rules["min_slots_per_booking"] or 1))
+    rules["max_slots_per_booking"] = max(1, int(rules["max_slots_per_booking"] or 1))
+    if not rules["allow_multiple_slots"]:
+        rules["min_slots_per_booking"] = 1
+        rules["max_slots_per_booking"] = 1
+        rules["allow_multiple_dates"] = False
+    rules["max_slots_per_booking"] = max(
+        rules["max_slots_per_booking"], rules["min_slots_per_booking"])
+    return rules
 
 
 def booking_window(club=None, now=None):

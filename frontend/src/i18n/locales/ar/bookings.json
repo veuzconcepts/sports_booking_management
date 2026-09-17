@@ -241,8 +241,11 @@
   "optionalEnterCodeClickApply": "اختياري - أدخل رمزاً واضغط «تطبيق» للتحقق منه وتطبيق الخصم.",
   "optionalExtrasBooking": "إضافات اختيارية لهذا الحجز.",
   "optionalWalk": "اختياري للحجز الحضوري.",
+  "orderExplains": "الطلب {{reference}}: تم حجز {{count}} أوقات معا في عملية دفع واحدة.",
+  "orderTotal": "إجمالي الطلب",
   "other": "أخرى",
   "paid": "مدفوع",
+  "partOfOrder": "جزء من حجز متعدد الأوقات",
   "partiallyPaid": "مدفوع جزئياً",
   "payment": "الدفع",
   "paymentMethod": "طريقة الدفع",
@@ -293,30 +296,30 @@
   "source": "المصدر",
   "specialInstructions": "تعليمات خاصة",
   "split": {
-    "title": "الدفع المقسّم",
-    "tableCaption": "من دفع كل جزء من هذا الحجز",
     "allocated": "المخصص",
+    "amount": "المبلغ",
     "collected": "المحصّل",
     "expires": "انتهاء الروابط",
-    "participant": "المشارك",
-    "amount": "المبلغ",
-    "state": "الحالة",
-    "payment": "الدفعة",
-    "organizer": "المنظّم",
     "guest": "ضيف",
+    "organizer": "المنظّم",
+    "participant": "المشارك",
+    "payment": "الدفعة",
+    "shareStatus": {
+      "cancelled": "ملغى",
+      "expired": "منتهي",
+      "failed": "فشل",
+      "paid": "مدفوع",
+      "pending": "قيد الانتظار"
+    },
+    "state": "الحالة",
     "status": {
       "active": "بانتظار الدفع",
-      "completed": "مدفوع بالكامل",
       "cancelled": "ملغى",
+      "completed": "مدفوع بالكامل",
       "expired": "منتهي"
     },
-    "shareStatus": {
-      "pending": "قيد الانتظار",
-      "paid": "مدفوع",
-      "failed": "فشل",
-      "expired": "منتهي",
-      "cancelled": "ملغى"
-    }
+    "tableCaption": "من دفع كل جزء من هذا الحجز",
+    "title": "الدفع المقسّم"
   },
   "staffMember": "الموظف",
   "staffOnlyNotShownCustomer": "للموظفين فقط؛ لا تُعرض للعميل.",

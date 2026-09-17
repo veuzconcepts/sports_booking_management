@@ -80,7 +80,8 @@
       "empty": "No activities available in this category yet.",
       "included": "What's included",
       "select": "Select",
-      "selectCta": "Select activity"
+      "selectCta": "Select activity",
+      "emptyClub": "This club has no activities available to book online yet. Please contact the club."
     },
     "addons": {
       "title": "Recommended add-ons",
@@ -100,7 +101,15 @@
       "fullyBooked": "Fully booked",
       "yourBooking": "Your booking",
       "payOnCompletion": "Payment upon completion",
-      "appointment": "Appointment"
+      "appointment": "Appointment",
+      "pickUpTo_one": "Choose up to {{count}} time",
+      "pickUpTo_other": "Choose up to {{count}} times",
+      "chosenOf": "{{chosen}} of {{max}} chosen",
+      "maxReached_one": "You have chosen the maximum of {{count}} time",
+      "maxReached_other": "You have chosen the maximum of {{count}} times",
+      "chooseAtLeast_one": "Choose at least {{count}} time",
+      "chooseAtLeast_other": "Choose at least {{count}} times",
+      "removeTime": "Remove this time"
     }
   },
   "checkout": {
@@ -138,7 +147,8 @@
     "legalSplit": "You will get a link to share with your friends right after payment.",
     "promoAsk": "Have a promo code?",
     "promoPlaceholder": "Promo code",
-    "removePromo": "Remove promo code"
+    "removePromo": "Remove promo code",
+    "perTime": "Price above is for one time"
   },
   "otp": {
     "titleEmail": "We already have an account for this email",
@@ -234,7 +244,10 @@
     "splitInProgress": "Split payment in progress",
     "notCompleted": "Payment not completed",
     "cash": "Cash, pay on completion",
-    "bookAnother": "Book another facility"
+    "bookAnother": "Book another facility",
+    "times_one": "Time",
+    "times_other": "Times",
+    "partlyPaid": "Paid for {{paid}} of {{total}} times"
   },
   "pay": {
     "loading": "Loading your payment…",
@@ -261,7 +274,9 @@
     "unavailable": "Online payment is not available at the moment. Please contact the club.",
     "club": "Club",
     "facility": "Activity",
-    "when": "When"
+    "when": "When",
+    "whenTimes_one": "When",
+    "whenTimes_other": "When ({{count}} times)"
   },
   "progress": {
     "loading": "Loading payment progress…",

@@ -57,6 +57,9 @@ async function postJSON(path, body) {
 /** Create a booking in Operations from the public site. */
 export const createBooking = (payload) => postJSON('/website/public/bookings/', payload);
 
+/** Create a MULTI-SLOT booking: one order, one booking per slot. */
+export const createOrder = (payload) => postJSON('/website/public/orders/', payload);
+
 /** Website booking contact rules (email/phone required + unique). */
 export const getBookingConfig = () => getJSON('/website/public/booking-config/');
 

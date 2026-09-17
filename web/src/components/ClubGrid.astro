@@ -28,12 +28,11 @@ function initials(name) {
  * keeps the remainder honest rather than hiding it.
  */
 function clubTags(club) {
-  // Facility NAMES: the units the operator created and named. A card chip is
-  // now a string they typed, so there is never a question of where it came
-  // from. Types and categories stay in the payload for search and filtering,
-  // but they are not what a venue is introduced by.
-  const named = club.facilities || [];
-  const all = named.length ? named : (club.facility_types || club.sports || []);
+  // ACTIVITIES: what a customer can actually book here, named the way the
+  // catalogue names them. Categories are the fallback for a club whose
+  // activities are somehow unnamed, so a card still says something.
+  const activities = club.facility_types || [];
+  const all = activities.length ? activities : (club.sports || []);
   return { shown: all.slice(0, 4), extra: Math.max(0, all.length - 4) };
 }
 ---

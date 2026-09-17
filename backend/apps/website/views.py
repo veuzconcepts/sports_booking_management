@@ -525,6 +525,27 @@ class PublicBookingCreateView(APIView):
         return Response(payload, status=code)
 
 
+class PublicOrderCreateView(APIView):
+    """Create a multi-slot booking from the public website.
+
+    The single-slot endpoint is unchanged and still handles one time. This one
+    takes `slots: [{date, time}, ...]` and produces one `BookingOrder` with an
+    ordinary `Booking` behind each slot, through the same serializer, the same
+    availability engine and the same pricing as everything else.
+    """
+
+    authentication_classes = []
+    permission_classes = [AllowAny]
+    throttle_scope = "public_booking"
+
+    def post(self, request):
+        from apps.bookings.public_booking import create_public_order
+        code, payload = create_public_order(
+            request.data, request=request, source="website", customer_source="web",
+            update_via="website_booking", update_by_label="Customer (website)")
+        return Response(payload, status=code)
+
+
 class PublicQuoteView(APIView):
     """Live price breakdown (subtotal, VAT, discounts, coupon) for the public
     Confirm & Pay step — reuses the same engine as the admin price preview, so

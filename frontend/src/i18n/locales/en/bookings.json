@@ -224,8 +224,11 @@
   "optionalEnterCodeClickApply": "Optional - enter a code and click Apply to validate and apply the discount.",
   "optionalExtrasBooking": "Optional extras for this booking.",
   "optionalWalk": "Optional for walk-in.",
+  "orderExplains": "Order {{reference}}: {{count}} times were booked together in one checkout.",
+  "orderTotal": "Order total",
   "other": "Other",
   "paid": "Paid",
+  "partOfOrder": "Part of a multi-slot booking",
   "partiallyPaid": "Partially paid",
   "payment": "Payment",
   "paymentMethod": "Payment Method",
@@ -276,30 +279,30 @@
   "source": "Source",
   "specialInstructions": "Special instructions",
   "split": {
-    "title": "Split payment",
-    "tableCaption": "Who paid which part of this booking",
     "allocated": "Allocated",
+    "amount": "Amount",
     "collected": "Collected",
     "expires": "Links expire",
-    "participant": "Participant",
-    "amount": "Amount",
-    "state": "State",
-    "payment": "Payment",
-    "organizer": "Organizer",
     "guest": "Guest",
+    "organizer": "Organizer",
+    "participant": "Participant",
+    "payment": "Payment",
+    "shareStatus": {
+      "cancelled": "Cancelled",
+      "expired": "Expired",
+      "failed": "Failed",
+      "paid": "Paid",
+      "pending": "Pending"
+    },
+    "state": "State",
     "status": {
       "active": "Awaiting payment",
-      "completed": "Fully paid",
       "cancelled": "Cancelled",
+      "completed": "Fully paid",
       "expired": "Expired"
     },
-    "shareStatus": {
-      "pending": "Pending",
-      "paid": "Paid",
-      "failed": "Failed",
-      "expired": "Expired",
-      "cancelled": "Cancelled"
-    }
+    "tableCaption": "Who paid which part of this booking",
+    "title": "Split payment"
   },
   "staffMember": "Staff member",
   "staffOnlyNotShownCustomer": "Staff-only; not shown to the customer.",

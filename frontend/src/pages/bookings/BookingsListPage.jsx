@@ -171,7 +171,12 @@ export default function BookingsListPage() {
           <span className="link-btn" style={{ fontWeight: 600, fontFamily: 'var(--font-mono, monospace)' }}>
             {r.reference}
           </span>
-          <div className="muted" style={{ fontSize: 12 }}>{r.facility_type_name}</div>
+          <div className="muted" style={{ fontSize: 12 }}>
+            {r.facility_type_name}
+            {/* One of several slots bought together. Without this the list
+                reads as unrelated bookings that happen to share a customer. */}
+            {r.order_reference ? ` · ${r.order_reference}` : ''}
+          </div>
         </div>
       ),
     },

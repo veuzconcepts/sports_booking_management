@@ -192,7 +192,10 @@ def test_cancelled_bookings_release_their_slot(db, club, facilities, booking_on)
 def test_public_availability_shape_has_no_legacy_keys(db, org, club, facilities):
     payload = public_availability(THURSDAY, club=club)
     assert set(payload) == {"date", "closed", "slot_minutes", "time_format_24h",
-                            "timezone", "weekdays", "slots", "exception", "breaks"}
+                            "timezone", "weekdays", "slots", "exception", "breaks",
+                            # How many slots one booking may hold here, so the
+                            # wizard never has to work the rules out itself.
+                            "slot_rules"}
     assert "heat_window" not in payload
     assert "channel" not in payload
 

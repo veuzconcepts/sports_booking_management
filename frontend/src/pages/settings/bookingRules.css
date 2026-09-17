@@ -1,0 +1,138 @@
+/* Booking rules: how many slots one booking may hold, per club or facility.
+   Colours come from the theme tokens only, so branding and dark mode follow. */
+
+.br__intro {
+  margin: 0 0 16px;
+  font-size: 12.5px;
+  line-height: 1.55;
+}
+
+/* minmax(0, 1fr) so a long rule name cannot push the control off the row. */
+.br__row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 8px 14px;
+  align-items: center;
+  padding: 12px 0;
+  border-top: 1px solid var(--color-border);
+}
+
+.br__row:first-of-type { border-top: 0; padding-top: 0; }
+
+.br__row-tx { min-width: 0; }
+
+.br__row-tx strong {
+  display: block;
+  font-size: 14px;
+  color: var(--color-text);
+}
+
+.br__row-tx span {
+  display: block;
+  margin-top: 2px;
+  font-size: 12px;
+  line-height: 1.45;
+  color: var(--color-text-muted);
+}
+
+.br__tri {
+  display: inline-flex;
+  padding: 3px;
+  border: 1px solid var(--color-border);
+  border-radius: 999px;
+  background: var(--color-bg);
+}
+
+.br__tri-b {
+  padding: 6px 13px;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--color-text-muted);
+  font: inherit;
+  font-size: 12.5px;
+  font-weight: 600;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.br__tri-b.is-on {
+  background: var(--color-primary-600);
+  color: #fff;
+}
+
+/* Sits under the control, spanning both columns, so the inherited value reads
+   as a note about the row rather than another option in it. */
+.br__inherited {
+  grid-column: 1 / -1;
+  font-size: 11.5px;
+  color: var(--color-text-muted);
+}
+
+.br__pair {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+  padding-top: 14px;
+  border-top: 1px solid var(--color-border);
+}
+
+.br__effective {
+  margin: 16px 0 0;
+  padding: 10px 12px;
+  border-radius: var(--radius-sm, 8px);
+  background: var(--color-bg);
+  font-size: 12.5px;
+  line-height: 1.5;
+  color: var(--color-text-muted);
+}
+
+.br__effective strong { color: var(--color-text); }
+
+.br__foot {
+  display: flex;
+  gap: 8px;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+}
+
+/* A load that failed says so and offers a way out. Silence here reads as
+   a slow network, which is how an unapplied migration once looked. */
+.br__error {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 14px;
+  border: 1px solid var(--color-border);
+  border-radius: 8px;
+  background: var(--color-surface-2, var(--color-bg));
+}
+
+.br__error p { margin: 0; color: var(--color-danger-600); }
+
+/* What a change here will not reach. Named, because a court that quietly
+   ignored the club rule is the confusing case. */
+.br__below {
+  margin-top: 18px;
+  padding-top: 14px;
+  border-top: 1px solid var(--color-border);
+}
+
+.br__below p { margin: 4px 0 8px; font-size: 12.5px; }
+
+.br__below-list {
+  margin: 0 0 10px;
+  padding-inline-start: 18px;
+  font-size: 13px;
+}
+
+@media (max-width: 640px) {
+  .br__row { grid-template-columns: minmax(0, 1fr); }
+  .br__tri { width: 100%; }
+  .br__tri-b { flex: 1; text-align: center; }
+  .br__pair { grid-template-columns: minmax(0, 1fr); }
+  /* The reset action is destructive, so it does not sit first under a thumb. */
+  .br__foot { flex-direction: column-reverse; }
+  .br__foot .btn { width: 100%; }
+}

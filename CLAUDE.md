@@ -244,6 +244,49 @@ returned to the organizer alone. Every share therefore has to keep its payer,
 its amount and its payment reference, and each share's payment must raise its
 own invoice.
 
+## Multi-Slot Booking Integrity
+
+A multi-slot checkout is ONE `BookingOrder` and one ordinary `Booking` per
+slot. It is not a new booking type and not a second booking engine.
+
+Every slot goes through the existing availability engine, the existing
+`BookingCreateSerializer`, the existing pricing and the existing
+`(facility, date, time)` uniqueness guarantee. Creation is atomic: if any slot
+fails, the whole order unwinds.
+
+The order holds no money. Each booking keeps its own authoritative price
+snapshot, because slots can be priced differently and refunding one slot must
+return what that slot actually cost. Order totals are summed from the bookings,
+never stored.
+
+How many slots may be booked, whether they may span dates and whether they must
+run back to back are resolved by the backend from the Organization, Club and
+Facility chain, one setting at a time. The browser never works this out.
+
+The website books an ACTIVITY at a club, not a named facility, so the offer is
+the most permissive of what the eligible facilities allow. The allocation is
+then re-checked against each facility's own rules after the allocator has run,
+inside the same transaction, so a permissive court can never be used to
+overfill one that caps itself.
+
+A promo is validated, redeemed and capped ONCE per order, then allocated across
+the slots in proportion to price.
+
+### Multi-slot payment and refunds: confirmed policy
+
+These were decided explicitly. Do not change them without asking.
+
+**A split share is an amount of the order, not a set of slots.** Paying a share
+spreads that amount across the slots in proportion to what each still owes, so
+one share may raise several invoices. Every payment records its payer, so
+refunds still follow the payer.
+
+**Cancelling one slot of a paid order refunds nothing automatically.** The slot
+is cancelled and the money stays where it is. A human issues a credit note
+through the existing flow, honouring `Organization.require_refund_approval`.
+This matches the precedent set for split expiry being inert: money never moves
+without a person deciding.
+
 # 15. APIs, Queries, and Performance
 
 APIs must be consistent, validated, permission-protected, and backward-compatible where practical.

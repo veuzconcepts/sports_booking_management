@@ -90,6 +90,11 @@ class BookingSerializer(serializers.ModelSerializer):
     outstanding = serializers.SerializerMethodField()
     paid_invoice_number = serializers.SerializerMethodField()
     price_breakdown = serializers.SerializerMethodField()
+    # Cheap enough for a list row with `select_related("order")`; the full
+    # sibling list below costs a query each, so it is detail-only.
+    order_reference = serializers.CharField(
+        source="order.reference", read_only=True, default=None)
+    order_summary = serializers.SerializerMethodField()
     customer_verified = serializers.BooleanField(source="customer.is_verified", read_only=True, default=None)
 
     class Meta:
@@ -117,6 +122,7 @@ class BookingSerializer(serializers.ModelSerializer):
             "payment_status", "payment_method",
             "amount_paid", "outstanding", "paid_invoice_number",
             "recurrence", "parent_booking",
+            "order", "order_reference", "order_summary",
             "customer_notes", "internal_notes", "special_instructions",
             "completed_at", "cancelled_at", "cancellation_reason",
             "status_history", "cancellation", "can_modify", "can_delete",
@@ -126,6 +132,36 @@ class BookingSerializer(serializers.ModelSerializer):
             "created_at", "updated_at",
         )
         read_only_fields = fields
+
+    def get_order_summary(self, obj) -> dict:
+        """The other slots bought in the same checkout, when there are any.
+
+        A multi-slot order is N ordinary bookings, which is what keeps the
+        calendar, capacity and refunds working. The cost of that choice is that
+        a single booking looks unrelated to its siblings, so the one screen
+        that can say otherwise has to.
+        """
+        if not obj.order_id or not self.context.get("with_coverage"):
+            return None
+        order = obj.order
+        siblings = list(order.bookings.order_by("scheduled_date", "scheduled_time"))
+        return {
+            "reference": order.reference,
+            "slot_count": len(siblings),
+            "currency": order.currency,
+            "total_amount": str(order.total_amount),
+            "slots": [{
+                "id": row.id,
+                "reference": row.reference,
+                "scheduled_date": row.scheduled_date.isoformat() if row.scheduled_date else "",
+                "scheduled_time": row.scheduled_time.strftime("%H:%M") if row.scheduled_time else "",
+                "end_time": row.end_time.strftime("%H:%M") if row.end_time else "",
+                "status": row.status,
+                "payment_status": row.payment_status,
+                "total_amount": str(row.total_amount),
+                "is_this_one": row.id == obj.id,
+            } for row in siblings],
+        }
 
     def get_price_breakdown(self, obj) -> dict:
         """Per-line VAT breakdown (facility_category + each add-on) for the detail view: each
@@ -574,33 +610,51 @@ class BookingCreateSerializer(serializers.ModelSerializer):
 
 class BookingPolicySerializer(serializers.ModelSerializer):
     club_name = serializers.CharField(source="club.name", read_only=True, default=None)
+    facility_name = serializers.CharField(
+        source="facility.name", read_only=True, default=None)
     scope = serializers.SerializerMethodField()
+    # What actually applies here once inheritance is worked out, so the editor
+    # can show a placeholder value for anything this row leaves empty instead
+    # of making the operator guess what "inherit" means.
+    effective = serializers.SerializerMethodField()
 
     class Meta:
         model = BookingPolicy
         fields = (
-            "id", "club", "club_name", "is_default", "scope",
+            "id", "club", "club_name", "facility", "facility_name",
+            "is_default", "scope", "effective",
             "min_lead_minutes", "max_advance_days",
             "max_active_bookings_per_customer", "max_bookings_per_customer_per_day",
             "cancellation_cutoff_hours", "enforce_for_staff",
+            "allow_multiple_slots", "allow_multiple_dates",
+            "require_consecutive_slots",
+            "min_slots_per_booking", "max_slots_per_booking",
             "updated_at",
         )
-        read_only_fields = ("id", "club_name", "scope", "updated_at")
+        read_only_fields = (
+            "id", "club_name", "facility_name", "scope", "effective", "updated_at")
 
     def get_scope(self, obj) -> str:
-        return obj.club.name if obj.club_id else "Organization default"
+        return obj.scope_label
+
+    def get_effective(self, obj) -> dict:
+        from apps.bookings.services import resolve_slot_rules
+        return resolve_slot_rules(club=obj.club, facility=obj.facility)
 
     def validate(self, attrs):
         def eff(field):
             return attrs.get(field, getattr(self.instance, field, None))
 
-        is_default, club = eff("is_default"), eff("club")
-        if is_default and club:
+        is_default, club, facility = eff("is_default"), eff("club"), eff("facility")
+        named = [bool(is_default), bool(club), bool(facility)]
+        if sum(named) > 1:
             raise serializers.ValidationError(
-                {"club": "The organization default policy cannot belong to a club."})
-        if not is_default and not club:
+                "A booking policy belongs to one scope: the organization, a club, "
+                "or a facility.")
+        if not any(named):
             raise serializers.ValidationError(
-                {"club": "Choose a club, or mark this as the organization default."})
+                {"club": "Choose a club or a facility, or mark this as the "
+                         "organization default."})
 
         # One row per scope - report it as a field error rather than a 500.
         qs = BookingPolicy.objects.all()
@@ -612,6 +666,17 @@ class BookingPolicySerializer(serializers.ModelSerializer):
         if club and qs.filter(club=club).exists():
             raise serializers.ValidationError(
                 {"club": "This club already has its own policy."})
+        if facility and qs.filter(facility=facility).exists():
+            raise serializers.ValidationError(
+                {"facility": "This facility already has its own policy."})
+
+        # A floor above the ceiling would make every booking impossible.
+        lowest = eff("min_slots_per_booking")
+        highest = eff("max_slots_per_booking")
+        if lowest and highest and lowest > highest:
+            raise serializers.ValidationError(
+                {"max_slots_per_booking":
+                    "The maximum must be at least the minimum."})
         return attrs
 
 

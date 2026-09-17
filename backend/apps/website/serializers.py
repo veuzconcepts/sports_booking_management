@@ -324,18 +324,6 @@ class PublicClubSerializer(serializers.Serializer):
     # none, which is worse than showing nothing.
     sports = serializers.SerializerMethodField()
     facility_types = serializers.SerializerMethodField()
-    # The units the operator actually named and can point at in the admin. The
-    # website lists these, so a chip on a club card is a string somebody typed
-    # rather than something derived two joins away from it.
-    facilities = serializers.SerializerMethodField()
-
-    def get_facilities(self, obj) -> list:
-        """This club's active facilities, by name."""
-        return [{"id": facility.id, "name": facility.name}
-                for facility in sorted(
-                    (f for f in obj.facilities.all() if f.is_active),
-                    key=lambda f: f.name)]
-
     def get_latitude(self, obj) -> float:
         return float(obj.latitude) if obj.latitude is not None else None
 
@@ -366,7 +354,7 @@ class PublicClubSerializer(serializers.Serializer):
                 for t in self._bookable_types(obj)]
 
     def _bookable_types(self, obj):
-        """What this club may ADVERTISE, which is narrower than what it can serve.
+        """The activities this club offers, on the card and in the booking flow.
 
         Only types a facility explicitly declares are listed. A facility with an
         empty `facility_types` can serve any type, and the availability engine
@@ -375,14 +363,16 @@ class PublicClubSerializer(serializers.Serializer):
         catalogue off the back of one unconfigured court is how a club with two
         tennis courts came to promise Aquatics on the homepage.
 
-        So the two questions are answered differently on purpose:
+        A facility with an empty `facility_types` can technically serve any
+        activity, and the availability engine still honours that for a booking
+        already aimed at one. But it is the operator not having said yet, and
+        it is not a reason to offer a swimming lane at a club with none: a
+        customer who picks one reaches the calendar and finds every slot
+        unavailable, which is a worse answer than not offering it.
 
-          "can a customer book a swimming lane here?"  -> availability decides,
-              and an unrestricted facility counts.
-          "what does this club offer?"                 -> only what was declared.
-
-        Under-claiming costs a visitor a little discovery. Over-claiming sends
-        somebody to a venue expecting a pool that is not there.
+        A club therefore offers exactly what somebody configured. When that is
+        nothing, the booking flow says so and the admin explains why on the
+        facility row.
 
         Cached on the instance so the two fields above do not query twice.
         """

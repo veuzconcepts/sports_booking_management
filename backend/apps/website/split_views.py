@@ -20,6 +20,8 @@ from a token to a booking it does not belong to, so a manipulated token cannot
 cross into another organization's data - it simply fails to resolve.
 """
 
+from decimal import Decimal
+
 from rest_framework import status
 from rest_framework.permissions import AllowAny
 from rest_framework.response import Response
@@ -80,6 +82,37 @@ def booking_summary(booking) -> dict:
     }
 
 
+def split_target_summary(split) -> dict:
+    """What a split is collecting for, as a payer may legitimately see it.
+
+    One slot looks exactly as it always did. A multi-slot order adds its own
+    reference and lists the slots, so a friend paying a share can see what
+    their money is actually buying rather than a single arbitrary slot.
+    """
+    from apps.payments.split import split_bookings
+
+    bookings = split_bookings(split)
+    if split.booking_id:
+        return booking_summary(bookings[0])
+
+    first = bookings[0]
+    return {
+        "reference": split.order.reference,
+        "club": first.club.name if first.club_id else "",
+        "club_city": getattr(first.club, "city", "") if first.club_id else "",
+        "facility": first.facility_type.name if first.facility_type_id else "",
+        "currency": split.currency,
+        "slot_count": len(bookings),
+        "duration_minutes": sum(b.duration_minutes or 0 for b in bookings),
+        "slots": [{
+            "reference": b.reference,
+            "date": b.scheduled_date.isoformat() if b.scheduled_date else "",
+            "time": b.scheduled_time.strftime("%H:%M") if b.scheduled_time else "",
+            "end_time": b.end_time.strftime("%H:%M") if b.end_time else "",
+        } for b in bookings],
+    }
+
+
 def share_payload(share, *, link=None) -> dict:
     """One participant, as the ORGANIZER may see them.
 
@@ -104,19 +137,20 @@ def share_payload(share, *, link=None) -> dict:
 
 def split_payload(split, *, links=None) -> dict:
     """Payment progress for the organizer."""
-    from apps.bookings.services import booking_amount_paid, booking_outstanding
+    from apps.bookings.services import booking_amount_paid
+    from apps.payments.split import split_bookings, target_outstanding
 
     links = links or {}
-    booking = split.booking
+    bookings = split_bookings(split)
     shares = list(split.shares.all())
-    paid = booking_amount_paid(booking)
-    outstanding = booking_outstanding(booking)
+    paid = sum((booking_amount_paid(b) for b in bookings), Decimal("0"))
+    outstanding = target_outstanding(bookings)
     total = paid + outstanding
     return {
         "status": SplitStatus.EXPIRED if split.is_expired else split.status,
         "currency": split.currency,
         "expires_at": split.expires_at.isoformat(),
-        "booking": booking_summary(booking),
+        "booking": split_target_summary(split),
         "total": str(total),
         "paid": str(paid),
         "outstanding": str(outstanding),
@@ -175,15 +209,15 @@ class PublicSplitShareView(_PublicView):
             return Response({"detail": "This payment link is not valid.",
                              "code": "invalid_link"},
                             status=status.HTTP_404_NOT_FOUND)
-        from apps.bookings.services import booking_outstanding
+        from apps.payments.split import split_bookings, target_outstanding
 
         split = share.split
-        outstanding = booking_outstanding(split.booking)
+        outstanding = target_outstanding(split_bookings(split))
         # An old link whose balance somebody else has already covered must say so
         # plainly rather than presenting a Pay button that would be refused.
         no_longer_required = outstanding <= 0 or split.status == SplitStatus.COMPLETED
         return Response({
-            "booking": booking_summary(split.booking),
+            "booking": split_target_summary(split),
             "amount": str(share.amount),
             "currency": split.currency,
             "name": share.participant_name,
@@ -321,14 +355,22 @@ class PublicBookingPayView(_PublicView):
     """
 
     def post(self, request):
-        from apps.bookings.public_booking import read_checkout_token
+        from apps.bookings.public_booking import (
+            read_checkout_token, read_order_checkout_token,
+        )
         from apps.bookings.services import (
             PaymentDeclined, booking_outstanding, settle_booking_payment,
         )
         from apps.payments.gateway import card_payment_available
 
-        booking = read_checkout_token(request.data.get("checkout_token"))
+        token = request.data.get("checkout_token")
+        booking = read_checkout_token(token)
         if booking is None:
+            # The same button on a multi-slot confirmation carries an order
+            # token instead; settling it pays each slot in turn.
+            order = read_order_checkout_token(token)
+            if order is not None:
+                return self._pay_order(request, order)
             return Response(
                 {"detail": "This payment session has expired. Please contact the club.",
                  "code": "invalid_session"},
@@ -367,3 +409,29 @@ class PublicBookingPayView(_PublicView):
             "payment_status": booking.payment_status,
             "outstanding": str(booking_outstanding(booking)),
         })
+
+    def _pay_order(self, request, order):
+        """Settle every slot of a multi-slot order from its confirmation screen.
+
+        Reuses the checkout's own order payment path rather than repeating the
+        per-slot loop, so retrying after a decline behaves exactly like the
+        original attempt did.
+        """
+        from apps.bookings.public_booking import collect_order_payment
+
+        bookings = list(order.bookings.order_by("scheduled_date", "scheduled_time"))
+        if not bookings:
+            return Response({"detail": "This booking is no longer available.",
+                             "code": "invalid_session"},
+                            status=status.HTTP_400_BAD_REQUEST)
+
+        result = collect_order_payment(
+            order, bookings, {**request.data, "method": "card"}, request=request)
+        if result.get("status") in ("failed", "unavailable"):
+            return Response({"detail": result.get("detail", ""),
+                             "code": result.get("code", "declined"),
+                             **result},
+                            status=status.HTTP_400_BAD_REQUEST)
+        for booking in bookings:
+            booking.refresh_from_db()
+        return Response(result)

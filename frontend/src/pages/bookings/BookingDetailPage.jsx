@@ -15,6 +15,7 @@ import { RefundModal } from '../../components/RefundModal.jsx';
 import { ConfirmDialog } from '../../components/ConfirmDialog.jsx';
 import { CompletionPaymentWizard } from '../../components/CompletionPaymentWizard.jsx';
 import { SplitPaymentPanel } from './SplitPaymentPanel.jsx';
+import { OrderPanel } from './OrderPanel.jsx';
 import { Modal } from '../../components/Modal.jsx';
 import { FormField } from '../../components/FormField.jsx';
 import { Select2 } from '../../components/Select2.jsx';
@@ -443,6 +444,13 @@ export default function BookingDetailPage() {
               </KV>
             </div>
           </div>
+
+          {booking.order_summary?.slot_count > 1 && (
+            <>
+              <div style={{ height: 16 }} />
+              <OrderPanel order={booking.order_summary} />
+            </>
+          )}
 
           <div style={{ height: 16 }} />
 
