@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import { Plus, Trash2 } from 'lucide-react';
+import { useTranslation } from 'react-i18next';
 import toast from 'react-hot-toast';
 
 import { PageHeader } from '../../components/PageHeader.jsx';
@@ -9,10 +10,11 @@ import { Select2 } from '../../components/Select2.jsx';
 import { ImageUploader } from '../../components/ImageUploader.jsx';
 import { ConfirmDialog } from '../../components/ConfirmDialog.jsx';
 import { useAuth } from '../../hooks/useAuth.jsx';
-import { mediaApi, MEDIA_KINDS } from '../../services/websiteService.js';
+import { mediaApi, mediaKinds } from '../../services/websiteService.js';
 import { apiErrorMessage } from '../../utils/apiError.js';
 
 export default function MediaLibraryPage() {
+  const { t } = useTranslation('website');
   const { hasPerm } = useAuth();
   const canUpload = hasPerm('website.media');
   const [items, setItems] = useState([]);
@@ -25,9 +27,9 @@ export default function MediaLibraryPage() {
     setLoading(true);
     mediaApi.list({ page_size: 200 })
       .then((d) => setItems(d.results || d))
-      .catch((e) => toast.error(apiErrorMessage(e, 'Unable to load the media library.')))
+      .catch((e) => toast.error(apiErrorMessage(e, t('unableLoadMediaLibrary'))))
       .finally(() => setLoading(false));
-  }, []);
+  }, [t]);
   useEffect(() => { load(); }, [load]);
 
   async function doDelete() {
@@ -35,22 +37,22 @@ export default function MediaLibraryPage() {
     setBusy(true);
     try {
       await mediaApi.remove(toDelete.id);
-      toast.success('Media deleted');
+      toast.success(t('mediaDeleted'));
       setToDelete(null);
       load();
     } catch (e) {
-      toast.error(apiErrorMessage(e, 'Unable to delete this media. It may be in use.'));
+      toast.error(apiErrorMessage(e, t('unableDeleteMediaItMay')));
     } finally { setBusy(false); }
   }
 
   return (
     <>
       <PageHeader
-        title="Media Library"
-        subtitle="Images, icons and logos used across the website."
+        title={t('mediaLibrary')}
+        subtitle={t('imagesIconsLogosUsedAcross')}
         actions={canUpload && (
           <button className="btn btn-primary" onClick={() => setUploadOpen(true)}>
-            <Plus size={15} /> Upload media
+            <Plus size={15} /> {t('uploadMedia')}
           </button>
         )}
       />
@@ -58,7 +60,7 @@ export default function MediaLibraryPage() {
       {loading ? (
         <div className="card"><div className="table-state center"><span className="muted">Loading…</span></div></div>
       ) : items.length === 0 ? (
-        <div className="card"><div className="empty"><h3>No media yet</h3><p>Upload images to use across the club.</p></div></div>
+        <div className="card"><div className="empty"><h3>{t('noMediaYet')}</h3><p>{t('uploadImagesUseAcrossClub')}</p></div></div>
       ) : (
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(150px, 1fr))', gap: 14 }}>
           {items.map((m) => (
@@ -73,7 +75,7 @@ export default function MediaLibraryPage() {
                 <div className="muted" style={{ fontSize: 11, textTransform: 'capitalize' }}>{m.kind}</div>
                 {canUpload && (
                   <button className="btn btn-secondary btn-sm" style={{ marginTop: 6 }}
-                    onClick={() => setToDelete(m)}><Trash2 size={13} /> Delete</button>
+                    onClick={() => setToDelete(m)}><Trash2 size={13} /> {t('common:actions.delete')}</button>
                 )}
               </div>
             </div>
@@ -86,7 +88,7 @@ export default function MediaLibraryPage() {
       )}
 
       <ConfirmDialog
-        open={Boolean(toDelete)} tone="danger" title="Delete media?" confirmLabel="Delete" busy={busy}
+        open={Boolean(toDelete)} tone="danger" title={t('deleteMedia')} confirmLabel={t('common:actions.delete')} busy={busy}
         message={toDelete ? 'Remove this asset from the library. Sections still referencing it will show no image.' : ''}
         onConfirm={doDelete}
         onClose={() => { if (!busy) setToDelete(null); }}
@@ -96,6 +98,7 @@ export default function MediaLibraryPage() {
 }
 
 function UploadModal({ onClose, onUploaded }) {
+  const { t } = useTranslation('website');
   const [file, setFile] = useState(null);
   const [title, setTitle] = useState('');
   const [alt, setAlt] = useState('');
@@ -103,35 +106,35 @@ function UploadModal({ onClose, onUploaded }) {
   const [busy, setBusy] = useState(false);
 
   async function submit() {
-    if (!file) { toast.error('Choose an image to upload.'); return; }
+    if (!file) { toast.error(t('chooseImageUpload')); return; }
     setBusy(true);
     try {
       await mediaApi.upload(file, { title, alt_text: alt, kind });
-      toast.success('Media uploaded');
+      toast.success(t('mediaUploaded'));
       onUploaded();
     } catch (e) {
-      toast.error(apiErrorMessage(e, 'Unable to upload. Please try again.'));
+      toast.error(apiErrorMessage(e, t('unableUploadPleaseTryAgain')));
     } finally { setBusy(false); }
   }
 
   return (
-    <Modal open onClose={onClose} title="Upload media" size="md"
+    <Modal open onClose={onClose} title={t('uploadMedia')} size="md"
       footer={<>
-        <button className="btn btn-secondary" type="button" onClick={onClose}>Cancel</button>
+        <button className="btn btn-secondary" type="button" onClick={onClose}>{t('common:actions.cancel')}</button>
         <button className="btn btn-primary" type="button" onClick={submit} disabled={busy || !file}>
-          {busy ? 'Uploading…' : 'Upload'}
+          {busy ? t('uploading') : t('common:actions.upload')}
         </button>
       </>}>
-      <ImageUploader label="Image" aspect={1.5}
+      <ImageUploader label={t('image')} aspect={1.5}
         output={{ width: 1200, height: 800, type: 'image/jpeg', quality: 0.9 }}
         file={file} onChange={setFile} />
-      <FormField label="Kind">
-        <Select2 options={MEDIA_KINDS} value={kind} onChange={setKind} />
+      <FormField label={t('kind')}>
+        <Select2 options={mediaKinds(t)} value={kind} onChange={setKind} />
       </FormField>
-      <FormField label="Alt text" hint="Describes the image for SEO and screen readers.">
+      <FormField label={t('altText')} hint={t('describesImageSeoScreenReaders')}>
         <input className="form-input" value={alt} onChange={(e) => setAlt(e.target.value)} />
       </FormField>
-      <FormField label="Title" hint="Optional label shown in the library.">
+      <FormField label={t('title')} hint={t('optionalLabelShownLibrary')}>
         <input className="form-input" value={title} onChange={(e) => setTitle(e.target.value)} />
       </FormField>
     </Modal>

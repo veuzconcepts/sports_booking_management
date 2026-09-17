@@ -1,11 +1,10 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Plus, Pencil, Trash2, Layers } from 'lucide-react';
+import { Plus, Pencil, Trash2, Layers, Eye } from 'lucide-react';
 import toast from 'react-hot-toast';
+import { useTranslation } from 'react-i18next';
 
-import { PageHeader } from '../../components/PageHeader.jsx';
-import { DataTable } from '../../components/DataTable.jsx';
-import { Toolbar } from '../../components/Toolbar.jsx';
+import { ListPage, ListView } from '../../components/listview/index.js';
 import { StatusBadge } from '../../components/StatusBadge.jsx';
 import { Modal } from '../../components/Modal.jsx';
 import { ConfirmDialog } from '../../components/ConfirmDialog.jsx';
@@ -13,22 +12,21 @@ import { FormField } from '../../components/FormField.jsx';
 import { Select2 } from '../../components/Select2.jsx';
 import { Toggle } from '../../components/Toggle.jsx';
 import { RowMenu } from '../../components/RowMenu.jsx';
-import { useApiList } from '../../hooks/useApiList.js';
 import { useAuth } from '../../hooks/useAuth.jsx';
 import { CURRENCY_OPTIONS, CurrencySymbol, Money } from '../../services/currency.jsx';
-import { promoCodesApi, DISCOUNT_TYPES, PROMO_STATUS_TONE } from '../../services/promotionsService.js';
+import { promoCodesApi, discountTypes, PROMO_STATUS_TONE } from '../../services/promotionsService.js';
 import { facilityCategoriesApi, facilityTypesApi, addonsApi } from '../../services/facilitiesService.js';
 
-const SCOPE_OPTIONS = [
-  { value: 'all', label: 'All services & add-ons' },
-  { value: 'category', label: 'Specific Categories' },
-  { value: 'package', label: 'Specific Services' },
-  { value: 'addon', label: 'Specific Add-ons' },
+const scopeOptions = (t) => [
+  { value: 'all', label: t('allServicesAddOns') },
+  { value: 'category', label: t('specificCategories') },
+  { value: 'package', label: t('specificServices') },
+  { value: 'addon', label: t('specificAddOns') },
 ];
 
-const STATUS_OPTIONS = [
-  { value: 'true', label: 'Active' },
-  { value: 'false', label: 'Inactive' },
+const statusOptions = (t) => [
+  { value: 'true', label: t('common:state.active') },
+  { value: 'false', label: t('common:state.inactive') },
 ];
 
 const EMPTY = {
@@ -82,6 +80,11 @@ const discountLabel = (p) => (p.discount_type === 'percent'
   ? `${Number(p.discount_value)}%`
   : <Money amount={p.discount_value} code={p.currency || undefined} />);
 
+const GROUP_KEYS = [
+  ['discount_type', 'groups.discountType'],
+  ['is_active', 'groups.status'],
+];
+
 export default function PromoCodesPage() {
   const navigate = useNavigate();
   const { hasPerm } = useAuth();
@@ -93,104 +96,118 @@ export default function PromoCodesPage() {
   const [delErr, setDelErr] = useState('');
 
   const fetcher = useCallback((q) => promoCodesApi.list(q), []);
-  const { rows, loading, count, query, setQuery, reload } = useApiList(fetcher);
-
-  const [search, setSearch] = useState(query.search || '');
-  useEffect(() => {
-    const t = setTimeout(() => setQuery((q) => ({ ...q, search: search || undefined, page: 1 })), 350);
-    return () => clearTimeout(t);
-  }, [search, setQuery]);
+  const [reloadKey, setReloadKey] = useState(0);
+  const { t } = useTranslation('promotions');
+  const { t: tc } = useTranslation('common');
+  const reload = useCallback(() => setReloadKey((k) => k + 1), []);
 
   async function runDelete() {
     setDelBusy(true); setDelErr('');
     try {
       await promoCodesApi.remove(toDelete.id);
-      setToDelete(null); toast.success('Promo code deleted'); reload();
-    } catch (e) { setDelErr(apiErr(e, 'Unable to delete the promo code. Please try again.')); }
+      setToDelete(null); toast.success(t('actions.deleted')); reload();
+    } catch (e) { setDelErr(apiErr(e, t('delete.failed'))); }
     finally { setDelBusy(false); }
   }
 
+  const columns = useMemo(() => [
+    { key: 'code', header: t('columns.code'), sortKey: 'code', minWidth: 150,
+      alwaysVisible: true,
+      render: (p) => (
+        <div>
+          <span className="link-btn" style={{ fontWeight: 700, letterSpacing: '.02em', fontFamily: 'var(--font-mono, monospace)' }}>
+            {p.code}
+          </span>
+          {p.batch && <div className="muted" style={{ fontSize: 11 }}>{t('batch', { name: p.batch })}</div>}
+        </div>
+      ) },
+    { key: 'discount', header: t('columns.discount'), minWidth: 120, render: discountLabel },
+    { key: 'min', header: t('columns.minOrder'), align: 'right', minWidth: 110,
+      priority: 'low',
+      render: (p) => (Number(p.min_order_amount) > 0
+        ? <Money amount={p.min_order_amount} code={p.currency || undefined} /> : '-') },
+    { key: 'validity', header: t('columns.validity'), nowrap: true, minWidth: 180,
+      priority: 'medium',
+      render: (p) => (p.valid_from || p.valid_to
+        ? t('validityRange', { from: p.valid_from || '...', to: p.valid_to || '...' })
+        : <span className="muted">{t('always')}</span>) },
+    { key: 'usage', header: t('columns.usage'), minWidth: 130, nowrap: true,
+      render: (p) => (p.usage_limit == null
+        ? <span>{p.used_count} <span className="muted">/ {t('unlimited')}</span></span>
+        : (
+          <span>
+            {p.used_count} / {p.usage_limit}{' '}
+            <span className="muted">
+              {t('remaining', { count: p.remaining ?? Math.max(0, p.usage_limit - p.used_count) })}
+            </span>
+          </span>
+        )) },
+    { key: 'status', header: t('columns.status'), minWidth: 110,
+      render: (p) => <StatusBadge tone={PROMO_STATUS_TONE[p.status] || 'muted'} label={p.status} /> },
+  ], [t]);
+
+  const groupOptions = useMemo(
+    () => GROUP_KEYS.map(([key, k]) => ({ key, label: t(k) })), [t]);
+
+  const filters = useMemo(() => [
+    { key: 'is_active', label: t('filters.status'), type: 'select', options: statusOptions(t) },
+    { key: 'discount_type', label: t('filters.discountType'), type: 'select', options: discountTypes(t) },
+  ], [t]);
+
+  const rowActions = useCallback((row) => [
+    { key: 'view', label: tc('actions.view'), icon: <Eye size={14} />,
+      onClick: () => navigate(`/promo-codes/${row.id}`) },
+    { key: 'edit', label: tc('actions.edit'), icon: <Pencil size={14} />,
+      onClick: () => setEditPromo(row) },
+    { key: 'delete', label: tc('actions.delete'), icon: <Trash2 size={14} />, danger: true,
+      onClick: () => { setDelErr(''); setToDelete(row); } },
+  ], [navigate]);
+
   return (
-    <>
-      <PageHeader
-        title="Promo Codes"
-        subtitle="Create single or bulk discount codes with limits and validity."
-        actions={hasPerm('promotions.add') ? (<>
-          <button className="btn btn-secondary" onClick={() => setBulkOpen(true)}><Layers size={15} /> Bulk generate</button>
-          <button className="btn btn-primary" onClick={() => setCreateOpen(true)}><Plus size={15} /> New promo code</button>
-        </>) : null}
-      />
-
-      <Toolbar
-        searchValue={search}
-        onSearchChange={setSearch}
-        searchPlaceholder="Code, description, batch…"
-        filters={[
-          { value: query.is_active, options: STATUS_OPTIONS, placeholder: 'All statuses',
-            onChange: (v) => setQuery({ ...query, is_active: v, page: 1 }) },
-          { value: query.discount_type, options: DISCOUNT_TYPES, placeholder: 'All types',
-            onChange: (v) => setQuery({ ...query, discount_type: v, page: 1 }) },
-        ]}
-      />
-
-      <DataTable
-        loading={loading}
-        rows={rows}
-        page={query.page || 1}
-        count={count}
-        onPageChange={(p) => setQuery({ ...query, page: p })}
+    <ListPage
+      title={t('title')}
+      subtitle={t('createSingleBulkDiscountCodes')}
+      actions={hasPerm('promotions.add') ? (<>
+        <button className="btn btn-secondary" onClick={() => setBulkOpen(true)}><Layers size={15} /> {t('bulkGenerate')}</button>
+        <button className="btn btn-primary" onClick={() => setCreateOpen(true)}><Plus size={15} /> {t('newPromoCode')}</button>
+      </>) : null}
+    >
+      <ListView
+        tableKey="promo-codes"
+        fetcher={fetcher}
+        reloadKey={reloadKey}
+        defaultOrdering="-created_at"
+        searchPlaceholder={t('searchPlaceholder')}
+        emptyTitle={t('emptyTitle')}
+        emptyHint={t('emptyHint')}
         onRowClick={(p) => navigate(`/promo-codes/${p.id}`)}
-        emptyTitle="No promo codes"
-        emptyHint="Create a code or generate a batch to get started."
-        columns={[
-          { key: 'code', header: 'Code', render: (p) => (
-            <div>
-              <button className="link-btn" style={{ fontWeight: 700, letterSpacing: '.02em', fontFamily: 'var(--font-mono, monospace)' }}
-                onClick={(e) => { e.stopPropagation(); navigate(`/promo-codes/${p.id}`); }}>{p.code}</button>
-              {p.batch && <div className="muted" style={{ fontSize: 11 }}>batch {p.batch}</div>}
-            </div>
-          ) },
-          { key: 'discount', header: 'Discount', render: discountLabel },
-          { key: 'min', header: 'Min order', render: (p) => (Number(p.min_order_amount) > 0 ? <Money amount={p.min_order_amount} code={p.currency || undefined} /> : '-') },
-          { key: 'validity', header: 'Validity', nowrap: true, render: (p) => (
-            p.valid_from || p.valid_to ? `${p.valid_from || '…'} → ${p.valid_to || '…'}` : <span className="muted">Always</span>
-          ) },
-          { key: 'usage', header: 'Usage', render: (p) => (
-            p.usage_limit == null
-              ? <span>{p.used_count} <span className="muted">/ ∞</span></span>
-              : <span>{p.used_count} / {p.usage_limit} <span className="muted">({p.remaining ?? Math.max(0, p.usage_limit - p.used_count)} left)</span></span>
-          ) },
-          { key: 'status', header: 'Status', render: (p) => <StatusBadge tone={PROMO_STATUS_TONE[p.status] || 'muted'} label={p.status} /> },
-          { key: 'actions', header: '', align: 'right', sticky: 'right', render: (p) => (
-            <div style={{ display: 'inline-flex', gap: 2, alignItems: 'center' }} onClick={(e) => e.stopPropagation()}>
-              <button className="icon-btn" title="Edit" onClick={() => setEditPromo(p)}><Pencil size={15} /></button>
-              <RowMenu items={[{ key: 'del', label: 'Delete', icon: <Trash2 size={15} />, danger: true,
-                onClick: () => { setDelErr(''); setToDelete(p); } }]} />
-            </div>
-          ) },
-        ]}
+        columns={columns}
+        filters={filters}
+        groupOptions={groupOptions}
+        rowActions={rowActions}
       />
 
       <PromoFormModal open={createOpen} onClose={() => setCreateOpen(false)}
-        onSaved={() => { setCreateOpen(false); toast.success('Promo code created'); reload(); }} />
+        onSaved={() => { setCreateOpen(false); toast.success(t('actions.created')); reload(); }} />
       <PromoFormModal open={Boolean(editPromo)} promo={editPromo} onClose={() => setEditPromo(null)}
-        onSaved={() => { setEditPromo(null); toast.success('Promo code updated'); reload(); }} />
+        onSaved={() => { setEditPromo(null); toast.success(t('actions.updated')); reload(); }} />
       <BulkPromoModal open={bulkOpen} onClose={() => setBulkOpen(false)}
-        onSaved={(n) => { setBulkOpen(false); toast.success(`${n} promo codes generated`); reload(); }} />
+        onSaved={(n) => { setBulkOpen(false); toast.success(t('actions.generated', { count: n })); reload(); }} />
 
       <ConfirmDialog
-        open={Boolean(toDelete)} busy={delBusy} tone="danger" title="Delete promo code?" confirmLabel="Delete"
-        message={toDelete ? (<>Delete <strong>{toDelete.code}</strong>? Used codes can’t be deleted - deactivate them instead.
+        open={Boolean(toDelete)} busy={delBusy} tone="danger" title={t('deletePromoCode')} confirmLabel={t('common:actions.delete')}
+        message={toDelete ? (<>{t('common:actions.delete')} <strong>{toDelete.code}</strong>? Used codes can’t be deleted - deactivate them instead.
           {delErr && <div style={{ marginTop: 10, color: '#dc2626', fontSize: 13 }}>{delErr}</div>}</>) : null}
         onConfirm={runDelete}
         onClose={() => { if (!delBusy) { setToDelete(null); setDelErr(''); } }}
       />
-    </>
+    </ListPage>
   );
 }
 
 /* Shared discount / validity / usage / flags - used by single + bulk modals. */
 function PromoSettings({ form, set }) {
+  const { t } = useTranslation('promotions');
   const isPercent = form.discount_type === 'percent';
   const today = new Date().toISOString().slice(0, 10);
   const [categoryOpts, setCategoryOpts] = useState([]);
@@ -204,19 +221,19 @@ function PromoSettings({ form, set }) {
   }, []);
 
   const scope = {
-    category: { opts: categoryOpts, key: 'categories', label: 'Categories' },
-    package: { opts: serviceOpts, key: 'services', label: 'Services' },
-    addon: { opts: addonOpts, key: 'addons', label: 'Add-ons' },
+    category: { opts: categoryOpts, key: 'categories', label: t('categories') },
+    package: { opts: serviceOpts, key: 'services', label: t('services') },
+    addon: { opts: addonOpts, key: 'addons', label: t('addOns') },
   }[form.applies_to];
 
   return (
     <>
-      <div className="modal-section">Discount</div>
+      <div className="modal-section">{t('discount')}</div>
       <div className="row">
-        <div className="col"><FormField label="Discount Type">
-          <Select2 options={DISCOUNT_TYPES} value={form.discount_type} onChange={(v) => set('discount_type', v)} />
+        <div className="col"><FormField label={t('discountType')}>
+          <Select2 options={discountTypes(t)} value={form.discount_type} onChange={(v) => set('discount_type', v)} />
         </FormField></div>
-        <div className="col"><FormField label={isPercent ? 'Discount Value (%)' : 'Discount Value'}>
+        <div className="col"><FormField label={isPercent ? t('discountValue') : t('discountValue2')}>
           <div style={{ position: 'relative' }}>
             {!isPercent && <span style={{ position: 'absolute', left: 10, top: '50%', transform: 'translateY(-50%)', color: 'var(--color-text-muted)', fontSize: 13 }}><CurrencySymbol code={form.currency || undefined} /></span>}
             <input className="form-input" type="number" min="0" max={isPercent ? 100 : undefined} step="0.01"
@@ -227,25 +244,25 @@ function PromoSettings({ form, set }) {
       </div>
       <div className="row">
         {isPercent && (
-          <div className="col"><FormField label="Max Discount (Cap)" hint="Optional - caps a % discount.">
+          <div className="col"><FormField label={t('maxDiscountCap')} hint={t('optionalCapsDiscount')}>
             <input className="form-input" type="number" min="0" step="0.01"
               value={form.max_discount_amount} onChange={(e) => set('max_discount_amount', e.target.value)} />
           </FormField></div>
         )}
-        <div className="col"><FormField label="Minimum Order Amount">
+        <div className="col"><FormField label={t('minimumOrderAmount')}>
           <input className="form-input" type="number" min="0" step="0.01"
             value={form.min_order_amount} onChange={(e) => set('min_order_amount', e.target.value)} />
         </FormField></div>
         {!isPercent && (
-          <div className="col"><FormField label="Currency" hint="Blank = system default.">
-            <Select2 options={CURRENCY_OPTIONS} value={form.currency} onChange={(v) => set('currency', v)} placeholder="System default" clearable />
+          <div className="col"><FormField label={t('common:labels.currency')} hint={t('blankSystemDefault')}>
+            <Select2 options={CURRENCY_OPTIONS} value={form.currency} onChange={(v) => set('currency', v)} placeholder={t('systemDefault')} clearable />
           </FormField></div>
         )}
       </div>
 
-      <div className="modal-section">Validity</div>
+      <div className="modal-section">{t('validity')}</div>
       <div className="row">
-        <div className="col"><FormField label="Valid From">
+        <div className="col"><FormField label={t('valid')}>
           <input className="form-input" type="date" min={today} value={form.valid_from}
             onChange={(e) => {
               const v = e.target.value;
@@ -253,25 +270,25 @@ function PromoSettings({ form, set }) {
               if (form.valid_to && form.valid_to < v) set('valid_to', v);   // keep To on/after From
             }} />
         </FormField></div>
-        <div className="col"><FormField label="Valid To">
+        <div className="col"><FormField label={t('valid2')}>
           <input className="form-input" type="date" min={form.valid_from || today} value={form.valid_to}
             onChange={(e) => set('valid_to', e.target.value)} />
         </FormField></div>
       </div>
 
-      <div className="modal-section">Usage Limits</div>
+      <div className="modal-section">{t('usageLimits')}</div>
       <div className="row">
-        <div className="col"><FormField label="Total Usage Limit" hint="Blank = unlimited.">
+        <div className="col"><FormField label={t('totalUsageLimit')} hint={t('blankUnlimited')}>
           <input className="form-input" type="number" min="1" value={form.usage_limit} onChange={(e) => set('usage_limit', e.target.value)} />
         </FormField></div>
-        <div className="col"><FormField label="Per-Customer Limit" hint="Blank = unlimited.">
+        <div className="col"><FormField label={t('perCustomerLimit')} hint={t('blankUnlimited')}>
           <input className="form-input" type="number" min="1" value={form.usage_limit_per_customer} onChange={(e) => set('usage_limit_per_customer', e.target.value)} />
         </FormField></div>
       </div>
 
-      <div className="modal-section">Discount Code Applies To</div>
+      <div className="modal-section">{t('discountCodeApplies')}</div>
       <div style={{ border: '1px solid var(--color-border)', borderRadius: 10, overflow: 'hidden' }}>
-        {SCOPE_OPTIONS.map((o, i) => {
+        {scopeOptions(t).map((o, i) => {
           const active = form.applies_to === o.value;
           return (
             <label key={o.value} style={{
@@ -294,16 +311,16 @@ function PromoSettings({ form, set }) {
             error={(form[scope.key] || []).length === 0 ? `Select at least one ${scope.label.toLowerCase()}.` : undefined}
           >
             <Select2 multiple options={scope.opts} value={form[scope.key]} onChange={(v) => set(scope.key, v)}
-              placeholder="Choose one or more…" emptyText={`No ${scope.label.toLowerCase()} found.`} />
+              placeholder={t('chooseOneMore')} emptyText={`No ${scope.label.toLowerCase()} found.`} />
           </FormField>
         </div>
       )}
 
-      <div className="modal-section">Options</div>
-      <div className="toggle-grid" style={{ gridTemplateColumns: 'repeat(2, minmax(0, 1fr))' }}>
-        <Toggle label="First Order Only" description="New customers only"
+      <div className="modal-section">{t('options')}</div>
+      <div className="toggle-grid toggle-grid--2">
+        <Toggle label={t('firstOrderOnly')} description={t('newCustomersOnly')}
           checked={!!form.first_order_only} onChange={(e) => set('first_order_only', e.target.checked)} />
-        <Toggle label="Active" description="Code can be redeemed"
+        <Toggle label={t('common:state.active')} description={t('codeCanRedeemed')}
           checked={!!form.is_active} onChange={(e) => set('is_active', e.target.checked)} />
       </div>
     </>
@@ -311,6 +328,7 @@ function PromoSettings({ form, set }) {
 }
 
 function PromoFormModal({ open, promo, onClose, onSaved }) {
+  const { t } = useTranslation('promotions');
   const editing = Boolean(promo);
   const [form, setForm] = useState(EMPTY);
   const [busy, setBusy] = useState(false);
@@ -331,10 +349,10 @@ function PromoFormModal({ open, promo, onClose, onSaved }) {
   }, [open, promo]);
 
   async function submit() {
-    if (!form.code.trim()) { toast.error('Code is required.'); return; }
-    if (!(Number(form.discount_value) > 0)) { toast.error('Discount value must be greater than 0.'); return; }
+    if (!form.code.trim()) { toast.error(t('codeRequired')); return; }
+    if (!(Number(form.discount_value) > 0)) { toast.error(t('discountValueMustGreaterThan')); return; }
     if (form.valid_from && form.valid_to && form.valid_to < form.valid_from) {
-      toast.error('Valid To must be on or after Valid From.'); return;
+      toast.error(t('validMustAfterValid')); return;
     }
     const se = scopeError(form);
     if (se) { toast.error(se); return; }
@@ -349,16 +367,16 @@ function PromoFormModal({ open, promo, onClose, onSaved }) {
   }
 
   return (
-    <Modal open={open} onClose={onClose} title={editing ? 'Edit promo code' : 'New promo code'} size="lg"
+    <Modal open={open} onClose={onClose} title={editing ? t('editPromoCode') : t('newPromoCode')} size="lg"
       footer={<>
-        <button className="btn btn-secondary" type="button" onClick={onClose}>Cancel</button>
-        <button className="btn btn-primary" onClick={submit} disabled={busy}>{busy ? 'Saving…' : (editing ? 'Update' : 'Create')}</button>
+        <button className="btn btn-secondary" type="button" onClick={onClose}>{t('common:actions.cancel')}</button>
+        <button className="btn btn-primary" onClick={submit} disabled={busy}>{busy ? 'Saving…' : (editing ? t('update') : t('common:actions.create'))}</button>
       </>}>
       <div className="row">
-        <div className="col"><FormField label="Code *" hint="Stored in uppercase, e.g. WELCOME10.">
+        <div className="col"><FormField label={t('code')} hint={t('storedUppercaseEGWelcome10')}>
           <input className="form-input" value={form.code} onChange={(e) => set('code', e.target.value)} />
         </FormField></div>
-        <div className="col"><FormField label="Description">
+        <div className="col"><FormField label={t('description')}>
           <input className="form-input" value={form.description} onChange={(e) => set('description', e.target.value)} />
         </FormField></div>
       </div>
@@ -368,6 +386,7 @@ function PromoFormModal({ open, promo, onClose, onSaved }) {
 }
 
 function BulkPromoModal({ open, onClose, onSaved }) {
+  const { t } = useTranslation('promotions');
   const [form, setForm] = useState({ ...EMPTY, quantity: 10, prefix: '', code_length: 6 });
   const [busy, setBusy] = useState(false);
   const set = (k, v) => setForm((f) => ({ ...f, [k]: v }));
@@ -375,10 +394,10 @@ function BulkPromoModal({ open, onClose, onSaved }) {
   useEffect(() => { if (open) setForm({ ...EMPTY, quantity: 10, prefix: '', code_length: 6 }); }, [open]);
 
   async function submit() {
-    if (!(Number(form.quantity) > 0)) { toast.error('Quantity must be at least 1.'); return; }
-    if (!(Number(form.discount_value) > 0)) { toast.error('Discount value must be greater than 0.'); return; }
+    if (!(Number(form.quantity) > 0)) { toast.error(t('quantityMustLeast1')); return; }
+    if (!(Number(form.discount_value) > 0)) { toast.error(t('discountValueMustGreaterThan')); return; }
     if (form.valid_from && form.valid_to && form.valid_to < form.valid_from) {
-      toast.error('Valid To must be on or after Valid From.'); return;
+      toast.error(t('validMustAfterValid')); return;
     }
     const se = scopeError(form);
     if (se) { toast.error(se); return; }
@@ -394,23 +413,23 @@ function BulkPromoModal({ open, onClose, onSaved }) {
   }
 
   return (
-    <Modal open={open} onClose={onClose} title="Bulk generate promo codes" size="lg"
+    <Modal open={open} onClose={onClose} title={t('bulkGeneratePromoCodes')} size="lg"
       footer={<>
-        <button className="btn btn-secondary" type="button" onClick={onClose}>Cancel</button>
-        <button className="btn btn-primary" onClick={submit} disabled={busy}>{busy ? 'Generating…' : 'Generate'}</button>
+        <button className="btn btn-secondary" type="button" onClick={onClose}>{t('common:actions.cancel')}</button>
+        <button className="btn btn-primary" onClick={submit} disabled={busy}>{busy ? t('generating') : t('generate')}</button>
       </>}>
       <div className="row">
-        <div className="col"><FormField label="Quantity *" hint="Up to 1000.">
+        <div className="col"><FormField label={t('quantity')} hint="Up to 1000.">
           <input className="form-input" type="number" min="1" max="1000" value={form.quantity} onChange={(e) => set('quantity', e.target.value)} />
         </FormField></div>
-        <div className="col"><FormField label="Prefix" hint="Optional, e.g. SUMMER → SUMMER-AB12CD.">
+        <div className="col"><FormField label={t('prefix')} hint={t('optionalEGSummerSummer')}>
           <input className="form-input" value={form.prefix} onChange={(e) => set('prefix', e.target.value)} />
         </FormField></div>
-        <div className="col"><FormField label="Random Length" hint="4-16 characters.">
+        <div className="col"><FormField label={t('randomLength')} hint="4-16 characters.">
           <input className="form-input" type="number" min="4" max="16" value={form.code_length} onChange={(e) => set('code_length', e.target.value)} />
         </FormField></div>
       </div>
-      <p className="muted" style={{ fontSize: 12.5, margin: '2px 0 4px' }}>All generated codes share the settings below.</p>
+      <p className="muted" style={{ fontSize: 12.5, margin: '2px 0 4px' }}>{t('allGeneratedCodesShareSettings')}</p>
       <PromoSettings form={form} set={set} />
     </Modal>
   );

@@ -1,4 +1,5 @@
 import { AlertTriangle, RotateCcw } from 'lucide-react';
+import { useTranslation } from 'react-i18next';
 
 /**
  * Inline error state for a failed list/data request - distinct from the empty
@@ -8,10 +9,11 @@ import { AlertTriangle, RotateCcw } from 'lucide-react';
  * Props: title?, message?, onRetry?
  */
 export function ErrorState({
-  title = 'Couldn’t load this list',
-  message = 'We were unable to load this data. Please try again.',
+  title,
+  message,
   onRetry,
 }) {
+  const { t } = useTranslation('common');
   return (
     <div className="card">
       <div className="empty">
@@ -24,12 +26,12 @@ export function ErrorState({
         >
           <AlertTriangle size={20} />
         </div>
-        <h3>{title}</h3>
-        <p>{message}</p>
+        <h3>{title || t('common:error.listTitle')}</h3>
+        <p>{message || t('common:error.listMessage')}</p>
         {onRetry && (
           <button className="btn btn-secondary btn-sm" type="button" onClick={onRetry}
                   style={{ marginTop: 4 }}>
-            <RotateCcw size={14} /> Retry
+            <RotateCcw size={14} /> {t('actions.retry')}
           </button>
         )}
       </div>

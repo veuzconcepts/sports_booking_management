@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Plus, Trash2, Pencil, Wrench, Clock, X } from 'lucide-react';
+import { useTranslation } from 'react-i18next';
 import toast from 'react-hot-toast';
 
 import { StatusBadge } from '../../components/StatusBadge.jsx';
@@ -18,6 +19,7 @@ import { facilitiesApi, facilityTypesApi, maintenanceBlocksApi }
 import { apiErrorMessage } from '../../utils/apiError.js';
 
 export default function ClubsAndFacilities() {
+  const { t } = useTranslation('settings');
   const { hasPerm } = useAuth();
   const canManage = hasPerm('clubs.add') || hasPerm('clubs.edit');
   const [clubModal, setClubModal] = useState(false);
@@ -33,9 +35,9 @@ export default function ClubsAndFacilities() {
     setDelBusy(true); setDelErr('');
     try {
       await clubsApi.remove(deleteClub.id);
-      setDeleteClub(null); toast.success('Club deleted'); reload();
+      setDeleteClub(null); toast.success(t('clubDeleted')); reload();
     } catch (e) {
-      setDelErr(apiErrorMessage(e, 'Unable to delete the club. Please try again.'));
+      setDelErr(apiErrorMessage(e, t('unableDeleteClubPleaseTry')));
     } finally { setDelBusy(false); }
   }
 
@@ -43,14 +45,14 @@ export default function ClubsAndFacilities() {
     <>
       {canManage && (
         <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 12 }}>
-          <button className="btn btn-primary" onClick={() => setClubModal(true)}><Plus size={15} /> New club</button>
+          <button className="btn btn-primary" onClick={() => setClubModal(true)}><Plus size={15} /> {t('newClub')}</button>
         </div>
       )}
 
       {loading ? (
         <div className="card"><div className="card-body center" style={{ padding: 40 }}><span className="muted">Loading…</span></div></div>
       ) : rows.length === 0 ? (
-        <div className="card"><div className="empty"><h3>No clubs yet</h3><p>Add a club and the facilities it offers.</p></div></div>
+        <div className="card"><div className="empty"><h3>{t('noClubsYet')}</h3><p>{t('addClubFacilitiesItOffers')}</p></div></div>
       ) : (
         rows.map((club) => (
           <ClubCard key={club.id} club={club}
@@ -66,7 +68,7 @@ export default function ClubsAndFacilities() {
         onSaved={() => {
           const wasEdit = Boolean(editClub);
           setClubModal(false); setEditClub(null);
-          toast.success(wasEdit ? 'Club updated' : 'Club created');
+          toast.success(wasEdit ? t('clubUpdated') : t('clubCreated'));
           reload();
         }}
       />
@@ -75,11 +77,11 @@ export default function ClubsAndFacilities() {
         open={Boolean(deleteClub)}
         busy={delBusy}
         tone="danger"
-        title="Delete club?"
-        confirmLabel="Delete"
+        title={t('deleteClub')}
+        confirmLabel={t('common:actions.delete')}
         message={deleteClub ? (
           <>
-            Delete <strong>{deleteClub.name}</strong>? This can’t be undone. It’s only allowed if the club isn’t used anywhere.
+            {t('common:actions.delete')} <strong>{deleteClub.name}</strong>? This can’t be undone. It’s only allowed if the club isn’t used anywhere.
             {delErr && <div style={{ marginTop: 10, color: '#dc2626', fontSize: 13, fontWeight: 500 }}>{delErr}</div>}
           </>
         ) : null}
@@ -91,6 +93,7 @@ export default function ClubsAndFacilities() {
 }
 
 function ClubCard({ club, onManageFacilities, onEdit, onDelete }) {
+  const { t } = useTranslation('settings');
   return (
     <div className="card" style={{ marginBottom: 14 }}>
       <div className="card-header">
@@ -99,15 +102,15 @@ function ClubCard({ club, onManageFacilities, onEdit, onDelete }) {
           <p className="card-subtitle">{club.address || '-'}{club.city ? `, ${club.city}` : ''} · {club.facility_count} facilities</p>
         </div>
         <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-          <StatusBadge tone={club.is_active ? 'success' : 'muted'} label={club.is_active ? 'Active' : 'Inactive'} />
-          <button className="btn btn-secondary btn-sm" onClick={onEdit}><Pencil size={14} /> Edit</button>
-          <button className="btn btn-secondary btn-sm" onClick={onManageFacilities}>Manage facilities</button>
-          <button className="icon-btn" title="Delete club" onClick={onDelete}><Trash2 size={15} /></button>
+          <StatusBadge tone={club.is_active ? 'success' : 'muted'} label={club.is_active ? t('common:state.active') : t('common:state.inactive')} />
+          <button className="btn btn-secondary btn-sm" onClick={onEdit}><Pencil size={14} /> {t('common:actions.edit')}</button>
+          <button className="btn btn-secondary btn-sm" onClick={onManageFacilities}>{t('manageFacilities')}</button>
+          <button className="icon-btn" title={t('deleteClub2')} onClick={onDelete}><Trash2 size={15} /></button>
         </div>
       </div>
       <div className="card-body">
         {(club.facilities || []).length === 0 ? (
-          <p className="muted">No facilities configured.</p>
+          <p className="muted">{t('noFacilitiesConfigured')}</p>
         ) : (
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
             {club.facilities.map((b) => (
@@ -138,6 +141,7 @@ function slugifyCode(s) {
 }
 
 function ClubModal({ open, club, onClose, onSaved }) {
+  const { t } = useTranslation('settings');
   const editing = Boolean(club);
   const [form, setForm] = useState(EMPTY_CLUB);
   const [busy, setBusy] = useState(false);
@@ -168,8 +172,8 @@ function ClubModal({ open, club, onClose, onSaved }) {
   }, [open, club]);
 
   async function submit() {
-    if (!form.code || !form.name) { toast.error('Code and name are required.'); return; }
-    if (form.phone && !isPhoneValid(form.phone)) { toast.error('Enter a valid phone number for the selected country'); return; }
+    if (!form.code || !form.name) { toast.error(t('codeNameRequired')); return; }
+    if (form.phone && !isPhoneValid(form.phone)) { toast.error(t('enterValidPhoneNumberSelected')); return; }
     const payload = {
       code: form.code, name: form.name, address: form.address, city: form.city,
       phone: form.phone, email: form.email, is_active: form.is_active,
@@ -190,29 +194,29 @@ function ClubModal({ open, club, onClose, onSaved }) {
       else await clubsApi.create(payload);
       onSaved?.();
     } catch (e) {
-      toast.error(apiErrorMessage(e, 'Unable to save your changes. Please try again.'));
+      toast.error(apiErrorMessage(e, t('unableSaveYourChangesPlease')));
     } finally { setBusy(false); }
   }
 
   return (
-    <Modal open={open} onClose={onClose} title={editing ? 'Edit club' : 'New club'} size="lg"
+    <Modal open={open} onClose={onClose} title={editing ? t('editClub') : t('newClub')} size="lg"
       footer={<>
-        <button className="btn btn-secondary" type="button" onClick={onClose}>Cancel</button>
+        <button className="btn btn-secondary" type="button" onClick={onClose}>{t('common:actions.cancel')}</button>
         <button className="btn btn-primary" onClick={submit} disabled={busy}>
-          {busy ? 'Saving…' : (editing ? 'Update club' : 'Save club')}
+          {busy ? 'Saving…' : (editing ? t('updateClub') : t('saveClub'))}
         </button>
       </>}>
       <div className="row">
-        <div className="col"><FormField label="Name">
+        <div className="col"><FormField label={t('common:labels.name')}>
           <input className="form-input" value={form.name} onChange={(e) => setName(e.target.value)} /></FormField></div>
-        <div className="col"><FormField label="Code">
+        <div className="col"><FormField label={t('code')}>
           <input className="form-input" value={form.code} onChange={(e) => setCode(e.target.value)} /></FormField></div>
       </div>
       <div className="row">
-        <div className="col"><FormField label="Phone"
+        <div className="col"><FormField label={t('common:labels.phone')}
           error={form.phone && !isPhoneValid(form.phone) ? 'Enter a valid phone number for the selected country' : undefined}>
           <PhoneField value={form.phone} onChange={(v) => set('phone', v)} invalid={!!form.phone && !isPhoneValid(form.phone)} /></FormField></div>
-        <div className="col"><FormField label="Email">
+        <div className="col"><FormField label={t('common:labels.email')}>
           <input className="form-input" type="email" value={form.email} onChange={(e) => set('email', e.target.value)} /></FormField></div>
       </div>
 
@@ -224,15 +228,15 @@ function ClubModal({ open, club, onClose, onSaved }) {
         onCity={(v) => set('city', v)}
       />
       {editing && (
-        <FormField label="Status">
+        <FormField label={t('common:labels.status')}>
           <label style={{ display: 'inline-flex', alignItems: 'center', gap: 8, cursor: 'pointer', fontSize: 13.5 }}>
             <input type="checkbox" checked={!!form.is_active} onChange={(e) => set('is_active', e.target.checked)} />
-            Active
+            {t('common:state.active')}
           </label>
         </FormField>
       )}
 
-      <div className="modal-section">Business Hours</div>
+      <div className="modal-section">{t('businessHours')}</div>
       <ScheduleScopePanel
         scope="club"
         parentLabel="Organization"
@@ -256,6 +260,7 @@ function ClubModal({ open, club, onClose, onSaved }) {
 }
 
 function FacilitiesModal({ club, onClose, onChanged }) {
+  const { t } = useTranslation('settings');
   const [facilities, setFacilities] = useState([]);
   const [types, setTypes] = useState([]);
   const [label, setLabel] = useState('');
@@ -287,7 +292,7 @@ function FacilitiesModal({ club, onClose, onChanged }) {
       setFacilities((prev) => [...prev, facility]);
       setLabel(''); setNewTypes([]);
       onChanged?.();
-    } catch (e) { toast.error(apiErrorMessage(e, 'Unable to add the facility. Please try again.')); }
+    } catch (e) { toast.error(apiErrorMessage(e, t('unableAddFacilityPleaseTry'))); }
   }
 
   async function updateFacility(id, patch) {
@@ -297,7 +302,7 @@ function FacilitiesModal({ club, onClose, onChanged }) {
       onChanged?.();
       return updated;
     } catch (e) {
-      toast.error(apiErrorMessage(e, 'Unable to update the facility. Please try again.'));
+      toast.error(apiErrorMessage(e, t('unableUpdateFacilityPleaseTry')));
       return null;
     }
   }
@@ -317,13 +322,13 @@ function FacilitiesModal({ club, onClose, onChanged }) {
 
   async function removeFacility(id) {
     try { await facilitiesApi.remove(id); setFacilities((prev) => prev.filter((f) => f.id !== id)); onChanged?.(); }
-    catch (e) { toast.error(apiErrorMessage(e, 'Unable to remove the facility. Please try again.')); }
+    catch (e) { toast.error(apiErrorMessage(e, t('unableRemoveFacilityPleaseTry'))); }
   }
 
   return (
     <>
     <Modal open={Boolean(club)} onClose={onClose} title={club ? `Facilities \u00b7 ${club.name}` : ''} size="md"
-      footer={<button className="btn btn-secondary" onClick={onClose}>Done</button>}>
+      footer={<button className="btn btn-secondary" onClick={onClose}>{t('done')}</button>}>
       <p className="muted" style={{ fontSize: 12.5, marginTop: 0 }}>
         Each facility is one physical unit. Choose which facility types it can be
         booked as - a hall that is badminton courts by day and a function room by
@@ -334,18 +339,18 @@ function FacilitiesModal({ club, onClose, onChanged }) {
       <div style={{ display: 'grid', gap: 8, marginBottom: 16, padding: 12,
                     border: '1px solid var(--color-border-soft)', borderRadius: 10 }}>
         <div style={{ display: 'flex', gap: 8 }}>
-          <input className="form-input" placeholder="Facility name, e.g. Court 1"
+          <input className="form-input" placeholder={t('facilityNameEGCourt')}
             value={label} onChange={(e) => setLabel(e.target.value)}
             onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); addFacility(); } }} />
           <button className="btn btn-primary" onClick={addFacility} disabled={!label.trim()}>
-            <Plus size={14} /> Add
+            <Plus size={14} /> {t('common:actions.add')}
           </button>
         </div>
         <Select2 multiple options={typeOptions} value={newTypes} onChange={setNewTypes}
-          placeholder="Bookable as… (any type if left empty)" />
+          placeholder={t('bookableAsAnyTypeIf')} />
       </div>
 
-      {facilities.length === 0 ? <p className="muted">No facilities yet.</p> : (
+      {facilities.length === 0 ? <p className="muted">{t('noFacilitiesYet')}</p> : (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
           {facilities.map((f) => {
             const isEditing = editing === f.id;
@@ -358,10 +363,10 @@ function FacilitiesModal({ club, onClose, onChanged }) {
                       onChange={(e) => setEditLabel(e.target.value)}
                       onKeyDown={(e) => { if (e.key === 'Escape') setEditing(null); }} />
                     <Select2 multiple options={typeOptions} value={editTypes} onChange={setEditTypes}
-                      placeholder="Bookable as… (any type if left empty)" />
+                      placeholder={t('bookableAsAnyTypeIf')} />
                     <div style={{ display: 'flex', gap: 6, justifyContent: 'flex-end' }}>
-                      <button className="btn btn-primary btn-sm" onClick={saveEdit} disabled={!editLabel.trim()}>Save</button>
-                      <button className="icon-btn" onClick={() => setEditing(null)} aria-label="Cancel"><X size={15} /></button>
+                      <button className="btn btn-primary btn-sm" onClick={saveEdit} disabled={!editLabel.trim()}>{t('common:actions.save')}</button>
+                      <button className="icon-btn" onClick={() => setEditing(null)} aria-label={t('common:actions.cancel')}><X size={15} /></button>
                     </div>
                   </div>
                 ) : (
@@ -369,7 +374,7 @@ function FacilitiesModal({ club, onClose, onChanged }) {
                     <div style={{ minWidth: 0 }}>
                       <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8, fontWeight: 600 }}>
                         {f.name}
-                        {!f.is_active && <StatusBadge tone="muted" label="Inactive" />}
+                        {!f.is_active && <StatusBadge tone="muted" label={t('common:state.inactive')} />}
                       </span>
                       <div className="muted" style={{ fontSize: 12, marginTop: 2 }}>
                         {(f.facility_type_names || []).length
@@ -378,19 +383,19 @@ function FacilitiesModal({ club, onClose, onChanged }) {
                       </div>
                     </div>
                     <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, flexShrink: 0 }}>
-                      <label style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 12, color: 'var(--color-text-muted)', cursor: 'pointer' }} title="Active">
+                      <label style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 12, color: 'var(--color-text-muted)', cursor: 'pointer' }} title={t('common:state.active')}>
                         <input type="checkbox" checked={!!f.is_active}
-                          onChange={(e) => updateFacility(f.id, { is_active: e.target.checked })} /> Active
+                          onChange={(e) => updateFacility(f.id, { is_active: e.target.checked })} /> {t('common:state.active')}
                       </label>
                       <button className="icon-btn" onClick={() => setHoursFor(f)}
-                        aria-label="Business hours" title="Business hours">
+                        aria-label={t('businessHours2')} title={t('businessHours2')}>
                         <Clock size={15} />
                       </button>
-                      <button className="icon-btn" onClick={() => setBlocksFor(f)} aria-label="Maintenance" title="Maintenance">
+                      <button className="icon-btn" onClick={() => setBlocksFor(f)} aria-label={t('maintenance')} title={t('maintenance')}>
                         <Wrench size={15} />
                       </button>
-                      <button className="icon-btn" onClick={() => startEdit(f)} aria-label="Edit"><Pencil size={14} /></button>
-                      <button className="icon-btn" onClick={() => removeFacility(f.id)} aria-label="Remove"><Trash2 size={15} /></button>
+                      <button className="icon-btn" onClick={() => startEdit(f)} aria-label={t('common:actions.edit')}><Pencil size={14} /></button>
+                      <button className="icon-btn" onClick={() => removeFacility(f.id)} aria-label={t('common:actions.remove')}><Trash2 size={15} /></button>
                     </span>
                   </div>
                 )}
@@ -423,6 +428,7 @@ const BLANK_BLOCK = { start_date: todayISO(), end_date: todayISO(), allDay: true
 /** Periods a facility is out of service. A blocked facility drops out of
  *  capacity, so the slot engine simply stops offering it. */
 function MaintenanceModal({ facility, onClose }) {
+  const { t } = useTranslation('settings');
   const [rows, setRows] = useState([]);
   const [loading, setLoading] = useState(false);
   const [form, setForm] = useState(BLANK_BLOCK);
@@ -451,23 +457,23 @@ function MaintenanceModal({ facility, onClose }) {
         end_time: form.allDay ? null : form.end_time,
         reason: form.reason,
       });
-      toast.success('Maintenance scheduled');
+      toast.success(t('maintenanceScheduled'));
       setForm(BLANK_BLOCK);
       load();
     } catch (e) {
-      toast.error(apiErrorMessage(e, 'Unable to save the maintenance period.'));
+      toast.error(apiErrorMessage(e, t('unableSaveMaintenancePeriod')));
     } finally { setBusy(false); }
   }
 
   async function remove(id) {
     try { await maintenanceBlocksApi.remove(id); load(); }
-    catch (e) { toast.error(apiErrorMessage(e, 'Unable to remove the maintenance period.')); }
+    catch (e) { toast.error(apiErrorMessage(e, t('unableRemoveMaintenancePeriod'))); }
   }
 
   return (
     <Modal open={Boolean(facility)} onClose={onClose} size="md"
       title={facility ? `Maintenance \u00b7 ${facility.name}` : ''}
-      footer={<button className="btn btn-secondary" onClick={onClose}>Done</button>}>
+      footer={<button className="btn btn-secondary" onClick={onClose}>{t('done')}</button>}>
       <p className="muted" style={{ fontSize: 12.5, marginTop: 0 }}>
         While a period is in force this facility is not offered for booking.
         Existing bookings are not cancelled - move or cancel those separately.
@@ -476,41 +482,41 @@ function MaintenanceModal({ facility, onClose }) {
       <div style={{ display: 'grid', gap: 10, padding: 12, marginBottom: 16,
                     border: '1px solid var(--color-border-soft)', borderRadius: 10 }}>
         <div className="row">
-          <div className="col"><FormField label="From">
+          <div className="col"><FormField label={t('from')}>
             <input className="form-input" type="date" value={form.start_date}
               onChange={(e) => set('start_date', e.target.value)} /></FormField></div>
-          <div className="col"><FormField label="To" hint="Inclusive.">
+          <div className="col"><FormField label="To" hint={t('inclusive')}>
             <input className="form-input" type="date" value={form.end_date}
               onChange={(e) => set('end_date', e.target.value)} /></FormField></div>
         </div>
         <label style={{ display: 'inline-flex', alignItems: 'center', gap: 8, fontSize: 13.5, cursor: 'pointer' }}>
           <input type="checkbox" checked={form.allDay}
             onChange={(e) => set('allDay', e.target.checked)} />
-          All day
+          {t('allDay')}
         </label>
         {!form.allDay && (
           <div className="row">
-            <div className="col"><FormField label="Start time">
+            <div className="col"><FormField label={t('startTime')}>
               <input className="form-input" type="time" value={form.start_time}
                 onChange={(e) => set('start_time', e.target.value)} /></FormField></div>
-            <div className="col"><FormField label="End time">
+            <div className="col"><FormField label={t('endTime')}>
               <input className="form-input" type="time" value={form.end_time}
                 onChange={(e) => set('end_time', e.target.value)} /></FormField></div>
           </div>
         )}
-        <FormField label="Reason" hint="Shown to staff when a slot is unavailable.">
-          <input className="form-input" value={form.reason} placeholder="e.g. Resurfacing"
+        <FormField label={t('common:labels.reason')} hint={t('shownStaffWhenSlotUnavailable')}>
+          <input className="form-input" value={form.reason} placeholder={t('eGResurfacing')}
             onChange={(e) => set('reason', e.target.value)} />
         </FormField>
         <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
           <button className="btn btn-primary" onClick={add} disabled={busy}>
-            {busy ? 'Saving…' : 'Schedule maintenance'}
+            {busy ? t('common:state.saving') : t('scheduleMaintenance')}
           </button>
         </div>
       </div>
 
       {loading ? <p className="muted">Loading…</p>
-        : rows.length === 0 ? <p className="muted">No maintenance scheduled.</p> : (
+        : rows.length === 0 ? <p className="muted">{t('noMaintenanceScheduled')}</p> : (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
           {rows.map((r) => (
             <div key={r.id} style={{ display: 'flex', justifyContent: 'space-between',
@@ -525,7 +531,7 @@ function MaintenanceModal({ facility, onClose }) {
                   {r.reason ? ` \u00b7 ${r.reason}` : ''}
                 </div>
               </div>
-              <button className="icon-btn" onClick={() => remove(r.id)} aria-label="Remove">
+              <button className="icon-btn" onClick={() => remove(r.id)} aria-label={t('common:actions.remove')}>
                 <Trash2 size={15} />
               </button>
             </div>
@@ -542,6 +548,7 @@ function MaintenanceModal({ facility, onClose }) {
  * modal therefore opens on "Use club schedule" and stays out of the way.
  */
 function FacilityHoursModal({ facility, club, onClose, onSaved }) {
+  const { t } = useTranslation('settings');
   const [form, setForm] = useState(null);
   const [busy, setBusy] = useState(false);
 
@@ -575,7 +582,7 @@ function FacilityHoursModal({ facility, club, onClose, onSaved }) {
       toast.success(`Hours saved for ${facility.name}`);
       onSaved?.(updated);
     } catch (e) {
-      toast.error(apiErrorMessage(e, 'Unable to save the hours. Please try again.'));
+      toast.error(apiErrorMessage(e, t('unableSaveHoursPleaseTry')));
     } finally { setBusy(false); }
   }
 
@@ -588,9 +595,9 @@ function FacilityHoursModal({ facility, club, onClose, onSaved }) {
       footer={
         <>
           <button className="btn btn-secondary" type="button" disabled={busy}
-            onClick={onClose}>Cancel</button>
+            onClick={onClose}>{t('common:actions.cancel')}</button>
           <button className="btn btn-primary" type="button" disabled={busy}
-            onClick={submit}>{busy ? 'Saving…' : 'Save hours'}</button>
+            onClick={submit}>{busy ? t('common:state.saving') : t('saveHours')}</button>
         </>
       }
     >

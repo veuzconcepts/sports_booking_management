@@ -43,6 +43,13 @@ BANNED = [
     r"\bplate[_\s]?numbers?\b",
     r"\bbay[_\s]?(label|operator)\b",
     r"\bapp[_\s]?(ios|android|store_url)\b",
+    # Field names left pointing at the pre-rename API. These are the dangerous
+    # kind: they do not look wrong, they simply read undefined and render a
+    # dash, or send a key the serializer quietly ignores.
+    r"\bassigned_sites?\b",
+    r"\bassigned_bays?\b",
+    r"\bsite_names?\b",
+    r"\bbay_ids?\b",
     r"\bplay[_\s]?store[_\s]?url\b",
 ]
 BANNED_RX = re.compile("|".join(BANNED), re.IGNORECASE)

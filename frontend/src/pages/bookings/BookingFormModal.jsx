@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { Controller, useForm } from 'react-hook-form';
 import toast from 'react-hot-toast';
+import { useTranslation } from 'react-i18next';
 
 import { Modal } from '../../components/Modal.jsx';
 import { FormField } from '../../components/FormField.jsx';
@@ -13,10 +14,10 @@ import { useBookingConfig } from '../../hooks/useBookingConfig.js';
 import { formatMoney } from '../../services/currency.jsx';
 
 import {
-  RECURRENCE_RULES,
-  BOOKING_PRIORITIES,
-  PAYMENT_STATUSES,
-  PAYMENT_METHODS,
+  recurrenceRules,
+  bookingPriorities,
+  paymentStatuses,
+  paymentMethods,
   bookingsApi,
   bookingWindowApi,
 } from '../../services/bookingsService.js';
@@ -58,6 +59,7 @@ const makeDefaults = () => ({
 // fresh date/time, no history/invoices/payments carried over).
 export function BookingFormModal({ open, onClose, onSaved, initial = null, editId = null,
                                    lockedExceptNotes = false }) {
+  const { t } = useTranslation('bookings');
   const isEdit = Boolean(editId);
   const { hasPerm } = useAuth();
   const {
@@ -281,7 +283,7 @@ export function BookingFormModal({ open, onClose, onSaved, initial = null, editI
         setPromoStatus({ ok: false, message: res.message || 'Invalid promo code.' });
       }
     } catch (e) {
-      setPromoStatus({ ok: false, message: apiErrorMessage(e, 'Unable to validate the promo code. Please try again.') });
+      setPromoStatus({ ok: false, message: apiErrorMessage(e, t('unableValidatePromoCodePlease')) });
     } finally {
       setPromoChecking(false);
     }
@@ -358,8 +360,8 @@ export function BookingFormModal({ open, onClose, onSaved, initial = null, editI
         return;
       }
       toast.error(apiErrorMessage(e, isEdit
-        ? 'Unable to save the booking. Please try again.'
-        : 'Unable to create the booking. Please try again.'));
+        ? t('unableSaveBookingPleaseTry')
+        : t('unableCreateBookingPleaseTry')));
     }
   }
 
@@ -367,10 +369,10 @@ export function BookingFormModal({ open, onClose, onSaved, initial = null, editI
     <>
     <Modal
       open={open} onClose={close}
-      title={isEdit ? 'Edit booking' : initial ? 'Duplicate booking' : 'New booking'} size="lg"
+      title={isEdit ? 'Edit booking' : initial ? t('duplicateBooking') : t('newBooking')} size="lg"
       footer={
         <>
-          <button className="btn btn-secondary" onClick={close} type="button">Cancel</button>
+          <button className="btn btn-secondary" onClick={close} type="button">{t('common:actions.cancel')}</button>
           {conflict ? (
             <button
               className="btn btn-warning"
@@ -378,7 +380,7 @@ export function BookingFormModal({ open, onClose, onSaved, initial = null, editI
               disabled={isSubmitting}
               type="button"
             >
-              {isSubmitting ? 'Saving…' : 'Save anyway'}
+              {isSubmitting ? t('common:state.saving') : t('saveAnyway')}
             </button>
           ) : (
             <button
@@ -387,8 +389,8 @@ export function BookingFormModal({ open, onClose, onSaved, initial = null, editI
               disabled={isSubmitting}
             >
               {isSubmitting
-                ? (isEdit ? 'Saving…' : 'Creating…')
-                : (isEdit ? 'Save changes' : 'Create booking')}
+                ? (isEdit ? t('common:state.saving') : t('creating'))
+                : (isEdit ? t('common:actions.saveChanges') : t('createBooking'))}
             </button>
           )}
         </>
@@ -396,7 +398,7 @@ export function BookingFormModal({ open, onClose, onSaved, initial = null, editI
     >
       {lockedExceptNotes && (
         <div className="alert alert-warning" style={{ marginBottom: 12 }} role="alert">
-          <strong>This booking is closed.</strong> Reopen it to change its details - only the
+          <strong>{t('bookingClosed')}</strong> Reopen it to change its details - only the
           Customer Notes and Internal Notes can be edited here.
         </div>
       )}
@@ -411,7 +413,7 @@ export function BookingFormModal({ open, onClose, onSaved, initial = null, editI
         }}>
       {conflict && (
         <div className="alert alert-warning" style={{ marginBottom: 12 }} role="alert">
-          <strong>Availability conflict.</strong> {conflict}{' '}
+          <strong>{t('availabilityConflict')}</strong> {conflict}{' '}
           You can change the staff member, facility, date or time - or use “Save anyway” to override.
         </div>
       )}
@@ -419,17 +421,17 @@ export function BookingFormModal({ open, onClose, onSaved, initial = null, editI
       <label style={{ display: 'inline-flex', alignItems: 'center', gap: 8, cursor: 'pointer', fontSize: 13.5, fontWeight: 600, marginBottom: 10 }}>
         <input type="checkbox" checked={isWalkIn}
           onChange={(e) => setValue('booking_type', e.target.checked ? 'walk_in' : 'advance')} />
-        Walk-in customer (no account needed)
+        {t('walkCustomerNoAccountNeeded')}
       </label>
 
       {isWalkIn ? (
         <>
         <div className="row">
-          <div className="col"><FormField label="Customer name" hint="Optional for walk-in.">
-            <input className="form-input" {...register('walk_in_name')} placeholder="Walk-in customer" />
+          <div className="col"><FormField label={t('customerName')} hint={t('optionalWalk')}>
+            <input className="form-input" {...register('walk_in_name')} placeholder={t('walkCustomer')} />
           </FormField></div>
           <div className="col"><FormField label={`Mobile number${walkRules.phone_required ? ' *' : ''}`}
-            hint={walkRules.phone_required ? 'Required.' : 'Optional.'}
+            hint={walkRules.phone_required ? t('common:state.required') : t('common:state.optional')}
             error={errors.walk_in_phone?.message}>
             <Controller name="walk_in_phone" control={control}
               rules={{ validate: (v) => {
@@ -441,7 +443,7 @@ export function BookingFormModal({ open, onClose, onSaved, initial = null, editI
               )} />
           </FormField></div>
           <div className="col"><FormField label={`Email${walkRules.email_required ? ' *' : ''}`}
-            hint={walkRules.email_required ? 'Required.' : 'Optional.'} error={errors.walk_in_email?.message}>
+            hint={walkRules.email_required ? t('common:state.required') : t('common:state.optional')} error={errors.walk_in_email?.message}>
             <input className="form-input" type="email"
               {...register('walk_in_email', { required: walkRules.email_required ? 'Required' : false })} />
           </FormField></div>
@@ -453,13 +455,13 @@ export function BookingFormModal({ open, onClose, onSaved, initial = null, editI
             background: 'var(--color-warning-bg, #fff7ed)', border: '1px solid var(--color-warning, #f59e0b)',
           }}>
             <span>This {walkMatch.field === 'phone' ? 'mobile number' : 'email'} belongs to a registered customer: <strong>{walkMatch.name || walkMatch.code}</strong>.</span>
-            <button type="button" className="btn btn-secondary" onClick={useExistingWalkIn}>Use existing customer</button>
+            <button type="button" className="btn btn-secondary" onClick={useExistingWalkIn}>{t('useExistingCustomer')}</button>
           </div>
         )}
         </>
       ) : (
-        <FormField label="Customer" error={errors.customer?.message}
-          hint="Search by name, mobile or email. No match? Use + New customer.">
+        <FormField label={t('common:labels.customer')} error={errors.customer?.message}
+          hint={t('searchNameMobileEmailNo')}>
           <div style={{ display: 'flex', gap: 8, alignItems: 'flex-start' }}>
             <div style={{ flex: 1, minWidth: 0 }}>
               <Controller
@@ -481,7 +483,7 @@ export function BookingFormModal({ open, onClose, onSaved, initial = null, editI
                         if (c) setPickedCustomer({ value: c.id, label: customerLabel(c) });
                       }}
                       onSearch={(term) => customers.setQuery({ search: term })}
-                      placeholder="Search name / mobile / email…"
+                      placeholder={t('searchNameMobileEmail')}
                       error={errors.customer?.message}
                     />
                   );
@@ -499,7 +501,7 @@ export function BookingFormModal({ open, onClose, onSaved, initial = null, editI
 
       <div className="row">
         <div className="col">
-          <FormField label="Facility Category *" error={errors.category?.message}>
+          <FormField label={t('facilityCategory')} error={errors.category?.message}>
             <Controller
               name="category" control={control} rules={{ required: 'Required' }}
               render={({ field }) => (
@@ -507,15 +509,15 @@ export function BookingFormModal({ open, onClose, onSaved, initial = null, editI
                   options={categories.rows.map((c) => ({ value: c.id, label: c.name }))}
                   value={field.value || ''}
                   onChange={(v) => { field.onChange(v); setValue('facility_type', ''); }}
-                  placeholder="Choose a category…" error={errors.category?.message}
+                  placeholder={t('chooseCategory')} error={errors.category?.message}
                 />
               )}
             />
           </FormField>
         </div>
         <div className="col">
-          <FormField label="Facility Type *" error={errors.facility_type?.message}
-            hint="Drives the price, the slot length and which units can take it.">
+          <FormField label={t('facilityType')} error={errors.facility_type?.message}
+            hint={t('drivesPriceSlotLengthWhich')}>
             <Controller
               name="facility_type" control={control} rules={{ required: 'Required' }}
               render={({ field }) => (
@@ -523,7 +525,7 @@ export function BookingFormModal({ open, onClose, onSaved, initial = null, editI
                   options={facilityTypeOptions}
                   value={field.value || ''}
                   onChange={(v) => { field.onChange(v); setValue('facility', ''); setValue('scheduled_time', ''); }}
-                  placeholder={categoryId ? 'Choose a facility type…' : 'Pick a category first'}
+                  placeholder={categoryId ? t('chooseFacilityType') : t('pickCategoryFirst')}
                   disabled={!categoryId} error={errors.facility_type?.message}
                 />
               )}
@@ -531,7 +533,7 @@ export function BookingFormModal({ open, onClose, onSaved, initial = null, editI
           </FormField>
         </div>
         <div className="col">
-          <FormField label="Add-ons" hint="Optional extras for this booking.">
+          <FormField label={t('addOns')} hint={t('optionalExtrasBooking')}>
             <Controller
               name="add_ons" control={control}
               render={({ field }) => (
@@ -539,7 +541,7 @@ export function BookingFormModal({ open, onClose, onSaved, initial = null, editI
                   multiple
                   options={addonOptions}
                   value={field.value || []} onChange={field.onChange}
-                  placeholder={serviceItemId ? 'Add extras…' : 'Pick a service first'}
+                  placeholder={serviceItemId ? t('addExtras') : t('pickServiceFirst')}
                   disabled={!serviceItemId}
                 />
               )}
@@ -550,11 +552,11 @@ export function BookingFormModal({ open, onClose, onSaved, initial = null, editI
 
       <div className="row">
         <div className="col">
-          <FormField label="Priority">
+          <FormField label={t('priority')}>
             <Controller
               name="priority" control={control}
               render={({ field }) => (
-                <Select2 options={BOOKING_PRIORITIES} value={field.value || 'normal'} onChange={field.onChange} />
+                <Select2 options={bookingPriorities(t)} value={field.value || 'normal'} onChange={field.onChange} />
               )}
             />
           </FormField>
@@ -563,11 +565,11 @@ export function BookingFormModal({ open, onClose, onSaved, initial = null, editI
 
       <div className="row">
         <div className="col">
-          <FormField label="Recurrence" hint="Generate repeats later from the booking detail page.">
+          <FormField label={t('recurrence')} hint={t('generateRepeatsLaterBookingDetail')}>
             <Controller
               name="recurrence" control={control}
               render={({ field }) => (
-                <Select2 options={RECURRENCE_RULES} value={field.value} onChange={field.onChange} />
+                <Select2 options={recurrenceRules(t)} value={field.value} onChange={field.onChange} />
               )}
             />
           </FormField>
@@ -576,8 +578,8 @@ export function BookingFormModal({ open, onClose, onSaved, initial = null, editI
 
       <div className="row">
         <div className="col">
-          <FormField label="Club *" error={errors.club?.message}
-            hint="Sets which schedule the slots follow and which facilities are offered.">
+          <FormField label={t('club')} error={errors.club?.message}
+            hint={t('setsWhichScheduleSlotsFollow')}>
             <Controller
               name="club" control={control} rules={{ required: 'Required' }}
               render={({ field }) => (
@@ -585,7 +587,7 @@ export function BookingFormModal({ open, onClose, onSaved, initial = null, editI
                   options={clubs.rows.map((s) => ({ value: s.id, label: s.name }))}
                   value={field.value || ''}
                   onChange={(v) => { field.onChange(v); setValue('facility', ''); setValue('assigned_to', ''); }}
-                  placeholder="Choose a club…"
+                  placeholder={t('chooseClub')}
                   error={errors.club?.message}
                 />
               )}
@@ -593,15 +595,15 @@ export function BookingFormModal({ open, onClose, onSaved, initial = null, editI
           </FormField>
         </div>
         <div className="col">
-          <FormField label="Facility"
-            hint="Leave blank and the system allocates a free unit automatically.">
+          <FormField label={t('common:labels.facility')}
+            hint={t('leaveBlankSystemAllocatesFree')}>
             <Controller
               name="facility" control={control}
               render={({ field }) => (
                 <Select2
                   options={facilityOptions}
                   value={field.value || ''} onChange={field.onChange}
-                  placeholder={clubId ? 'Auto-allocate' : 'Pick a club first'}
+                  placeholder={clubId ? t('autoAllocate') : t('pickClubFirst')}
                   disabled={!clubId} clearable
                 />
               )}
@@ -610,19 +612,19 @@ export function BookingFormModal({ open, onClose, onSaved, initial = null, editI
         </div>
       </div>
 
-      <FormField label="Assigned Staff" hint="Optional - can also be assigned later.">
+      <FormField label={t('assignedStaff')} hint={t('optionalCanAlsoAssignedLater')}>
         <Controller
           name="assigned_to" control={control}
           render={({ field }) => (
             <Select2 options={staffOptions} value={field.value || ''} onChange={field.onChange}
-              placeholder="Unassigned" clearable />
+              placeholder={t('common:state.unassigned')} clearable />
           )}
         />
       </FormField>
 
       <div className="row">
         <div className="col">
-          <FormField label="Date" error={errors.scheduled_date?.message}>
+          <FormField label={t('common:labels.date')} error={errors.scheduled_date?.message}>
             <Controller
               name="scheduled_date" control={control} rules={{ required: 'Required' }}
               render={({ field }) => (
@@ -638,7 +640,7 @@ export function BookingFormModal({ open, onClose, onSaved, initial = null, editI
         </div>
         <div className="col">
           <FormField
-            label="Time slot"
+            label={t('timeSlot')}
             error={errors.scheduled_time?.message}
             hint={slotsLoading
               ? 'Checking availability…'
@@ -654,7 +656,7 @@ export function BookingFormModal({ open, onClose, onSaved, initial = null, editI
                     disabled: s.available <= 0,
                   }))}
                   value={field.value || ''} onChange={field.onChange}
-                  placeholder="Choose a slot…" error={errors.scheduled_time?.message}
+                  placeholder={t('chooseSlot')} error={errors.scheduled_time?.message}
                 />
               )}
             />
@@ -664,43 +666,43 @@ export function BookingFormModal({ open, onClose, onSaved, initial = null, editI
 
       <div className="row">
         <div className="col">
-          <FormField label="Payment Status">
+          <FormField label={t('paymentStatus2')}>
             <Controller
               name="payment_status" control={control}
               render={({ field }) => (
-                <Select2 options={PAYMENT_STATUSES} value={field.value || 'pending'} onChange={field.onChange} />
+                <Select2 options={paymentStatuses(t)} value={field.value || 'pending'} onChange={field.onChange} />
               )}
             />
           </FormField>
         </div>
         <div className="col">
-          <FormField label="Payment Method">
+          <FormField label={t('paymentMethod')}>
             <Controller
               name="payment_method" control={control}
               render={({ field }) => (
-                <Select2 options={PAYMENT_METHODS} value={field.value || ''} onChange={field.onChange}
-                  placeholder="Not set" clearable />
+                <Select2 options={paymentMethods(t)} value={field.value || ''} onChange={field.onChange}
+                  placeholder={t('common:state.notSet')} clearable />
               )}
             />
           </FormField>
         </div>
       </div>
 
-      <FormField label="Promo code" hint="Optional - enter a code and click Apply to validate and apply the discount.">
+      <FormField label={t('promoCode')} hint={t('optionalEnterCodeClickApply')}>
         <div style={{ display: 'flex', gap: 8 }}>
           <input
             className="form-input"
             {...register('promo_code_input')}
-            placeholder="e.g. WELCOME10"
+            placeholder={t('eGWelcome10')}
             style={{ textTransform: 'uppercase', flex: 1 }}
             onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); applyPromo(); } }}
           />
           {appliedCode ? (
-            <button type="button" className="btn btn-secondary" onClick={clearPromo}>Remove</button>
+            <button type="button" className="btn btn-secondary" onClick={clearPromo}>{t('common:actions.remove')}</button>
           ) : (
             <button type="button" className="btn btn-primary" onClick={applyPromo}
                     disabled={promoChecking || !(promoInput || '').trim()}>
-              {promoChecking ? 'Checking…' : 'Apply'}
+              {promoChecking ? t('checking') : t('common:actions.apply')}
             </button>
           )}
         </div>
@@ -722,24 +724,24 @@ export function BookingFormModal({ open, onClose, onSaved, initial = null, editI
       {/* Membership coverage (what the active membership covers vs charges) */}
       {preview?.coverage && (
         <>
-          <div className="modal-section">Membership Coverage Summary</div>
+          <div className="modal-section">{t('membershipCoverageSummary')}</div>
           <MembershipCoverageSummary coverage={preview.coverage} />
         </>
       )}
 
       {/* Live, backend-computed Price Calculation Summary */}
-      <div className="modal-section">Price Calculation Summary</div>
+      <div className="modal-section">{t('priceCalculationSummary')}</div>
       <PriceSummary hasService={!!serviceItemId} loading={previewLoading} preview={preview} />
       </fieldset>
 
       {/* Notes stay editable even on a closed booking (outside the locked fieldset). */}
-      <FormField label="Customer notes">
+      <FormField label={t('customerNotes')}>
         <textarea className="form-textarea" rows={2} {...register('customer_notes')} />
       </FormField>
-      <FormField label="Internal notes" hint="Staff-only; not shown to the customer.">
+      <FormField label={t('internalNotes')} hint={t('staffOnlyNotShownCustomer')}>
         <textarea className="form-textarea" rows={2} {...register('internal_notes')} />
       </FormField>
-      <FormField label="Special instructions">
+      <FormField label={t('specialInstructions')}>
         <textarea className="form-textarea" rows={2} disabled={lockedExceptNotes}
           {...register('special_instructions')} />
       </FormField>
@@ -751,7 +753,7 @@ export function BookingFormModal({ open, onClose, onSaved, initial = null, editI
       onClose={() => setNewCustomerOpen(false)}
       onSaved={(created) => {
         setNewCustomerOpen(false);
-        toast.success('Customer created');
+        toast.success(t('customerCreated'));
         customers.reload();
         if (created?.id) {
           setPickedCustomer({ value: created.id, label: customerLabel(created) });

@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { ImagePlus, LibraryBig, Trash2, X } from 'lucide-react';
+import { useTranslation } from 'react-i18next';
 import toast from 'react-hot-toast';
 
 import { Modal } from './Modal.jsx';
@@ -26,6 +27,7 @@ export function MediaPicker({
   label, hint, value, detail, onChange,
   aspect = 1.5, output = { width: 1200, height: 800, type: 'image/jpeg', quality: 0.9 }, kind = 'image',
 }) {
+  const { t } = useTranslation('website');
   const { hasPerm } = useAuth();
   const canUpload = hasPerm('website.media');
   const [libOpen, setLibOpen] = useState(false);
@@ -48,16 +50,16 @@ export function MediaPicker({
         <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
           <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
             <button type="button" className="btn btn-secondary btn-sm" onClick={() => setLibOpen(true)}>
-              <LibraryBig size={14} /> Library
+              <LibraryBig size={14} /> {t('library')}
             </button>
             {canUpload && (
               <button type="button" className="btn btn-secondary btn-sm" onClick={() => setUploadOpen(true)}>
-                <ImagePlus size={14} /> Upload
+                <ImagePlus size={14} /> {t('common:actions.upload')}
               </button>
             )}
             {value && (
               <button type="button" className="btn btn-secondary btn-sm" onClick={() => onChange?.(null, null)}>
-                <Trash2 size={14} /> Remove
+                <Trash2 size={14} /> {t('common:actions.remove')}
               </button>
             )}
           </div>
@@ -84,23 +86,24 @@ export function MediaPicker({
 }
 
 function MediaLibraryModal({ onClose, onPick }) {
+  const { t } = useTranslation('website');
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     mediaApi.list({ page_size: 100 })
       .then((d) => setItems(d.results || d))
-      .catch((e) => toast.error(apiErrorMessage(e, 'Unable to load the media library.')))
+      .catch((e) => toast.error(apiErrorMessage(e, t('unableLoadMediaLibrary'))))
       .finally(() => setLoading(false));
   }, []);
 
   return (
-    <Modal open onClose={onClose} title="Media Library" size="lg"
-      footer={<button className="btn btn-secondary" type="button" onClick={onClose}>Close</button>}>
+    <Modal open onClose={onClose} title={t('mediaLibrary')} size="lg"
+      footer={<button className="btn btn-secondary" type="button" onClick={onClose}>{t('common:actions.close')}</button>}>
       {loading ? (
         <div className="muted" style={{ padding: 24 }}>Loading…</div>
       ) : items.length === 0 ? (
-        <div className="muted" style={{ padding: 24 }}>No media yet. Upload an image to get started.</div>
+        <div className="muted" style={{ padding: 24 }}>{t('noMediaYetUploadImage')}</div>
       ) : (
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(120px, 1fr))', gap: 12 }}>
           {items.map((m) => (
@@ -121,36 +124,37 @@ function MediaLibraryModal({ onClose, onPick }) {
 }
 
 function UploadModal({ aspect, output, kind, onClose, onUploaded }) {
+  const { t } = useTranslation('website');
   const [file, setFile] = useState(null);
   const [alt, setAlt] = useState('');
   const [title, setTitle] = useState('');
   const [busy, setBusy] = useState(false);
 
   async function submit() {
-    if (!file) { toast.error('Choose an image to upload.'); return; }
+    if (!file) { toast.error(t('chooseImageUpload')); return; }
     setBusy(true);
     try {
       const asset = await mediaApi.upload(file, { title, alt_text: alt, kind });
-      toast.success('Image uploaded');
+      toast.success(t('imageUploaded'));
       onUploaded(asset);
     } catch (e) {
-      toast.error(apiErrorMessage(e, 'Unable to upload the image. Please try again.'));
+      toast.error(apiErrorMessage(e, t('unableUploadImagePleaseTry')));
     } finally { setBusy(false); }
   }
 
   return (
-    <Modal open onClose={onClose} title="Upload image" size="md"
+    <Modal open onClose={onClose} title={t('uploadImage')} size="md"
       footer={<>
-        <button className="btn btn-secondary" type="button" onClick={onClose}>Cancel</button>
+        <button className="btn btn-secondary" type="button" onClick={onClose}>{t('common:actions.cancel')}</button>
         <button className="btn btn-primary" type="button" onClick={submit} disabled={busy || !file}>
-          {busy ? 'Uploading…' : 'Upload'}
+          {busy ? t('uploading') : t('common:actions.upload')}
         </button>
       </>}>
-      <ImageUploader label="Image" aspect={aspect} output={output} file={file} onChange={setFile} />
-      <FormField label="Alt text" hint="Describes the image for SEO and screen readers.">
+      <ImageUploader label={t('image')} aspect={aspect} output={output} file={file} onChange={setFile} />
+      <FormField label={t('altText')} hint={t('describesImageSeoScreenReaders')}>
         <input className="form-input" value={alt} onChange={(e) => setAlt(e.target.value)} />
       </FormField>
-      <FormField label="Title" hint="Optional label shown in the library.">
+      <FormField label={t('title')} hint={t('optionalLabelShownLibrary')}>
         <input className="form-input" value={title} onChange={(e) => setTitle(e.target.value)} />
       </FormField>
     </Modal>

@@ -197,6 +197,15 @@ class User(AbstractUser):
 
     # Per-user permission overrides on top of the role template:
     # {"grant": ["payments.refund", ...], "revoke": ["bookings.cancel", ...]}.
+    # The user's own interface language. Blank means "follow the organization
+    # default", so changing that default moves everyone who has not chosen for
+    # themselves. Validated against `settings_app.Language` at the API, not by a
+    # foreign key: a language being removed must not cascade into user rows.
+    language = models.CharField(
+        max_length=10, blank=True, default="",
+        help_text="IETF language tag, e.g. 'en' or 'ar'. Blank follows the "
+                  "organization default.")
+
     permission_overrides = models.JSONField(default=dict, blank=True)
 
     # Club / facility scoping - which venues and resources this user works at or

@@ -1,5 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
+import { t } from '../i18n/index.js';
+
 vi.mock('./apiClient', () => ({
   default: {
     get: vi.fn(() => Promise.resolve({ data: {} })),
@@ -11,8 +13,8 @@ vi.mock('./apiClient', () => ({
 
 const api = (await import('./apiClient')).default;
 const {
-  FACILITY_KINDS,
-  RULE_TYPES,
+  facilityKinds,
+  ruleTypes,
   addonsApi,
   facilitiesApi,
   facilityCategoriesApi,
@@ -52,14 +54,14 @@ describe('endpoint paths', () => {
 
 describe('vocabulary', () => {
   it('offers only facility kinds', () => {
-    expect(FACILITY_KINDS.map((k) => k.value)).toEqual([
+    expect(facilityKinds(t).map((k) => k.value)).toEqual([
       'outdoor_court', 'indoor_court', 'pitch', 'aquatic',
       'hall', 'meeting_room', 'other',
     ]);
   });
 
   it('has no vehicle-type pricing rule', () => {   // legacy-term-guard: allow
-    const values = RULE_TYPES.map((r) => r.value);
+    const values = ruleTypes(t).map((r) => r.value);
     expect(values).not.toContain('vehicle_type');
     expect(values).toContain('club');
   });

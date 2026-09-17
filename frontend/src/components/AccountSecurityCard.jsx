@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { useForm } from 'react-hook-form';
 import toast from 'react-hot-toast';
 import { Lock, KeyRound, ShieldCheck, ShieldOff } from 'lucide-react';
+import { useTranslation } from 'react-i18next';
 
 import { Modal } from './Modal.jsx';
 import { FormField } from './FormField.jsx';
@@ -27,6 +28,7 @@ function apiErr(e, fallback) {
  * own device. While an admin has MFA "Disabled" for you, enrolment is blocked.
  */
 export function AccountSecurityCard({ sessionsSlot = null }) {
+  const { t } = useTranslation('auth');
   const { user } = useAuth();
   const [mfaEnabled, setMfaEnabled] = useState(Boolean(user?.mfa_enabled));
   const [pwOpen, setPwOpen] = useState(false);
@@ -42,27 +44,27 @@ export function AccountSecurityCard({ sessionsSlot = null }) {
     <div className="card">
       <div className="card-header">
         <div>
-          <h3 className="card-title"><Lock size={15} style={{ marginRight: 6, verticalAlign: 'text-bottom' }} />Your account security</h3>
+          <h3 className="card-title"><Lock size={15} style={{ marginRight: 6, verticalAlign: 'text-bottom' }} />{t('yourAccountSecurity')}</h3>
           <p className="card-subtitle">{user?.email}</p>
         </div>
         <span style={{ display: 'inline-flex', gap: 6 }}>
-          <StatusBadge tone={mfaEnabled ? 'success' : 'muted'} label={mfaEnabled ? 'MFA on' : 'MFA off'} />
-          {mfaLocked && <StatusBadge tone="warning" label="Enforced" />}
-          {mfaDisabled && <StatusBadge tone="danger" label="Disabled" />}
+          <StatusBadge tone={mfaEnabled ? 'success' : 'muted'} label={mfaEnabled ? t('mfa') : t('mfaOff')} />
+          {mfaLocked && <StatusBadge tone="warning" label={t('enforced')} />}
+          {mfaDisabled && <StatusBadge tone="danger" label={t('common:state.disabled')} />}
         </span>
       </div>
       <div className="card-body" style={{ display: 'flex', flexWrap: 'wrap', gap: 8, alignItems: 'center' }}>
-        <button className="btn btn-secondary" onClick={() => setPwOpen(true)}><KeyRound size={15} /> Change my password</button>
+        <button className="btn btn-secondary" onClick={() => setPwOpen(true)}><KeyRound size={15} /> {t('changeMyPassword')}</button>
         {!mfaEnabled && !mfaDisabled && (
-          <button className="btn btn-primary" onClick={() => setMfaOpen(true)}><ShieldCheck size={15} /> Enable MFA</button>
+          <button className="btn btn-primary" onClick={() => setMfaOpen(true)}><ShieldCheck size={15} /> {t('enableMfa')}</button>
         )}
         {!mfaEnabled && mfaDisabled && (
           <span className="muted" style={{ fontSize: 13 }}>
-            MFA is turned off for your account. Ask an administrator to enable it.
+            {t('mfaTurnedOffYourAccount')}
           </span>
         )}
         {mfaEnabled && !mfaLocked && (
-          <button className="btn btn-ghost" onClick={() => setDisableOpen(true)}><ShieldOff size={15} /> Disable MFA</button>
+          <button className="btn btn-ghost" onClick={() => setDisableOpen(true)}><ShieldOff size={15} /> {t('disableMfa')}</button>
         )}
         {mfaEnabled && mfaLocked && (
           <span className="muted" style={{ fontSize: 13 }}>
@@ -75,34 +77,35 @@ export function AccountSecurityCard({ sessionsSlot = null }) {
 
       <ChangePasswordModal open={pwOpen} onClose={() => setPwOpen(false)} />
       <EnableMfaModal open={mfaOpen} onClose={() => setMfaOpen(false)}
-        onEnabled={() => { setMfaEnabled(true); setMfaOpen(false); toast.success('MFA enabled'); }} />
+        onEnabled={() => { setMfaEnabled(true); setMfaOpen(false); toast.success(t('mfaEnabled')); }} />
       <DisableMfaModal open={disableOpen} onClose={() => setDisableOpen(false)}
-        onDisabled={() => { setMfaEnabled(false); setDisableOpen(false); toast.success('MFA disabled'); }} />
+        onDisabled={() => { setMfaEnabled(false); setDisableOpen(false); toast.success(t('mfaDisabled')); }} />
     </div>
   );
 }
 
 function ChangePasswordModal({ open, onClose }) {
+  const { t } = useTranslation('auth');
   const { register, handleSubmit, reset, formState: { errors, isSubmitting } } = useForm();
   async function onSubmit(v) {
     try {
       await accountApi.changePassword(v.old_password, v.new_password);
-      reset(); onClose(); toast.success('Password updated');
+      reset(); onClose(); toast.success(t('passwordUpdated'));
     } catch (e) {
       toast.error(apiErr(e, 'Unable to change your password. Please try again.'));
     }
   }
   return (
-    <Modal open={open} onClose={onClose} title="Change my password" size="sm"
+    <Modal open={open} onClose={onClose} title={t('changeMyPassword')} size="sm"
       footer={<>
-        <button className="btn btn-secondary" type="button" onClick={onClose}>Cancel</button>
-        <button className="btn btn-primary" onClick={handleSubmit(onSubmit)} disabled={isSubmitting}>Update</button>
+        <button className="btn btn-secondary" type="button" onClick={onClose}>{t('common:actions.cancel')}</button>
+        <button className="btn btn-primary" onClick={handleSubmit(onSubmit)} disabled={isSubmitting}>{t('update')}</button>
       </>}>
-      <FormField label="Current password" error={errors.old_password?.message}>
+      <FormField label={t('currentPassword')} error={errors.old_password?.message}>
         <input className="form-input" type="password" {...register('old_password', { required: 'Required' })} />
       </FormField>
-      <FormField label="New password" error={errors.new_password?.message}
-                 hint="Min 10 chars with upper, lower, digit, and a symbol.">
+      <FormField label={t('newPassword')} error={errors.new_password?.message}
+                 hint={t('min10CharsUpperLower')}>
         <input className="form-input" type="password" {...register('new_password', { required: 'Required', minLength: { value: 10, message: 'Min 10 characters' } })} />
       </FormField>
     </Modal>
@@ -110,6 +113,7 @@ function ChangePasswordModal({ open, onClose }) {
 }
 
 function EnableMfaModal({ open, onClose, onEnabled }) {
+  const { t } = useTranslation('auth');
   const [setup, setSetup] = useState(null);
   const [code, setCode] = useState('');
   const [busy, setBusy] = useState(false);
@@ -131,15 +135,15 @@ function EnableMfaModal({ open, onClose, onEnabled }) {
   function close() { setSetup(null); setCode(''); onClose(); }
 
   return (
-    <Modal open={open} onClose={close} title="Enable multi-factor authentication" size="sm"
+    <Modal open={open} onClose={close} title={t('enableMultiFactorAuthentication')} size="sm"
       footer={setup
         ? <>
-            <button className="btn btn-secondary" type="button" onClick={close}>Cancel</button>
-            <button className="btn btn-primary" onClick={confirm} disabled={busy || code.length < 6}>Confirm</button>
+            <button className="btn btn-secondary" type="button" onClick={close}>{t('common:actions.cancel')}</button>
+            <button className="btn btn-primary" onClick={confirm} disabled={busy || code.length < 6}>{t('common:actions.confirm')}</button>
           </>
         : <>
-            <button className="btn btn-secondary" type="button" onClick={close}>Cancel</button>
-            <button className="btn btn-primary" onClick={begin} disabled={busy}>Start setup</button>
+            <button className="btn btn-secondary" type="button" onClick={close}>{t('common:actions.cancel')}</button>
+            <button className="btn btn-primary" onClick={begin} disabled={busy}>{t('startSetup')}</button>
           </>}>
       {!setup ? (
         <p className="muted">Generate a secret, scan it with an authenticator app
@@ -147,12 +151,12 @@ function EnableMfaModal({ open, onClose, onEnabled }) {
       ) : (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
           <div style={{ textAlign: 'center' }}>
-            <img src={setup.qr} alt="MFA QR code" style={{ width: 180, height: 180 }} />
+            <img src={setup.qr} alt={t('mfaQrCode')} style={{ width: 180, height: 180 }} />
           </div>
-          <FormField label="Manual entry key" hint="If you can't scan the QR code.">
+          <FormField label={t('manualEntryKey')} hint={t('manualEntryKeyHint')}>
             <input className="form-input" readOnly value={setup.secret} onFocus={(e) => e.target.select()} />
           </FormField>
-          <FormField label="Enter the 6-digit code">
+          <FormField label={t('enter6DigitCode')}>
             <input className="form-input" inputMode="numeric" placeholder="123456"
                    value={code} onChange={(e) => setCode(e.target.value)} autoFocus />
           </FormField>
@@ -163,6 +167,7 @@ function EnableMfaModal({ open, onClose, onEnabled }) {
 }
 
 function DisableMfaModal({ open, onClose, onDisabled }) {
+  const { t } = useTranslation('auth');
   const [code, setCode] = useState('');
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState('');
@@ -177,10 +182,10 @@ function DisableMfaModal({ open, onClose, onDisabled }) {
   }
   function close() { setErr(''); setCode(''); onClose(); }
   return (
-    <Modal open={open} onClose={close} title="Disable MFA" size="sm"
+    <Modal open={open} onClose={close} title={t('disableMfa')} size="sm"
       footer={<>
-        <button className="btn btn-secondary" type="button" onClick={close}>Cancel</button>
-        <button className="btn btn-primary" onClick={submit} disabled={busy || code.length < 6}>Disable</button>
+        <button className="btn btn-secondary" type="button" onClick={close}>{t('common:actions.cancel')}</button>
+        <button className="btn btn-primary" onClick={submit} disabled={busy || code.length < 6}>{t('common:actions.disable')}</button>
       </>}>
       {err && (
         <div style={{
@@ -188,7 +193,7 @@ function DisableMfaModal({ open, onClose, onDisabled }) {
           background: 'rgba(220,38,38,0.08)', color: '#b91c1c', border: '1px solid rgba(220,38,38,0.25)',
         }}>{err}</div>
       )}
-      <FormField label="Authenticator code" hint="Confirm with a current 6-digit code.">
+      <FormField label={t('authenticatorCode')} hint={t('confirmCurrent6DigitCode')}>
         <input className="form-input" inputMode="numeric" placeholder="123456"
                value={code} onChange={(e) => setCode(e.target.value)} autoFocus />
       </FormField>

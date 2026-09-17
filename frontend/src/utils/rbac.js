@@ -3,7 +3,7 @@
  * so the access logic is unit-testable without rendering the pages. Each mirrors a
  * backend guard - the backend remains the source of truth; these only drive the UI.
  */
-import { CUSTOM_BASE_ROLES, USER_ROLES } from '../services/usersService.js';
+import { customBaseRoles, userRoles } from '../services/usersService.js';
 
 export function isSuperAdmin(user) {
   return user?.role === 'super_admin';
@@ -12,21 +12,21 @@ export function isSuperAdmin(user) {
 /**
  * Roles the actor may assign in the user form. `super_admin` never appears
  * (moved only via the transfer action); only a super admin may assign an
- * admin-based role. Falls back to the static USER_ROLES when no dynamic roles.
+ * admin-based role. Falls back to the static userRoles(t) when no dynamic roles.
  * Returns [{ value, label, base }].
  */
-export function assignableRoleOptions(roles, actor) {
+export function assignableRoleOptions(t, roles, actor) {
   const sup = isSuperAdmin(actor);
   const base = roles?.length
     ? roles.map((r) => ({ value: r.slug, label: r.name, base: r.base_role || r.slug }))
-    : USER_ROLES.map((r) => ({ value: r.value, label: r.label, base: r.value }));
+    : userRoles(t).map((r) => ({ value: r.value, label: r.label, base: r.value }));
   return base.filter((o) => o.base !== 'super_admin' && (sup || o.base !== 'admin'));
 }
 
 /** Behaviour bases offered in the New Role form; the admin (senior) base is
  *  super-admin-only. */
-export function assignableBaseRoles(actor) {
-  return CUSTOM_BASE_ROLES.filter((b) => !b.superOnly || isSuperAdmin(actor));
+export function assignableBaseRoles(t, actor) {
+  return customBaseRoles(t).filter((b) => !b.superOnly || isSuperAdmin(actor));
 }
 
 /** Mirror backend _guard_manage_target: only a super admin may act on an

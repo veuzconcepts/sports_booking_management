@@ -401,3 +401,158 @@ def test_creating_an_exception_is_audited(auth_api, org, club, db):
     assert entry.payload_summary["name"] == "National Day"
     assert entry.payload_summary["scope"] == "club"
     assert entry.subject_type == "schedule_exception"
+
+
+# --------------------------------------------------------------------------- #
+# 25: a special date is never applied without showing what it would strand
+# --------------------------------------------------------------------------- #
+def test_a_proposed_closure_reports_bookings_before_it_is_saved(
+        auth_api, org, club, court, booking_on):
+    from datetime import time
+
+    booking = booking_on(on_date=MONDAY, at_time=time(9, 0))
+    resp = auth_api.post("/api/v1/settings/schedule-exceptions/impact/", {
+        "name": "National Day", "club": club.id,
+        "start_date": MONDAY.isoformat(), "closed": True,
+    }, format="json")
+
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["count"] == 1
+    assert body["bookings"][0]["reference"] == booking.reference
+    assert body["bookings"][0]["reason"] == "closed"
+
+
+def test_previewing_an_impact_saves_nothing(auth_api, org, club, court, booking_on):
+    from datetime import time
+
+    booking = booking_on(on_date=MONDAY, at_time=time(9, 0))
+    auth_api.post("/api/v1/settings/schedule-exceptions/impact/", {
+        "name": "National Day", "club": club.id,
+        "start_date": MONDAY.isoformat(), "closed": True,
+    }, format="json")
+
+    assert not ScheduleException.objects.exists()
+    booking.refresh_from_db()
+    assert booking.status != "cancelled"
+
+
+def test_proposed_custom_hours_only_report_what_falls_outside_them(
+        auth_api, org, club, court, booking_on):
+    from datetime import time
+
+    booking_on(on_date=MONDAY, at_time=time(9, 0))
+    inside = auth_api.post("/api/v1/settings/schedule-exceptions/impact/", {
+        "name": "Ramadan", "club": club.id, "start_date": MONDAY.isoformat(),
+        "closed": False, "shifts": [{"open": "08:00", "close": "12:00"}],
+    }, format="json").json()
+    outside = auth_api.post("/api/v1/settings/schedule-exceptions/impact/", {
+        "name": "Ramadan", "club": club.id, "start_date": MONDAY.isoformat(),
+        "closed": False, "shifts": [{"open": "16:00", "close": "23:00"}],
+    }, format="json").json()
+
+    assert inside["count"] == 0
+    assert outside["count"] == 1
+    assert outside["bookings"][0]["reason"] == "outside hours"
+
+
+def test_a_proposed_break_strands_a_booking_inside_it(
+        auth_api, org, club, court, booking_on):
+    from datetime import time
+
+    booking_on(on_date=MONDAY, at_time=time(9, 0))
+    body = auth_api.post("/api/v1/settings/schedule-exceptions/impact/", {
+        "name": "Prayer break", "club": club.id, "start_date": MONDAY.isoformat(),
+        "closed": False, "shifts": [{"open": "08:00", "close": "22:00"}],
+        "breaks": [{"name": "Prayer", "open": "08:30", "close": "10:00"}],
+    }, format="json").json()
+
+    assert body["count"] == 1
+    assert body["bookings"][0]["reason"] == "break"
+
+
+def test_the_preview_covers_every_date_in_the_range(
+        auth_api, org, club, court, booking_on):
+    from datetime import time
+
+    booking_on(on_date=MONDAY, at_time=time(9, 0))
+    booking_on(on_date=FRIDAY, at_time=time(9, 0))
+    body = auth_api.post("/api/v1/settings/schedule-exceptions/impact/", {
+        "name": "Tournament week", "club": club.id,
+        "start_date": MONDAY.isoformat(), "end_date": FRIDAY.isoformat(),
+        "closed": True,
+    }, format="json").json()
+
+    assert body["count"] == 2
+    assert body["from"] == MONDAY.isoformat()
+    assert body["to"] == FRIDAY.isoformat()
+
+
+def test_an_invalid_proposal_is_rejected_by_the_preview_too(auth_api, org, club):
+    resp = auth_api.post("/api/v1/settings/schedule-exceptions/impact/", {
+        "name": "Broken", "club": club.id, "start_date": MONDAY.isoformat(),
+        "closed": False, "shifts": [],
+    }, format="json")
+    assert resp.status_code == 400
+    assert "shifts" in resp.json()
+
+
+def test_a_club_manager_cannot_preview_another_clubs_bookings(club_manager, org, db):
+    from apps.clubs.models import Club
+
+    other = Club.objects.create(code="north", name="Northside")
+    resp = club_manager.post("/api/v1/settings/schedule-exceptions/impact/", {
+        "name": "Not mine", "club": other.id,
+        "start_date": MONDAY.isoformat(), "closed": True,
+    }, format="json")
+    assert resp.status_code == 403
+
+
+def test_the_preview_requires_authentication(api):
+    assert api.post("/api/v1/settings/schedule-exceptions/impact/",
+                    {}, format="json").status_code == 401
+
+
+def test_removing_widened_hours_reports_what_falls_back_outside(
+        auth_api, org, club, court, booking_on):
+    """A special date that OPENED extra hours cannot be deleted blindly: the
+    bookings taken in that window land back outside the weekly pattern."""
+    from datetime import time
+
+    club.booking_hours = {"mon": day("08:00", "12:00")}
+    club.save()
+    row = ScheduleException.objects.create(
+        name="Late tournament", club=club, start_date=MONDAY, closed=False,
+        shifts=[{"open": "08:00", "close": "23:00"}])
+    booking_on(on_date=MONDAY, at_time=time(20, 0))      # only legal thanks to the row
+
+    body = auth_api.get(
+        f"/api/v1/settings/schedule-exceptions/{row.id}/removal-impact/").json()
+    assert body["count"] == 1
+    assert body["bookings"][0]["reason"] == "outside hours"
+
+
+def test_removing_a_closure_strands_nothing(auth_api, org, club, court, booking_on):
+    from datetime import time
+
+    row = ScheduleException.objects.create(
+        name="Holiday", club=club, start_date=MONDAY, closed=True)
+    booking_on(on_date=MONDAY, at_time=time(9, 0))
+
+    body = auth_api.get(
+        f"/api/v1/settings/schedule-exceptions/{row.id}/removal-impact/").json()
+    assert body["count"] == 0
+
+
+def test_a_club_manager_may_patch_their_own_row_without_resending_the_club(
+        club_manager, org, club, db):
+    """Scope falls back to the stored row, so an ordinary edit is not read as
+    an organization-wide change the manager is not allowed to make."""
+    row = ScheduleException.objects.create(name="Mine", club=club, start_date=MONDAY)
+    resp = club_manager.patch(
+        f"/api/v1/settings/schedule-exceptions/{row.id}/",
+        {"name": "Mine, renamed"}, format="json")
+
+    assert resp.status_code == 200
+    row.refresh_from_db()
+    assert row.name == "Mine, renamed"

@@ -1,12 +1,14 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Bell } from 'lucide-react';
+import { useTranslation } from 'react-i18next';
 
 import { notificationsApi } from '../services/notificationsService.js';
 
 // In-app notification bell: unread badge + a dropdown feed of the signed-in user's
 // notifications (e.g. a refund awaiting their approval). Polls the unread count.
 export function NotificationBell() {
+  const { t } = useTranslation('notifications');
   const navigate = useNavigate();
   const [open, setOpen] = useState(false);
   const [unread, setUnread] = useState(0);
@@ -59,7 +61,7 @@ export function NotificationBell() {
 
   return (
     <div ref={ref} style={{ position: 'relative' }}>
-      <button className="icon-btn" aria-label="Notifications" onClick={toggle} style={{ position: 'relative' }}>
+      <button className="icon-btn" aria-label={t('title')} onClick={toggle} style={{ position: 'relative' }}>
         <Bell size={18} />
         {unread > 0 && (
           <span aria-label={`${unread} unread`} style={{
@@ -72,21 +74,22 @@ export function NotificationBell() {
 
       {open && (
         <div style={{
-          position: 'absolute', right: 0, top: 'calc(100% + 8px)', width: 340, maxHeight: 420,
+          position: 'absolute', insetInlineEnd: 0, top: 'calc(100% + 8px)',
+          width: 'min(340px, calc(100vw - 24px))', maxHeight: 'min(420px, 70vh)',
           overflowY: 'auto', background: 'var(--color-surface,#fff)', borderRadius: 10, zIndex: 50,
           border: '1px solid var(--color-border,#e5e7eb)', boxShadow: '0 8px 28px rgba(0,0,0,.14)',
         }}>
           <div style={{ display: 'flex', alignItems: 'center', padding: '10px 12px', borderBottom: '1px solid var(--color-border,#eee)' }}>
-            <strong style={{ fontSize: 13 }}>Notifications</strong>
+            <strong style={{ fontSize: 13 }}>{t('title')}</strong>
             {unread > 0 && (
-              <button className="btn btn-ghost btn-sm" style={{ marginLeft: 'auto' }} onClick={markAll}>Mark all read</button>
+              <button className="btn btn-ghost btn-sm" style={{ marginLeft: 'auto' }} onClick={markAll}>{t('markAllRead')}</button>
             )}
           </div>
           <div style={{ display: 'flex', gap: 6, padding: '8px 12px', borderBottom: '1px solid var(--color-border,#f1f1f1)' }}>
             {[
-              { key: 'all', label: 'All' },
+              { key: 'all', label: t('common:state.all') },
               { key: 'unread', label: `Unread${unread ? ` (${unread})` : ''}` },
-              { key: 'read', label: 'Read' },
+              { key: 'read', label: t('read') },
             ].map((t) => (
               <button key={t.key} type="button" onClick={() => setFilter(t.key)} style={{
                 fontSize: 12, fontWeight: 600, padding: '3px 10px', borderRadius: 999, cursor: 'pointer',

@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import toast from 'react-hot-toast';
 import { KeyRound, LogOut } from 'lucide-react';
+import { useTranslation } from 'react-i18next';
 
 import { FormField } from './FormField.jsx';
 import { useAuth } from '../hooks/useAuth.jsx';
@@ -14,6 +15,7 @@ import { apiErrorMessage } from '../utils/apiError';
  * is allow-listed, and on success it revokes the session, so we redirect to login.
  */
 export function PasswordChangeGate() {
+  const { t } = useTranslation('auth');
   const { logout } = useAuth();
   const [oldPw, setOldPw] = useState('');
   const [newPw, setNewPw] = useState('');
@@ -30,10 +32,10 @@ export function PasswordChangeGate() {
     try {
       await accountApi.changePassword(oldPw, newPw);
       // The backend revokes the session on change - sign out and re-login.
-      toast.success('Password updated - please sign in again');
+      toast.success(t('passwordUpdatedPleaseSignAgain'));
       try { await logout(); } finally { window.location.assign('/login'); }
     } catch (e) {
-      setErr(apiErrorMessage(e, 'Unable to change your password. Please try again.'));
+      setErr(apiErrorMessage(e, t('unableChangeYourPasswordPlease')));
       setBusy(false);
     }
   }
@@ -48,12 +50,12 @@ export function PasswordChangeGate() {
         <div className="card-header">
           <h3 className="card-title">
             <KeyRound size={16} style={{ marginRight: 6, verticalAlign: 'text-bottom' }} />
-            Set a new password
+            {t('setNewPassword')}
           </h3>
         </div>
         <div className="card-body" style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
           <p className="muted" style={{ marginTop: 0 }}>
-            You must change your password before continuing.
+            {t('youMustChangeYourPassword')}
           </p>
           {err && (
             <div style={{
@@ -61,23 +63,23 @@ export function PasswordChangeGate() {
               background: 'rgba(220,38,38,0.08)', color: '#b91c1c', border: '1px solid rgba(220,38,38,0.25)',
             }}>{err}</div>
           )}
-          <FormField label="Current password">
+          <FormField label={t('currentPassword')}>
             <input className="form-input" type="password" value={oldPw}
                    onChange={(e) => setOldPw(e.target.value)} autoFocus />
           </FormField>
-          <FormField label="New password" hint="Min 10 chars with upper, lower, digit, and a symbol.">
+          <FormField label={t('newPassword')} hint={t('min10CharsUpperLower')}>
             <input className="form-input" type="password" value={newPw}
                    onChange={(e) => setNewPw(e.target.value)} />
           </FormField>
-          <FormField label="Confirm new password" error={mismatch ? 'Passwords do not match' : undefined}>
+          <FormField label={t('confirmNewPassword')} error={mismatch ? 'Passwords do not match' : undefined}>
             <input className="form-input" type="password" value={confirmPw}
                    onChange={(e) => setConfirmPw(e.target.value)} />
           </FormField>
           <button className="btn btn-primary" onClick={submit} disabled={!canSubmit}>
-            {busy ? 'Updating…' : 'Update password'}
+            {busy ? t('updating') : t('updatePassword')}
           </button>
           <button className="btn btn-ghost" onClick={signOut} style={{ alignSelf: 'flex-start' }}>
-            <LogOut size={15} /> Sign out
+            <LogOut size={15} /> {t('signOut')}
           </button>
         </div>
       </div>

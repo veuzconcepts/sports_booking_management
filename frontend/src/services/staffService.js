@@ -24,15 +24,15 @@ export const transfersApi = {
   cancel:  (id, reason) => api.post(`/staff/transfers/${id}/cancel/`, { reason }).then((r) => r.data),
 };
 
-export const TRANSFER_SHIFT_OPTIONS = [
-  { value: 'apply_club', label: 'Apply destination club schedule' },
-  { value: 'retain_custom', label: 'Retain employee custom schedule' },
-  { value: 'configure', label: 'Configure new schedule later' },
+export const transferShiftOptions = (t) => [
+  { value: 'apply_club', label: t('staff:applyDestinationClubSchedule') },
+  { value: 'retain_custom', label: t('staff:retainEmployeeCustomSchedule') },
+  { value: 'configure', label: t('staff:configureNewScheduleLater') },
 ];
-export const TRANSFER_STATUS_LABELS = {
+export const transferStatusLabels = (t) => ({
   pending_approval: 'Pending approval', approved: 'Scheduled',
   completed: 'Completed', cancelled: 'Cancelled',
-};
+});
 
 export const shiftsApi = {
   list:   (params) => api.get('/staff/shifts/', { params }).then((r) => r.data),
@@ -41,16 +41,16 @@ export const shiftsApi = {
   remove: (id)     => api.delete(`/staff/shifts/${id}/`),
 };
 
-export const EMPLOYMENT_TYPES = [
-  { value: 'full_time', label: 'Full-time' },
-  { value: 'part_time', label: 'Part-time' },
-  { value: 'contract',  label: 'Contract' },
+export const employmentTypes = (t) => [
+  { value: 'full_time', label: t('staff:fullTime') },
+  { value: 'part_time', label: t('staff:partTime') },
+  { value: 'contract',  label: t('staff:contract') },
 ];
 
 // Internal roles a staff profile can hold (mirrors accounts.Role minus customer).
-export const STAFF_ROLE_OPTIONS = [
-  { value: 'manager',      label: 'Manager' },
-  { value: 'facility_operator', label: 'Facility Operator' },
-  { value: 'facility_staff',         label: 'Facility Staff' },
-  { value: 'admin',        label: 'Admin' },
+export const staffRoleOptions = (t) => [
+  { value: 'manager',      label: t('staff:manager') },
+  { value: 'facility_operator', label: t('staff:facilityOperator') },
+  { value: 'facility_staff',         label: t('staff:facilityStaff') },
+  { value: 'admin',        label: t('staff:admin') },
 ];

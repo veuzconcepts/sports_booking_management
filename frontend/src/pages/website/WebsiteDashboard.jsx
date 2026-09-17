@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
+import { useTranslation } from 'react-i18next';
 import {
   LayoutTemplate, GalleryHorizontal, ListOrdered, BadgeCheck,
   BarChart3, MessageSquareQuote, Building2, HelpCircle, PanelBottom, Search, Images, ExternalLink,
@@ -8,21 +9,22 @@ import {
 import { PageHeader } from '../../components/PageHeader.jsx';
 import { organizationApi } from '../../services/settingsService.js';
 
-const LINKS = [
-  { to: '/website/sections', label: 'Home Sections', desc: 'Headings & copy per section', icon: LayoutTemplate },
-  { to: '/website/banners', label: 'Hero Banners', desc: 'Rotating hero slides', icon: GalleryHorizontal },
-  { to: '/website/process-steps', label: 'How It Works', desc: 'Process steps', icon: ListOrdered },
-  { to: '/website/why-choose-us', label: 'Why Choose Us', desc: 'Selling points', icon: BadgeCheck },
-  { to: '/website/stats', label: 'Stats', desc: 'Headline figures', icon: BarChart3 },
-  { to: '/website/testimonials', label: 'Testimonials', desc: 'Customer reviews', icon: MessageSquareQuote },
-  { to: '/website/brands', label: 'Trusted Brands', desc: 'Partner logos', icon: Building2 },
+const links = (t) => [
+  { to: '/website/sections', label: t('homeSections'), desc: 'Headings & copy per section', icon: LayoutTemplate },
+  { to: '/website/banners', label: t('heroBanners'), desc: 'Rotating hero slides', icon: GalleryHorizontal },
+  { to: '/website/process-steps', label: t('howItWorks'), desc: 'Process steps', icon: ListOrdered },
+  { to: '/website/why-choose-us', label: t('whyChooseUs'), desc: 'Selling points', icon: BadgeCheck },
+  { to: '/website/stats', label: t('stats'), desc: 'Headline figures', icon: BarChart3 },
+  { to: '/website/testimonials', label: t('testimonials'), desc: 'Customer reviews', icon: MessageSquareQuote },
+  { to: '/website/brands', label: t('trustedBrands'), desc: 'Partner logos', icon: Building2 },
   { to: '/website/faqs', label: 'FAQ', desc: 'Common questions', icon: HelpCircle },
-  { to: '/website/footer', label: 'Footer', desc: 'Footer links & newsletter', icon: PanelBottom },
-  { to: '/website/seo', label: 'SEO Settings', desc: 'Meta titles & descriptions', icon: Search },
-  { to: '/website/media', label: 'Media Library', desc: 'Images, icons & logos', icon: Images },
+  { to: '/website/footer', label: t('footer'), desc: 'Footer links & newsletter', icon: PanelBottom },
+  { to: '/website/seo', label: t('seoSettings'), desc: 'Meta titles & descriptions', icon: Search },
+  { to: '/website/media', label: t('mediaLibrary'), desc: 'Images, icons & logos', icon: Images },
 ];
 
 export default function WebsiteDashboard() {
+  const { t } = useTranslation('website');
   // The customer club URL is sourced dynamically from the Organization profile
   // (Organization Info → Website), falling back to a build-time env var.
   const [siteUrl, setSiteUrl] = useState('');
@@ -38,21 +40,21 @@ export default function WebsiteDashboard() {
   return (
     <>
       <PageHeader
-        title="Website"
-        subtitle="Manage the public customer website content."
+        title={t('website')}
+        subtitle={t('managePublicCustomerWebsiteContent')}
         actions={url ? (
           <a className="btn btn-primary" href={url} target="_blank" rel="noopener noreferrer">
-            <ExternalLink size={15} /> Preview Website
+            <ExternalLink size={15} /> {t('previewWebsite')}
           </a>
         ) : (
           <button className="btn btn-secondary" disabled
-            title="Set the customer website URL in Organization Info → Website.">
-            <ExternalLink size={15} /> Preview Website
+            title={t('setCustomerWebsiteUrlOrganization')}>
+            <ExternalLink size={15} /> {t('previewWebsite')}
           </button>
         )}
       />
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))', gap: 14 }}>
-        {LINKS.map(({ to, label, desc, icon: Icon }) => (
+        {links(t).map(({ to, label, desc, icon: Icon }) => (
           <Link key={to} to={to} className="card" style={{
             padding: 16, display: 'flex', gap: 12, alignItems: 'flex-start', textDecoration: 'none',
             color: 'inherit',

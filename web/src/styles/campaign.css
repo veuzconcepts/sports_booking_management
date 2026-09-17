@@ -1,0 +1,103 @@
+/* The campaign card.
+ *
+ * Styled as marketing, not as an admin confirmation: no title bar, no footer
+ * rule, the artwork carries the card. Everything around the artwork reads a
+ * theme token, so the card works in light and dark without the uploaded design
+ * itself ever being altered. */
+
+.cmp__scrim {
+  position: fixed;
+  inset: 0;
+  z-index: 90;
+  display: grid;
+  place-items: center;
+  padding: 16px;
+  background: rgba(11, 31, 23, .52);
+  backdrop-filter: blur(3px);
+  animation: cmp-fade .22s ease both;
+}
+
+.cmp {
+  position: relative;
+  width: min(880px, 100%);
+  max-height: calc(100dvh - 32px);
+  overflow: auto;
+  display: grid;
+  border-radius: var(--radius-lg);
+  background: var(--surface);
+  color: var(--text);
+  box-shadow: 0 30px 80px rgba(0, 0, 0, .34);
+  animation: cmp-rise .26s cubic-bezier(.2, .8, .3, 1) both;
+}
+.cmp:focus-visible { outline: none; }
+
+/* Image on one side, words on the other. Below the split breakpoint it stacks,
+   which is what makes a landscape design usable on a phone. */
+.cmp--split { grid-template-columns: minmax(0, 1.05fr) minmax(0, 1fr); align-items: stretch; }
+.cmp--art { width: min(620px, 100%); }
+
+.cmp__art { display: block; min-height: 0; }
+.cmp__art img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.cmp--art .cmp__art img { height: auto; }
+
+.cmp__body {
+  display: grid;
+  align-content: center;
+  gap: 10px;
+  padding: clamp(22px, 4vw, 40px);
+}
+.cmp__code {
+  justify-self: start;
+  padding: 4px 12px;
+  border-radius: 999px;
+  background: var(--accent);
+  color: var(--on-accent);
+  font-size: .78rem;
+  font-weight: 800;
+  letter-spacing: .08em;
+}
+.cmp__title { margin: 0; font-size: clamp(1.5rem, 3vw, 2.1rem); line-height: 1.12; }
+.cmp__sub { margin: 0; font-size: 1.02rem; color: var(--text); }
+.cmp__desc { margin: 0; font-size: .95rem; color: var(--muted); }
+.cmp__actions { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 8px; }
+
+/* Big enough to hit with a thumb, and clear of a busy artwork corner. */
+.cmp__close {
+  position: absolute;
+  inset-block-start: 10px;
+  inset-inline-end: 10px;
+  z-index: 2;
+  width: 40px;
+  height: 40px;
+  display: grid;
+  place-items: center;
+  border: 0;
+  border-radius: 50%;
+  background: var(--surface);
+  color: var(--ink);
+  box-shadow: 0 4px 14px rgba(0, 0, 0, .22);
+  cursor: pointer;
+}
+.cmp__close:hover { background: var(--bg-soft); }
+.cmp__close:focus-visible { outline: 2px solid var(--brand-soft); outline-offset: 2px; }
+
+@keyframes cmp-fade { from { opacity: 0; } to { opacity: 1; } }
+@keyframes cmp-rise {
+  from { opacity: 0; transform: translateY(14px) scale(.985); }
+  to { opacity: 1; transform: none; }
+}
+
+@media (max-width: 760px) {
+  .cmp--split { grid-template-columns: minmax(0, 1fr); }
+  .cmp--split .cmp__art img { max-height: 42vh; }
+  .cmp { width: 100%; }
+}
+
+@media (max-width: 480px) {
+  .cmp__scrim { padding: 10px; }
+  .cmp__actions .btn { flex: 1; justify-content: center; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .cmp__scrim, .cmp { animation: none; }
+}

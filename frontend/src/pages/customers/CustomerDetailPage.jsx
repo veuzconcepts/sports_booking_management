@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { formatDate } from '../../services/timeformat.jsx';
 import { useNavigate, useParams } from 'react-router-dom';
 import { ArrowLeft, Mail, Phone, MapPin, Award, FileText, RefreshCw, History, AlertTriangle, GitMerge, ShieldCheck, ShieldAlert, Trash2, Calendar, ChevronDown, ChevronRight } from 'lucide-react';
+import { useTranslation } from 'react-i18next';
 import toast from 'react-hot-toast';
 import { formatTime } from '../../services/timeformat.jsx';
 
@@ -14,7 +15,7 @@ import { bookingsApi } from '../../services/bookingsService.js';
 import { loyaltyApi } from '../../services/loyaltyService.js';
 import { invoicesApi, INVOICE_STATUS_TONE } from '../../services/paymentsService.js';
 import {
-  membershipsApi, MEMBERSHIP_STATUS_TONE, MEMBERSHIP_STATUS_LABELS,
+  membershipsApi, MEMBERSHIP_STATUS_TONE, membershipStatusLabels,
 } from '../../services/subscriptionsService.js';
 import { Money } from '../../services/currency.jsx';
 import { usePrompt } from '../../components/PromptDialog.jsx';
@@ -27,6 +28,7 @@ const LOGIN_TONE = {
 };
 
 export default function CustomerDetailPage() {
+  const { t } = useTranslation('customers');
   const { id } = useParams();
   const navigate = useNavigate();
   const prompt = usePrompt();
@@ -51,7 +53,7 @@ export default function CustomerDetailPage() {
   async function loginAction(fn, okMsg) {
     setBusy(true);
     try { setCustomer(await fn()); toast.success(okMsg); }
-    catch (e) { toast.error(apiErrorMessage(e, 'Unable to update the login access. Please try again.')); }
+    catch (e) { toast.error(apiErrorMessage(e, t('unableUpdateLoginAccessPlease'))); }
     finally { setBusy(false); }
   }
 
@@ -59,23 +61,23 @@ export default function CustomerDetailPage() {
     setBusy(true);
     try {
       setCustomer(await customersApi.verify(id));
-      toast.success('Customer verified');
+      toast.success(t('customerVerified'));
     } catch (e) {
-      toast.error(apiErrorMessage(e, 'Unable to verify this customer. Please try again.'));
+      toast.error(apiErrorMessage(e, t('unableVerifyCustomerPleaseTry')));
     } finally { setBusy(false); }
   }
 
   async function adjustLoyalty() {
-    const points = Number(await prompt({ title: 'Adjust loyalty', label: 'Points to adjust (negative to deduct)', type: 'number' }));
+    const points = Number(await prompt({ title: t('adjustLoyalty'), label: t('pointsAdjustNegativeDeduct'), type: 'number' }));
     if (!points) return;
-    const note = (await prompt({ title: 'Adjust loyalty', label: 'Note for this adjustment' })) || '';
+    const note = (await prompt({ title: t('adjustLoyalty'), label: t('noteAdjustment') })) || '';
     try {
       const updated = await customersApi.adjustLoyalty(id, { points, note });
       setCustomer(updated);
       setLoyaltyReload((n) => n + 1);
-      toast.success('Loyalty points updated');
+      toast.success(t('loyaltyPointsUpdated'));
     } catch (e) {
-      toast.error(apiErrorMessage(e, 'Unable to adjust loyalty points.'));
+      toast.error(apiErrorMessage(e, t('unableAdjustLoyaltyPoints')));
     }
   }
 
@@ -83,11 +85,11 @@ export default function CustomerDetailPage() {
     setBusy(true);
     try {
       await customersApi.remove(id);
-      toast.success('Customer deleted');
+      toast.success(t('customerDeleted'));
       navigate('/customers');
     } catch (e) {
       setConfirmDelete(false);
-      toast.error(apiErrorMessage(e, 'Unable to delete this customer. Please try again.'));
+      toast.error(apiErrorMessage(e, t('unableDeleteCustomerPleaseTry')));
     } finally { setBusy(false); }
   }
 
@@ -95,9 +97,9 @@ export default function CustomerDetailPage() {
     setLoading(true);
     customersApi.get(id)
       .then((c) => setCustomer(c))
-      .catch((e) => toast.error(apiErrorMessage(e, 'Unable to load the customer. Please try again.')))
+      .catch((e) => toast.error(apiErrorMessage(e, t('unableLoadCustomerPleaseTry'))))
       .finally(() => setLoading(false));
-  }, [id]);
+  }, [id, t]);
 
   useEffect(load, [load]);
 
@@ -134,7 +136,7 @@ export default function CustomerDetailPage() {
       const a = document.createElement('a');
       a.href = url; a.download = `${inv.number}.pdf`; a.click();
       URL.revokeObjectURL(url);
-    } catch (e) { toast.error(apiErrorMessage(e, 'Unable to download the invoice. Please try again.')); }
+    } catch (e) { toast.error(apiErrorMessage(e, t('unableDownloadInvoicePleaseTry'))); }
   }
 
   if (loading) {
@@ -149,7 +151,7 @@ export default function CustomerDetailPage() {
         onClick={() => navigate('/customers')}
         style={{ marginBottom: 12 }}
       >
-        <ArrowLeft size={15} /> Back to customers
+        <ArrowLeft size={15} /> {t('backCustomers')}
       </button>
 
       <PageHeader
@@ -159,7 +161,7 @@ export default function CustomerDetailPage() {
           <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
             {!customer.is_verified && canVerify && (
               <button className="btn btn-primary" disabled={busy} onClick={doVerify}>
-                <ShieldCheck size={15} /> Verify customer
+                <ShieldCheck size={15} /> {t('verifyCustomer')}
               </button>
             )}
             {/* Only UNVERIFIED customers can be deleted (junk/fake cleanup). */}
@@ -167,7 +169,7 @@ export default function CustomerDetailPage() {
               <button className="btn btn-ghost" disabled={busy}
                 style={{ color: 'var(--color-danger, #dc2626)' }}
                 onClick={() => setConfirmDelete(true)}>
-                <Trash2 size={15} /> Delete
+                <Trash2 size={15} /> {t('common:actions.delete')}
               </button>
             )}
           </div>
@@ -187,7 +189,7 @@ export default function CustomerDetailPage() {
           >
             {bookingsOpen ? <ChevronDown size={15} /> : <ChevronRight size={15} />}
             <Calendar size={15} style={{ color: 'var(--color-text-muted)' }} />
-            Bookings
+            {t('bookings')}
             <span className="badge" style={{
               background: 'var(--color-primary-bg, #eff6ff)', color: 'var(--color-primary, #2563eb)',
               borderRadius: 999, padding: '1px 9px', fontSize: 12.5, fontWeight: 700,
@@ -197,11 +199,11 @@ export default function CustomerDetailPage() {
           {bookingsOpen && (
             <div className="card" style={{ marginTop: 8 }}>
               {bookings.length === 0 ? (
-                <div className="empty"><p>No bookings for this customer.</p></div>
+                <div className="empty"><p>{t('noBookingsCustomer')}</p></div>
               ) : (
                 <div className="table-wrapper">
                   <table className="table">
-                    <thead><tr><th>Reference</th><th>Service</th><th>Scheduled</th><th>Status</th><th>Total</th></tr></thead>
+                    <thead><tr><th>{t('reference')}</th><th>{t('service')}</th><th>{t('scheduled')}</th><th>{t('common:labels.status')}</th><th>{t('common:labels.total')}</th></tr></thead>
                     <tbody>
                       {bookings.map((b) => (
                         <tr key={b.id} style={{ cursor: 'pointer' }}
@@ -241,7 +243,7 @@ export default function CustomerDetailPage() {
           </div>
           {canMerge && (
             <button className="btn btn-primary btn-sm" onClick={() => setMergeOpen(true)}>
-              <GitMerge size={15} /> Review &amp; merge
+              <GitMerge size={15} /> {t('reviewAndMerge')}
             </button>
           )}
         </div>
@@ -252,22 +254,22 @@ export default function CustomerDetailPage() {
           <div className="card">
             <div className="card-header">
               <div>
-                <h3 className="card-title">Profile</h3>
-                <p className="card-subtitle">Contact and account-level information.</p>
+                <h3 className="card-title">{t('profile')}</h3>
+                <p className="card-subtitle">{t('contactAccountLevelInformation')}</p>
               </div>
               <div style={{ display: 'flex', gap: 6 }}>
                 {customer.is_verified
-                  ? <StatusBadge tone="success" label="Verified" />
-                  : <StatusBadge tone="warning" label="Unverified" />}
+                  ? <StatusBadge tone="success" label={t('verified')} />
+                  : <StatusBadge tone="warning" label={t('unverified')} />}
                 <StatusBadge
                   tone={customer.is_corporate ? 'info' : 'muted'}
-                  label={customer.is_corporate ? 'Corporate' : 'Individual'}
+                  label={customer.is_corporate ? t('corporate') : t('individual')}
                 />
               </div>
             </div>
             <div className="card-body">
-              <KV label="Customer number">{customer.customer_code || '-'}</KV>
-              <KV icon={customer.is_verified ? ShieldCheck : ShieldAlert} label="Verification">
+              <KV label={t('customerNumber')}>{customer.customer_code || '-'}</KV>
+              <KV icon={customer.is_verified ? ShieldCheck : ShieldAlert} label={t('verification')}>
                 {customer.is_verified ? (
                   <span>
                     Verified{customer.verification_method_display ? ` · ${customer.verification_method_display}` : ''}
@@ -282,15 +284,15 @@ export default function CustomerDetailPage() {
                   </span>
                 )}
               </KV>
-              <KV icon={Mail}  label="Email">{customer.email}</KV>
-              <KV icon={Phone} label="Phone">{customer.phone || '-'}</KV>
+              <KV icon={Mail}  label={t('common:labels.email')}>{customer.email}</KV>
+              <KV icon={Phone} label={t('common:labels.phone')}>{customer.phone || '-'}</KV>
               <div className="divider" />
-              <KV label="Loyalty tier">
+              <KV label={t('loyaltyTier')}>
                 <StatusBadge tone="warning" label={customer.loyalty_tier} />
               </KV>
-              <KV label="Loyalty points">{customer.loyalty_points}</KV>
-              <KV label="Lifetime value"><Money amount={customer.lifetime_value} /></KV>
-              <KV label="Source">{customer.source.replace('_', ' ')}</KV>
+              <KV label={t('loyaltyPoints')}>{customer.loyalty_points}</KV>
+              <KV label={t('lifetimeValue')}><Money amount={customer.lifetime_value} /></KV>
+              <KV label={t('sourceLabel')}>{customer.source.replace('_', ' ')}</KV>
               {customer.notes && (
                 <>
                   <div className="divider" />
@@ -307,17 +309,17 @@ export default function CustomerDetailPage() {
           <div className="card">
             <div className="card-header">
               <div>
-                <h3 className="card-title">Login access</h3>
-                <p className="card-subtitle">Mobile-app login for this customer.</p>
+                <h3 className="card-title">{t('loginAccess')}</h3>
+                <p className="card-subtitle">{t('mobileAppLoginCustomer')}</p>
               </div>
               <StatusBadge tone={LOGIN_TONE[customer.login_status] || 'muted'} label={customer.login_status} />
             </div>
             <div className="card-body">
               {customer.linked_user ? (
-                <KV icon={Mail} label="Login email">{customer.linked_user.email}</KV>
+                <KV icon={Mail} label={t('loginEmail')}>{customer.linked_user.email}</KV>
               ) : (
                 <p className="muted" style={{ fontSize: 13 }}>
-                  This customer has no login yet. A login is for the customer website only.
+                  {t('customerHasNoLoginYet')}
                 </p>
               )}
               {canManage && (
@@ -326,15 +328,15 @@ export default function CustomerDetailPage() {
                     <>
                       <button className="btn btn-secondary btn-sm" disabled={busy}
                         onClick={async () => {
-                          const email = await prompt({ title: 'Create login',
-                            label: 'Login email (customer website)', defaultValue: customer.email || '' });
+                          const email = await prompt({ title: t('createLogin'),
+                            label: t('loginEmailCustomerWebsite'), defaultValue: customer.email || '' });
                           if (!email) return;
                           loginAction(() => customersApi.createLogin(id, { email }), 'Login created');
-                        }}>Create login</button>
+                        }}>{t('createLogin')}</button>
                       {customer.login_status !== 'Invite Pending' && (
                         <button className="btn btn-ghost btn-sm" disabled={busy}
                           onClick={() => loginAction(() => customersApi.inviteLogin(id), 'Invite recorded')}>
-                          Invite to create login
+                          {t('inviteCreateLogin')}
                         </button>
                       )}
                     </>
@@ -342,13 +344,13 @@ export default function CustomerDetailPage() {
                   {customer.login_status === 'Login Enabled' && (
                     <button className="btn btn-ghost btn-sm" disabled={busy} style={{ color: 'var(--color-danger,#dc2626)' }}
                       onClick={() => loginAction(() => customersApi.disableLogin(id), 'Login disabled')}>
-                      Disable login
+                      {t('disableLogin')}
                     </button>
                   )}
                   {customer.login_status === 'Login Disabled' && (
                     <button className="btn btn-secondary btn-sm" disabled={busy}
                       onClick={() => loginAction(() => customersApi.enableLogin(id), 'Login enabled')}>
-                      Enable login
+                      {t('enableLogin')}
                     </button>
                   )}
                 </div>
@@ -361,12 +363,12 @@ export default function CustomerDetailPage() {
           <div className="card">
             <div className="card-header">
               <div>
-                <h3 className="card-title"><MapPin size={15} style={{ marginRight: 6, verticalAlign: 'text-bottom' }} />Saved addresses</h3>
-                <p className="card-subtitle">Contact addresses on file for this customer.</p>
+                <h3 className="card-title"><MapPin size={15} style={{ marginRight: 6, verticalAlign: 'text-bottom' }} />{t('savedAddresses')}</h3>
+                <p className="card-subtitle">{t('contactAddressesFileCustomer')}</p>
               </div>
             </div>
             {(customer.addresses || []).length === 0 ? (
-              <div className="empty"><p>No saved addresses.</p></div>
+              <div className="empty"><p>{t('noSavedAddresses')}</p></div>
             ) : (
               <div className="card-body">
                 {customer.addresses.map((a) => (
@@ -383,7 +385,7 @@ export default function CustomerDetailPage() {
                         {a.line1}{a.line2 && `, ${a.line2}`}, {a.city}
                       </div>
                     </div>
-                    {a.is_default && <StatusBadge tone="success" label="Default" />}
+                    {a.is_default && <StatusBadge tone="success" label={t('default')} />}
                   </div>
                 ))}
               </div>
@@ -396,16 +398,16 @@ export default function CustomerDetailPage() {
               <div className="card">
                 <div className="card-header">
                   <div>
-                    <h3 className="card-title"><FileText size={15} style={{ marginRight: 6, verticalAlign: 'text-bottom' }} />Invoices</h3>
-                    <p className="card-subtitle">VAT invoices for this customer.</p>
+                    <h3 className="card-title"><FileText size={15} style={{ marginRight: 6, verticalAlign: 'text-bottom' }} />{t('invoices')}</h3>
+                    <p className="card-subtitle">{t('vatInvoicesCustomer')}</p>
                   </div>
                 </div>
                 {invoices.length === 0 ? (
-                  <div className="empty"><p>No invoices yet.</p></div>
+                  <div className="empty"><p>{t('noInvoicesYet')}</p></div>
                 ) : (
                   <div className="table-wrapper">
                     <table className="table">
-                      <thead><tr><th>Invoice</th><th>Total</th><th>Status</th><th>Issued</th><th></th></tr></thead>
+                      <thead><tr><th>{t('invoice')}</th><th>{t('common:labels.total')}</th><th>{t('common:labels.status')}</th><th>{t('issued')}</th><th></th></tr></thead>
                       <tbody>
                         {invoices.map((inv) => (
                           <tr key={inv.id}>
@@ -422,7 +424,7 @@ export default function CustomerDetailPage() {
                               label={inv.status_display || inv.status} /></td>
                             <td>{formatDate(inv.issued_at)}</td>
                             <td style={{ textAlign: 'right' }}>
-                              <button className="icon-btn" title="Download PDF" onClick={() => downloadInvoice(inv)}>
+                              <button className="icon-btn" title={t('downloadPdf')} onClick={() => downloadInvoice(inv)}>
                                 <FileText size={15} />
                               </button>
                             </td>
@@ -442,8 +444,8 @@ export default function CustomerDetailPage() {
               <div className="card">
                 <div className="card-header">
                   <div>
-                    <h3 className="card-title"><RefreshCw size={15} style={{ marginRight: 6, verticalAlign: 'text-bottom' }} />Memberships</h3>
-                    <p className="card-subtitle">Active and past memberships, with remaining entitlements.</p>
+                    <h3 className="card-title"><RefreshCw size={15} style={{ marginRight: 6, verticalAlign: 'text-bottom' }} />{t('memberships')}</h3>
+                    <p className="card-subtitle">{t('activePastMembershipsRemainingEntitlements')}</p>
                   </div>
                 </div>
                 <div style={{ padding: '4px 16px 12px' }}>
@@ -453,7 +455,7 @@ export default function CustomerDetailPage() {
                         <span style={{ fontWeight: 600 }}>{m.number}</span>
                         <span className="muted" style={{ fontSize: 13 }}>{m.plan_name}</span>
                         <StatusBadge tone={MEMBERSHIP_STATUS_TONE[m.status] || 'muted'}
-                          label={MEMBERSHIP_STATUS_LABELS[m.status] || m.status} />
+                          label={membershipStatusLabels(t)[m.status] || m.status} />
                         <span className="muted" style={{ fontSize: 12.5, marginLeft: 'auto' }}>
                           {formatDate(m.start_date)} - {formatDate(m.end_date)}
                         </span>
@@ -494,9 +496,9 @@ export default function CustomerDetailPage() {
       <ConfirmDialog
         open={confirmDelete}
         tone="danger"
-        title="Delete customer"
+        title={t('deleteCustomer')}
         message={`Permanently delete ${customer.full_name || customer.customer_code}? Only unverified customers can be deleted. This cannot be undone.`}
-        confirmLabel="Delete customer"
+        confirmLabel={t('deleteCustomer')}
         busy={busy}
         onConfirm={doDelete}
         onClose={() => { if (!busy) setConfirmDelete(false); }}
@@ -509,7 +511,7 @@ export default function CustomerDetailPage() {
         duplicates={duplicates}
         onMerged={(survivorId) => {
           setMergeOpen(false);
-          toast.success('Records merged');
+          toast.success(t('recordsMerged'));
           if (String(survivorId) === String(id)) {
             load();
             loadDuplicates();
@@ -523,6 +525,7 @@ export default function CustomerDetailPage() {
 }
 
 function MergeModal({ open, onClose, current, duplicates, onMerged }) {
+  const { t } = useTranslation('customers');
   const group = current ? [current, ...duplicates] : duplicates;
   // `survivorId` = the record to KEEP. `selected` = the duplicates to merge in
   // (checkboxes); unticked duplicates are left untouched as separate customers.
@@ -564,7 +567,7 @@ function MergeModal({ open, onClose, current, duplicates, onMerged }) {
       await customersApi.merge(survivorId, sourceIds);
       onMerged?.(survivorId);
     } catch (e) {
-      toast.error(apiErrorMessage(e, 'Unable to merge these records. Please try again.'));
+      toast.error(apiErrorMessage(e, t('unableMergeTheseRecordsPlease')));
     } finally {
       setBusy(false);
     }
@@ -574,11 +577,11 @@ function MergeModal({ open, onClose, current, duplicates, onMerged }) {
     <Modal
       open={open}
       onClose={onClose}
-      title="Merge duplicate customers"
+      title={t('mergeDuplicateCustomers')}
       size="md"
       footer={
         <>
-          <button className="btn btn-secondary" type="button" onClick={onClose}>Cancel</button>
+          <button className="btn btn-secondary" type="button" onClick={onClose}>{t('common:actions.cancel')}</button>
           <button className="btn btn-primary" type="button" onClick={doMerge} disabled={busy || sourceIds.length === 0}>
             {busy ? 'Merging…' : `Merge ${sourceIds.length} record${sourceIds.length === 1 ? '' : 's'}`}
           </button>
@@ -586,7 +589,7 @@ function MergeModal({ open, onClose, current, duplicates, onMerged }) {
       }
     >
       <p style={{ fontSize: 13.5, marginTop: 0 }}>
-        <strong>Tick the records to merge</strong>, and choose the one to <strong>keep</strong>.
+        <strong>{t('tickRecordsMerge')}</strong>, and choose the one to <strong>keep</strong>.
         Every booking, payment, invoice, membership, wallet balance, loyalty point and
         activity-log entry from the ticked records is moved onto the kept record; its blank fields
         are filled in from the others (existing values are never overwritten). The ticked records
@@ -608,20 +611,20 @@ function MergeModal({ open, onClose, current, duplicates, onMerged }) {
               opacity: included ? 1 : 0.6,
             }}>
               <input type="checkbox" checked={included} disabled={keep} style={{ marginTop: 3 }}
-                title={keep ? 'The kept record is always part of the merge' : 'Include in this merge'}
+                title={keep ? t('keptRecordAlwaysPartMerge') : t('includeMerge')}
                 onChange={() => toggle(g.id)} />
               <div style={{ flex: 1 }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
                   <span style={{ fontWeight: 600 }}>{fmt(g)}</span>
                   <span className="muted" style={{ fontWeight: 400, fontSize: 12 }}>{codeOf(g)}</span>
                   {keep
-                    ? <StatusBadge tone="success" label="Keep" />
+                    ? <StatusBadge tone="success" label={t('keep')} />
                     : included
-                      ? <StatusBadge tone="danger" label="Merge & delete" />
-                      : <StatusBadge tone="muted" label="Leave separate" />}
+                      ? <StatusBadge tone="danger" label={t('mergeDelete')} />
+                      : <StatusBadge tone="muted" label={t('leaveSeparate')} />}
                   {!keep && (
                     <button type="button" className="link-btn" style={{ fontSize: 12 }}
-                      onClick={() => chooseKeep(g.id)}>Set as keep</button>
+                      onClick={() => chooseKeep(g.id)}>{t('setAsKeep')}</button>
                   )}
                 </div>
                 <div className="muted" style={{ fontSize: 12.5 }}>
@@ -655,6 +658,7 @@ const LEDGER_TONE = {
 };
 
 function CustomerLoyalty({ customerId, reloadKey, canReverse, canAdjust, onAdjust }) {
+  const { t } = useTranslation('customers');
   const [summary, setSummary] = useState(null);
   const [rows, setRows] = useState(null);
 
@@ -668,9 +672,9 @@ function CustomerLoyalty({ customerId, reloadKey, canReverse, canAdjust, onAdjus
   async function reverse(entryId) {
     try {
       await loyaltyApi.reverseEntry(entryId);
-      toast.success('Entry reversed');
+      toast.success(t('entryReversed'));
       load();
-    } catch (e) { toast.error(apiErrorMessage(e, 'Unable to reverse the entry.')); }
+    } catch (e) { toast.error(apiErrorMessage(e, t('unableReverseEntry'))); }
   }
 
   const p = summary?.progress;
@@ -678,14 +682,14 @@ function CustomerLoyalty({ customerId, reloadKey, canReverse, canAdjust, onAdjus
     <div className="card">
       <div className="card-header">
         <div>
-          <h3 className="card-title"><Award size={15} style={{ marginRight: 6, verticalAlign: 'text-bottom' }} />Loyalty</h3>
-          <p className="card-subtitle">Tier, balance and points history.</p>
+          <h3 className="card-title"><Award size={15} style={{ marginRight: 6, verticalAlign: 'text-bottom' }} />{t('loyalty')}</h3>
+          <p className="card-subtitle">{t('tierBalancePointsHistory')}</p>
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
           {summary && <StatusBadge tone="warning" label={summary.tier_name || summary.tier} />}
           {canAdjust && (
             <button className="btn btn-secondary btn-sm" onClick={onAdjust}>
-              <Award size={14} /> Adjust loyalty
+              <Award size={14} /> {t('adjustLoyalty')}
             </button>
           )}
         </div>
@@ -694,14 +698,14 @@ function CustomerLoyalty({ customerId, reloadKey, canReverse, canAdjust, onAdjus
         {summary && (
           <>
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(110px, 1fr))', gap: 12 }}>
-              <KV label="Balance">{(summary.balance || 0).toLocaleString()}</KV>
-              <KV label="Earned">{(summary.earned || 0).toLocaleString()}</KV>
-              <KV label="Redeemed">{(summary.redeemed || 0).toLocaleString()}</KV>
-              <KV label="Expired">{(summary.expired || 0).toLocaleString()}</KV>
+              <KV label={t('balance')}>{(summary.balance || 0).toLocaleString()}</KV>
+              <KV label={t('earned')}>{(summary.earned || 0).toLocaleString()}</KV>
+              <KV label={t('redeemed')}>{(summary.redeemed || 0).toLocaleString()}</KV>
+              <KV label={t('expired')}>{(summary.expired || 0).toLocaleString()}</KV>
             </div>
             {p && (p.points_to_go > 0 || p.spend_to_go) && (
               <div className="muted" style={{ fontSize: 12.5, marginTop: 8 }}>
-                To reach <strong>{p.next_tier}</strong>:
+                {t('reach')} <strong>{p.next_tier}</strong>:
                 {p.points_to_go > 0 ? ` ${p.points_to_go} more points` : ''}
                 {p.spend_to_go ? `${p.points_to_go > 0 ? ' ·' : ''} ${p.spend_to_go} more spend` : ''}.
               </div>
@@ -712,11 +716,11 @@ function CustomerLoyalty({ customerId, reloadKey, canReverse, canAdjust, onAdjus
       {rows === null ? (
         <div className="empty"><p>Loading…</p></div>
       ) : rows.length === 0 ? (
-        <div className="empty"><p>No loyalty activity yet.</p></div>
+        <div className="empty"><p>{t('noLoyaltyActivityYet')}</p></div>
       ) : (
         <div className="table-wrapper">
           <table className="table">
-            <thead><tr><th>When</th><th>Type</th><th>Points</th><th>Balance</th><th>Source</th><th>Note</th>{canReverse && <th></th>}</tr></thead>
+            <thead><tr><th>{t('when')}</th><th>{t('typeLabel')}</th><th>{t('points')}</th><th>{t('balance')}</th><th>{t('sourceLabel')}</th><th>{t('note')}</th>{canReverse && <th></th>}</tr></thead>
             <tbody>
               {rows.map((r) => (
                 <tr key={r.id}>
@@ -731,7 +735,7 @@ function CustomerLoyalty({ customerId, reloadKey, canReverse, canAdjust, onAdjus
                   {canReverse && (
                     <td style={{ textAlign: 'right' }}>
                       {r.points !== 0 && (
-                        <button className="link-btn" style={{ fontSize: 12 }} onClick={() => reverse(r.id)}>Reverse</button>
+                        <button className="link-btn" style={{ fontSize: 12 }} onClick={() => reverse(r.id)}>{t('reverse')}</button>
                       )}
                     </td>
                   )}
@@ -746,6 +750,7 @@ function CustomerLoyalty({ customerId, reloadKey, canReverse, canAdjust, onAdjus
 }
 
 function CustomerActivity({ customerId }) {
+  const { t } = useTranslation('customers');
   const [rows, setRows] = useState(null);
   useEffect(() => {
     customersApi.activity(customerId, { ordering: '-created_at' })
@@ -756,18 +761,18 @@ function CustomerActivity({ customerId }) {
     <div className="card">
       <div className="card-header">
         <div>
-          <h3 className="card-title"><History size={15} style={{ marginRight: 6, verticalAlign: 'text-bottom' }} />Activity Log</h3>
-          <p className="card-subtitle">Profile changes for this customer - who, what and when.</p>
+          <h3 className="card-title"><History size={15} style={{ marginRight: 6, verticalAlign: 'text-bottom' }} />{t('activityLog')}</h3>
+          <p className="card-subtitle">{t('profileChangesCustomerWhoWhat')}</p>
         </div>
       </div>
       {rows === null ? (
         <div className="empty"><p>Loading…</p></div>
       ) : rows.length === 0 ? (
-        <div className="empty"><p>No activity yet.</p></div>
+        <div className="empty"><p>{t('noActivityYet')}</p></div>
       ) : (
         <div className="table-wrapper">
           <table className="table">
-            <thead><tr><th>When</th><th>Action</th><th>By</th><th>Details</th></tr></thead>
+            <thead><tr><th>{t('when')}</th><th>{t('action')}</th><th>By</th><th>{t('details')}</th></tr></thead>
             <tbody>
               {rows.map((r) => (
                 <tr key={r.id}>

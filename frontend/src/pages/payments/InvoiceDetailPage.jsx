@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { ArrowLeft, Download, RotateCcw, Check, X } from 'lucide-react';
+import { useTranslation } from 'react-i18next';
 import toast from 'react-hot-toast';
 
 import { PageHeader } from '../../components/PageHeader.jsx';
@@ -12,7 +13,7 @@ import { Money } from '../../services/currency.jsx';
 import { formatDateTime } from '../../services/timeformat.jsx';
 import {
   invoicesApi, creditNotesApi,
-  INVOICE_STATUS_TONE, CREDIT_NOTE_STATUS_TONE, CREDIT_NOTE_STATUS_LABELS,
+  INVOICE_STATUS_TONE, CREDIT_NOTE_STATUS_TONE, creditNoteStatusLabels,
 } from '../../services/paymentsService.js';
 import { apiErrorMessage } from '../../utils/apiError';
 
@@ -26,6 +27,7 @@ function Row({ label, children }) {
 }
 
 export default function InvoiceDetailPage() {
+  const { t } = useTranslation('payments');
   const { id } = useParams();
   const navigate = useNavigate();
   const { hasPerm } = useAuth();
@@ -42,7 +44,7 @@ export default function InvoiceDetailPage() {
   const load = useCallback(async () => {
     setLoading(true);
     try { setInv(await invoicesApi.get(id)); }
-    catch (e) { toast.error(apiErrorMessage(e, 'Unable to load the invoice. Please try again.')); }
+    catch (e) { toast.error(apiErrorMessage(e, t('unableLoadInvoicePleaseTry'))); }
     finally { setLoading(false); }
   }, [id]);
   useEffect(() => { load(); }, [load]);
@@ -54,7 +56,7 @@ export default function InvoiceDetailPage() {
       const a = document.createElement('a');
       a.href = url; a.download = filename; a.click();
       URL.revokeObjectURL(url);
-    } catch (e) { toast.error(apiErrorMessage(e, 'Unable to download the PDF. Please try again.')); }
+    } catch (e) { toast.error(apiErrorMessage(e, t('unableDownloadPdfPleaseTry'))); }
   }
 
   async function submitRefund({ amount, reason, method }) {
@@ -66,20 +68,20 @@ export default function InvoiceDetailPage() {
         : `Refund processed - credit note ${cn.number}`);
       setRefundOpen(false); load();
     } catch (e) {
-      toast.error(apiErrorMessage(e, 'Unable to request the refund. Please try again.'));
+      toast.error(apiErrorMessage(e, t('unableRequestRefundPleaseTry')));
     } finally { setBusy(false); }
   }
 
   async function approve(cn) {
     setBusy(true);
     try { await creditNotesApi.approve(cn.id); toast.success(`Refund ${cn.number} approved`); load(); }
-    catch (e) { toast.error(apiErrorMessage(e, 'Unable to approve the refund. Please try again.')); }
+    catch (e) { toast.error(apiErrorMessage(e, t('unableApproveRefundPleaseTry'))); }
     finally { setBusy(false); }
   }
 
   async function runReject() {
     if (!remarks.trim()) {
-      toast.error('A reason is required to reject a refund.');
+      toast.error(t('reasonRequiredRejectRefund'));
       return;
     }
     setBusy(true);
@@ -88,7 +90,7 @@ export default function InvoiceDetailPage() {
       toast.success(`Refund ${toReject.number} rejected`);
       setToReject(null); setRemarks(''); load();
     } catch (e) {
-      toast.error(apiErrorMessage(e, 'Unable to reject the refund. Please try again.'));
+      toast.error(apiErrorMessage(e, t('unableRejectRefundPleaseTry')));
     } finally { setBusy(false); }
   }
 
@@ -103,14 +105,14 @@ export default function InvoiceDetailPage() {
   return (
     <>
       <button className="btn btn-ghost btn-sm" style={{ marginBottom: 8 }} onClick={() => navigate('/invoices')}>
-        <ArrowLeft size={15} /> Invoices
+        <ArrowLeft size={15} /> {t('invoices2')}
       </button>
       <PageHeader
         title={`Invoice ${inv.number}`}
-        subtitle="Original invoice, its credit notes (refunds), and the refundable balance."
+        subtitle={t('originalInvoiceItsCreditNotes')}
         actions={canRefund && refundable && (
           <button className="btn btn-primary" onClick={() => setRefundOpen(true)}>
-            <RotateCcw size={15} /> Request refund
+            <RotateCcw size={15} /> {t('requestRefund')}
           </button>
         )}
       />
@@ -118,55 +120,55 @@ export default function InvoiceDetailPage() {
       {/* Original invoice */}
       <div className="card" style={{ padding: 16, marginBottom: 14 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 8 }}>
-          <h3 style={{ margin: 0, fontSize: 15 }}>Original Invoice</h3>
+          <h3 style={{ margin: 0, fontSize: 15 }}>{t('originalInvoice')}</h3>
           <StatusBadge tone={INVOICE_STATUS_TONE[inv.status] || 'muted'} label={inv.status_display || inv.status} />
           <button className="btn btn-secondary btn-sm" style={{ marginLeft: 'auto' }}
             onClick={() => dl(invoicesApi.download(inv.id), `${inv.number}.pdf`)}>
-            <Download size={14} /> Invoice PDF
+            <Download size={14} /> {t('invoicePdf')}
           </button>
         </div>
-        <Row label="Invoice number">{inv.number}</Row>
-        <Row label="Billed to">{inv.bill_to || '-'}</Row>
-        <Row label="Booking">
+        <Row label={t('invoiceNumber')}>{inv.number}</Row>
+        <Row label={t('billed')}>{inv.bill_to || '-'}</Row>
+        <Row label={t('booking')}>
           {inv.booking ? (
             <button className="link-btn" onClick={() => navigate(`/bookings/${inv.booking}`)}>
               {inv.booking_reference || 'View booking'}
             </button>
           ) : (inv.booking_reference || '-')}
         </Row>
-        <Row label="Payment / receipt">
+        <Row label={t('paymentReceipt')}>
           {inv.payment ? (
             <button className="link-btn" onClick={() => navigate(`/payments/${inv.payment}`)}>
               {inv.receipt?.number || 'View payment'}
             </button>
           ) : '-'}
         </Row>
-        <Row label="Issued">{formatDateTime(inv.issued_at)}</Row>
+        <Row label={t('issued2')}>{formatDateTime(inv.issued_at)}</Row>
         <div style={{ borderTop: '1px solid var(--color-border)', margin: '6px 0' }} />
-        <Row label="Subtotal"><Money amount={inv.subtotal} code={inv.currency} /></Row>
+        <Row label={t('subtotal')}><Money amount={inv.subtotal} code={inv.currency} /></Row>
         <Row label={`VAT / Tax${Number(inv.tax_rate) ? ` (${(Number(inv.tax_rate) * 100).toFixed(0)}%)` : ''}`}>
           <Money amount={inv.tax_amount} code={inv.currency} /></Row>
-        <Row label="Invoice total"><strong><Money amount={inv.total} code={inv.currency} /></strong></Row>
-        <Row label="Paid"><Money amount={inv.amount_paid} code={inv.currency} /></Row>
+        <Row label={t('invoiceTotal')}><strong><Money amount={inv.total} code={inv.currency} /></strong></Row>
+        <Row label={t('paid')}><Money amount={inv.amount_paid} code={inv.currency} /></Row>
         {Number(inv.outstanding) > 0 && (
-          <Row label="Outstanding"><Money amount={inv.outstanding} code={inv.currency} /></Row>
+          <Row label={t('outstanding')}><Money amount={inv.outstanding} code={inv.currency} /></Row>
         )}
         {Number(inv.refunded_total) > 0 && (
-          <Row label="Refunded"><Money amount={inv.refunded_total} code={inv.currency} /></Row>
+          <Row label={t('refunded')}><Money amount={inv.refunded_total} code={inv.currency} /></Row>
         )}
       </div>
 
       {/* Service, add-ons, subscription coverage & promo from the booking */}
       {inv.booking_detail && (
         <div className="card" style={{ padding: 16, marginBottom: 14 }}>
-          <h3 style={{ margin: '0 0 8px', fontSize: 15 }}>Booking &amp; coverage</h3>
-          <Row label="Facility">{inv.booking_detail.facility || '-'}</Row>
+          <h3 style={{ margin: '0 0 8px', fontSize: 15 }}>{t('bookingAndCoverage')}</h3>
+          <Row label={t('common:labels.facility')}>{inv.booking_detail.facility || '-'}</Row>
           {(inv.booking_detail.add_ons || []).length > 0 && (
-            <Row label="Add-ons">{inv.booking_detail.add_ons.join(', ')}</Row>
+            <Row label={t('addOns')}>{inv.booking_detail.add_ons.join(', ')}</Row>
           )}
-          {inv.booking_detail.club && <Row label="Club">{inv.booking_detail.club}</Row>}
+          {inv.booking_detail.club && <Row label={t('common:labels.club')}>{inv.booking_detail.club}</Row>}
           {inv.booking_detail.coverage && (
-            <Row label="Subscription">
+            <Row label={t('subscription')}>
               {inv.booking_detail.coverage.membership_number} - {inv.booking_detail.coverage.plan_name}
               {inv.booking_detail.coverage.covered_amount != null && (
                 <> · covered <Money amount={inv.booking_detail.coverage.covered_amount} code={inv.currency} /></>
@@ -174,7 +176,7 @@ export default function InvoiceDetailPage() {
             </Row>
           )}
           {inv.booking_detail.promo_code && (
-            <Row label="Promo">
+            <Row label={t('promo')}>
               {inv.booking_detail.promo_code}
               {Number(inv.booking_detail.promo_discount) > 0 && (
                 <> · − <Money amount={inv.booking_detail.promo_discount} code={inv.currency} /></>
@@ -186,18 +188,18 @@ export default function InvoiceDetailPage() {
 
       {/* Credit notes (refund documents) */}
       <div className="card" style={{ padding: 16, marginBottom: 14 }}>
-        <h3 style={{ margin: '0 0 10px', fontSize: 15 }}>Credit Notes</h3>
+        <h3 style={{ margin: '0 0 10px', fontSize: 15 }}>{t('creditNotes2')}</h3>
         {cns.length === 0 ? (
-          <p className="muted" style={{ fontSize: 13, margin: 0 }}>No refunds yet.</p>
+          <p className="muted" style={{ fontSize: 13, margin: 0 }}>{t('noRefundsYet')}</p>
         ) : (
           <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13.5 }}>
             <thead>
               <tr style={{ textAlign: 'left', color: 'var(--color-text-muted)' }}>
-                <th style={{ padding: '6px 8px' }}>Credit Note</th>
-                <th style={{ padding: '6px 8px' }}>Date</th>
-                <th style={{ padding: '6px 8px' }}>Amount</th>
-                <th style={{ padding: '6px 8px' }}>Status</th>
-                <th style={{ padding: '6px 8px' }}>Reason</th>
+                <th style={{ padding: '6px 8px' }}>{t('creditNote')}</th>
+                <th style={{ padding: '6px 8px' }}>{t('common:labels.date')}</th>
+                <th style={{ padding: '6px 8px' }}>{t('common:labels.amount')}</th>
+                <th style={{ padding: '6px 8px' }}>{t('common:labels.status')}</th>
+                <th style={{ padding: '6px 8px' }}>{t('common:labels.reason')}</th>
                 <th style={{ padding: '6px 8px', textAlign: 'right' }}></th>
               </tr>
             </thead>
@@ -212,7 +214,7 @@ export default function InvoiceDetailPage() {
                   <td style={{ padding: '8px' }}><Money amount={cn.total} code={cn.currency} /></td>
                   <td style={{ padding: '8px' }}>
                     <StatusBadge tone={CREDIT_NOTE_STATUS_TONE[cn.status] || 'muted'}
-                      label={CREDIT_NOTE_STATUS_LABELS[cn.status] || cn.status} />
+                      label={creditNoteStatusLabels(t)[cn.status] || cn.status} />
                   </td>
                   <td style={{ padding: '8px', color: 'var(--color-text-muted)' }}>{cn.reason || '-'}</td>
                   <td style={{ padding: '8px', textAlign: 'right', whiteSpace: 'nowrap' }}>
@@ -226,12 +228,12 @@ export default function InvoiceDetailPage() {
                       <>
                         <button className="btn btn-ghost btn-sm" disabled={busy}
                           style={{ color: 'var(--color-success,#059669)' }} onClick={() => approve(cn)}>
-                          <Check size={13} /> Approve
+                          <Check size={13} /> {t('common:actions.approve')}
                         </button>
                         <button className="btn btn-ghost btn-sm" disabled={busy}
                           style={{ color: 'var(--color-danger,#dc2626)' }}
                           onClick={() => { setToReject(cn); setRemarks(''); }}>
-                          <X size={13} /> Reject
+                          <X size={13} /> {t('common:actions.reject')}
                         </button>
                       </>
                     )}
@@ -245,9 +247,9 @@ export default function InvoiceDetailPage() {
 
       {/* Summary */}
       <div className="card" style={{ padding: 16, maxWidth: 360 }}>
-        <h3 style={{ margin: '0 0 8px', fontSize: 15 }}>Summary</h3>
-        <Row label="Total refunded"><Money amount={inv.refunded_total} code={inv.currency} /></Row>
-        <Row label="Remaining refundable balance"><Money amount={inv.refundable_amount} code={inv.currency} /></Row>
+        <h3 style={{ margin: '0 0 8px', fontSize: 15 }}>{t('summary')}</h3>
+        <Row label={t('totalRefunded')}><Money amount={inv.refunded_total} code={inv.currency} /></Row>
+        <Row label={t('remainingRefundableBalance')}><Money amount={inv.refundable_amount} code={inv.currency} /></Row>
       </div>
 
       <RefundModal
@@ -257,11 +259,11 @@ export default function InvoiceDetailPage() {
       />
 
       <ConfirmDialog
-        open={Boolean(toReject)} busy={busy} tone="danger" title="Reject refund?" confirmLabel="Reject"
+        open={Boolean(toReject)} busy={busy} tone="danger" title={t('rejectRefund2')} confirmLabel={t('common:actions.reject')}
         message={toReject ? (
           <>
-            Reject refund <strong>{toReject.number}</strong>? No money will be returned. A reason is required.
-            <input className="form-input" style={{ marginTop: 10 }} placeholder="Reason (required)"
+            {t('rejectRefund')} <strong>{toReject.number}</strong>? No money will be returned. A reason is required.
+            <input className="form-input" style={{ marginTop: 10 }} placeholder={t('reasonRequired')}
               value={remarks} onChange={(e) => setRemarks(e.target.value)} />
           </>
         ) : null}

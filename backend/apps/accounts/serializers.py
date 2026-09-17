@@ -44,6 +44,7 @@ class UserSerializer(serializers.ModelSerializer):
             "last_name",
             "full_name",
             "phone",
+            "language",
             "role",
             "role_slug",
             "role_name",
@@ -88,6 +89,21 @@ class UserSerializer(serializers.ModelSerializer):
 
     def get_effective_permissions(self, obj) -> list[str]:
         return sorted(obj.get_effective_permissions())
+
+    def validate_language(self, value):
+        """Accept only a language an administrator has enabled, or blank.
+
+        Blank means "follow the organization default", which is how a user goes
+        back to not having an opinion.
+        """
+        code = (value or "").strip().lower()
+        if not code:
+            return ""
+        from apps.settings_app.models import Language
+        if not Language.objects.filter(code=code, is_enabled=True).exists():
+            raise serializers.ValidationError(
+                "That language is not enabled for this organization.")
+        return code
 
     def get_assigned_club_names(self, obj) -> list[str]:
         return [s.name for s in obj.assigned_clubs.all()]

@@ -1,6 +1,5 @@
-import { BOOKING_STATUSES } from '../../services/bookingsService.js';
-
-const LABELS = Object.fromEntries(BOOKING_STATUSES.map((s) => [s.value, s.label]));
+import { bookingStatuses } from '../../services/bookingsService.js';
+import i18n from '../../i18n/index.js';
 
 /**
  * One colour per booking status, shared by the card and calendar views so a
@@ -14,8 +13,15 @@ export function statusClass(status) {
   return `bk-st--${status || 'unknown'}`;
 }
 
+/**
+ * The reader-facing name of a status. Resolved at call time, so it follows the
+ * active language; the code itself is never translated.
+ */
 export function statusLabel(status) {
-  return LABELS[status] || (status || '').replace(/_/g, ' ');
+  if (!status) return '';
+  const key = `bookings:status.${status}`;
+  const text = i18n.t(key);
+  return text === key ? String(status).replace(/_/g, ' ') : text;
 }
 
 // Statuses that no longer occupy their slot - drawn faded in the calendar so a
@@ -30,7 +36,7 @@ export function isInactive(status) {
 export function legendFor(rows) {
   const seen = [];
   rows.forEach((r) => { if (!seen.includes(r.status)) seen.push(r.status); });
-  const order = BOOKING_STATUSES.map((s) => s.value);
+  const order = bookingStatuses(i18n.t).map((s) => s.value);
   return seen
     .sort((a, b) => order.indexOf(a) - order.indexOf(b))
     .map((s) => ({ status: s, label: statusLabel(s), className: statusClass(s) }));

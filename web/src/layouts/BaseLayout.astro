@@ -19,6 +19,17 @@ const ogImage = seo?.og_image_detail?.url || branding?.og_image || null;
 const favicon = branding?.favicon || '/logo.svg';
 const robots = seo?.robots || 'index,follow';
 
+// Organization brand colours, if branding has been configured. Anything the
+// API does not send simply leaves the stylesheet's own value in place.
+const brand = branding?.brand || {};
+const brandStyle = [
+  brand.primary ? `--brand: ${brand.primary}` : null,
+  brand.primary ? `--brand-soft: ${brand.primary}` : null,
+  brand.secondary ? `--brand-deep: ${brand.secondary}` : null,
+  brand.accent ? `--accent: ${brand.accent}` : null,
+  brand.accent ? `--accent-strong: ${brand.accent}` : null,
+].filter(Boolean).join('; ') || undefined;
+
 // JSON-LD: local business (lets search engines understand the brand).
 const jsonLd = {
   '@context': 'https://schema.org',
@@ -33,18 +44,21 @@ const jsonLd = {
 };
 ---
 <!doctype html>
-<html lang="en" data-theme="dark">
+<html lang="en" data-theme="light" style={brandStyle}>
   <head>
-    <!-- Apply the saved theme before paint so there's no flash. Dark is the default. -->
+    <!-- Apply the saved theme before paint so there is no flash. Light is the
+         default: the site is a warm off-white page, and dark is opt-in. The
+         key must match the one the header writes (they did not, so the switch
+         never survived a reload). -->
     <script is:inline>
       (function () {
         try {
           var t = localStorage.getItem('cb-theme');
-          if (t !== 'light' && t !== 'dark') t = 'dark';
+          if (t !== 'light' && t !== 'dark') t = 'light';
           document.documentElement.setAttribute('data-theme', t);
           document.documentElement.style.colorScheme = t;
         } catch (e) {
-          document.documentElement.setAttribute('data-theme', 'dark');
+          document.documentElement.setAttribute('data-theme', 'light');
         }
       })();
     </script>

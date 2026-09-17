@@ -177,8 +177,9 @@ REST_FRAMEWORK = {
         "rest_framework.filters.SearchFilter",
         "rest_framework.filters.OrderingFilter",
     ),
-    "DEFAULT_PAGINATION_CLASS":
-        "rest_framework.pagination.PageNumberPagination",
+    # One pagination standard for every list endpoint, so the admin table's
+    # page-size control works everywhere rather than only on Users.
+    "DEFAULT_PAGINATION_CLASS": "config.listing.StandardPagination",
     "PAGE_SIZE": 20,
     "DEFAULT_SCHEMA_CLASS": "drf_spectacular.openapi.AutoSchema",
     # Throttling — brute-force protection on auth endpoints and general abuse.
@@ -372,6 +373,35 @@ DEFAULT_TAX_RATE = config("DEFAULT_TAX_RATE", default=0.05, cast=float)
 GOOGLE_MAPS_API_KEY = config("GOOGLE_MAPS_API_KEY", default="")
 GOOGLE_PLACES_API_KEY = config("GOOGLE_PLACES_API_KEY", default="")
 GOOGLE_GEOCODING_API_KEY = config("GOOGLE_GEOCODING_API_KEY", default="")
+
+# ---------------------------------------------------------------------------
+# AI reporting assistant
+# ---------------------------------------------------------------------------
+# The key is server-side only and is never sent to the browser or logged. The
+# assistant is read-only by construction (see apps/reports/ai/tools.py); these
+# settings control cost, latency and blast radius, not what it is allowed to do.
+AI_PROVIDER = config("AI_PROVIDER", default="openai")
+OPENAI_API_KEY = config("OPENAI_API_KEY", default="")
+OPENAI_BASE_URL = config("OPENAI_BASE_URL", default="https://api.openai.com/v1")
+OPENAI_MODEL = config("OPENAI_MODEL", default="gpt-4o-mini")
+# Reporting uses its own model setting so it can be tuned without touching any
+# other AI feature that may be added later.
+OPENAI_REPORT_MODEL = config("OPENAI_REPORT_MODEL", default=OPENAI_MODEL)
+
+AI_REQUEST_TIMEOUT_SECONDS = config("AI_REQUEST_TIMEOUT_SECONDS", default=30, cast=int)
+AI_MAX_RETRIES = config("AI_MAX_RETRIES", default=1, cast=int)
+AI_MAX_OUTPUT_TOKENS = config("AI_MAX_OUTPUT_TOKENS", default=1200, cast=int)
+
+# A master switch: off means the Reports page simply does not offer the panel,
+# and the endpoints refuse politely. Normal reports are unaffected either way.
+AI_REPORT_ENABLED = config("AI_REPORT_ENABLED", default=True, cast=bool)
+AI_REPORT_CACHE_TTL_SECONDS = config("AI_REPORT_CACHE_TTL_SECONDS", default=900, cast=int)
+# Guard rails against a question that would scan years of data or return a
+# table nobody can read.
+AI_REPORT_MAX_DATE_RANGE_DAYS = config("AI_REPORT_MAX_DATE_RANGE_DAYS", default=732, cast=int)
+AI_REPORT_MAX_ROWS = config("AI_REPORT_MAX_ROWS", default=500, cast=int)
+AI_CHAT_HISTORY_MAX_MESSAGES = config("AI_CHAT_HISTORY_MAX_MESSAGES", default=10, cast=int)
+AI_CHAT_SESSION_TTL_SECONDS = config("AI_CHAT_SESSION_TTL_SECONDS", default=3600, cast=int)
 
 # ---------------------------------------------------------------------------
 # Security hardening

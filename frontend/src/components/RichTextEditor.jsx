@@ -1,19 +1,21 @@
 import { useEffect, useRef, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import {
   Bold, Italic, Underline, Strikethrough, List, ListOrdered, Link, Quote, RemoveFormatting,
 } from 'lucide-react';
 
 // Toolbar actions (execCommand-based). HTML output is sanitised server-side.
+// `titleKey` rather than a literal: the tooltip has to follow the language.
 export const RT_TOOLS = [
-  { cmd: 'bold', icon: Bold, title: 'Bold' },
-  { cmd: 'italic', icon: Italic, title: 'Italic' },
-  { cmd: 'underline', icon: Underline, title: 'Underline' },
-  { cmd: 'strikeThrough', icon: Strikethrough, title: 'Strikethrough' },
-  { cmd: 'insertUnorderedList', icon: List, title: 'Bullet list' },
-  { cmd: 'insertOrderedList', icon: ListOrdered, title: 'Numbered list' },
-  { cmd: 'formatBlock', arg: 'blockquote', icon: Quote, title: 'Quote' },
-  { cmd: '__link', icon: Link, title: 'Insert link' },
-  { cmd: 'removeFormat', icon: RemoveFormatting, title: 'Clear formatting' },
+  { cmd: 'bold', icon: Bold, titleKey: 'richText.bold' },
+  { cmd: 'italic', icon: Italic, titleKey: 'richText.italic' },
+  { cmd: 'underline', icon: Underline, titleKey: 'richText.underline' },
+  { cmd: 'strikeThrough', icon: Strikethrough, titleKey: 'richText.strikethrough' },
+  { cmd: 'insertUnorderedList', icon: List, titleKey: 'richText.bulletList' },
+  { cmd: 'insertOrderedList', icon: ListOrdered, titleKey: 'richText.numberedList' },
+  { cmd: 'formatBlock', arg: 'blockquote', icon: Quote, titleKey: 'richText.quote' },
+  { cmd: '__link', icon: Link, titleKey: 'richText.insertLink' },
+  { cmd: 'removeFormat', icon: RemoveFormatting, titleKey: 'richText.clearFormatting' },
 ];
 
 /**
@@ -22,6 +24,7 @@ export const RT_TOOLS = [
  * (HTML string) + `onChange(html)`.
  */
 export function RichTextEditor({ value, onChange, placeholder, minHeight = 180 }) {
+  const { t } = useTranslation('common');
   const el = useRef(null);
   const savedRange = useRef(null);
   const [linkOpen, setLinkOpen] = useState(false);
@@ -91,11 +94,11 @@ export function RichTextEditor({ value, onChange, placeholder, minHeight = 180 }
   return (
     <div style={{ border: '1px solid var(--color-border)', borderRadius: 8, overflow: 'hidden' }}>
       <div style={{ display: 'flex', flexWrap: 'wrap', gap: 2, padding: 6, background: 'var(--color-surface-2, #f7f8fa)', borderBottom: '1px solid var(--color-border-soft, #eef0f4)' }}>
-        {RT_TOOLS.map((t) => {
-          const Icon = t.icon;
+        {RT_TOOLS.map((tool) => {
+          const Icon = tool.icon;
           return (
-            <button key={t.title} type="button" className="icon-btn" title={t.title}
-              onMouseDown={(e) => { e.preventDefault(); run(t); }}>
+            <button key={tool.cmd} type="button" className="icon-btn" title={t(tool.titleKey)}
+              onMouseDown={(e) => { e.preventDefault(); run(tool); }}>
               <Icon size={15} />
             </button>
           );
@@ -110,9 +113,9 @@ export function RichTextEditor({ value, onChange, placeholder, minHeight = 180 }
             style={{ flex: 1 }}
           />
           <button type="button" className="btn btn-primary btn-sm" disabled={!linkUrl.trim()}
-            onMouseDown={(e) => e.preventDefault()} onClick={applyLink}>Add link</button>
+            onMouseDown={(e) => e.preventDefault()} onClick={applyLink}>{t('addLink')}</button>
           <button type="button" className="btn btn-secondary btn-sm"
-            onMouseDown={(e) => e.preventDefault()} onClick={() => setLinkOpen(false)}>Cancel</button>
+            onMouseDown={(e) => e.preventDefault()} onClick={() => setLinkOpen(false)}>{t('common:actions.cancel')}</button>
         </div>
       )}
       <div

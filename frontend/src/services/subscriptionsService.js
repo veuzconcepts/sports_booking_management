@@ -38,48 +38,48 @@ export const membershipsApi = {
   activity: (id, params) => api.get(`/payments/memberships/${id}/activity/`, { params }).then((r) => r.data),
 };
 
-export const MEMBERSHIP_PAYMENT_METHODS = [
-  { value: 'card',   label: 'Card' },
-  { value: 'cash',   label: 'Cash' },
-  { value: 'wallet', label: 'Wallet' },
+export const membershipPaymentMethods = (t) => [
+  { value: 'card',   label: t('subscriptions:card') },
+  { value: 'cash',   label: t('subscriptions:cash') },
+  { value: 'wallet', label: t('subscriptions:wallet') },
 ];
 
-export const MEMBERSHIP_INTERVALS = [
-  { value: 'monthly',     label: 'Monthly' },
-  { value: 'quarterly',   label: 'Quarterly' },
-  { value: 'half_yearly', label: 'Half-yearly' },
-  { value: 'annual',      label: 'Yearly' },
-  { value: 'custom',      label: 'Custom duration' },
+export const membershipIntervals = (t) => [
+  { value: 'monthly',     label: t('subscriptions:monthly') },
+  { value: 'quarterly',   label: t('subscriptions:quarterly') },
+  { value: 'half_yearly', label: t('subscriptions:halfYearly') },
+  { value: 'annual',      label: t('subscriptions:yearly') },
+  { value: 'custom',      label: t('subscriptions:customDuration') },
 ];
 
-export const VALIDITY_MODES = [
-  { value: 'rolling', label: 'Rolling from purchase date' },
-  { value: 'fixed',   label: 'Fixed start & end date' },
+export const validityModes = (t) => [
+  { value: 'rolling', label: t('subscriptions:rollingPurchaseDate') },
+  { value: 'fixed',   label: t('subscriptions:fixedStartEndDate') },
 ];
 
-export const ENTITLEMENT_TARGETS = [
-  { value: 'facility_type', label: 'Service item' },
-  { value: 'category',     label: 'Service category' },
-  { value: 'addon',        label: 'Add-on' },
+export const entitlementTargets = (t) => [
+  { value: 'facility_type', label: t('subscriptions:serviceItem') },
+  { value: 'category',     label: t('subscriptions:serviceCategory') },
+  { value: 'addon',        label: t('subscriptions:add') },
 ];
 
-export const ENTITLEMENT_LIMITS = [
-  { value: 'unlimited', label: 'Unlimited' },
-  { value: 'limited',   label: 'Limited' },
+export const entitlementLimits = (t) => [
+  { value: 'unlimited', label: t('subscriptions:unlimited') },
+  { value: 'limited',   label: t('subscriptions:limited') },
 ];
 
-export const ENTITLEMENT_PERIODS = [
-  { value: 'lifetime', label: 'Per membership (lifetime)' },
-  { value: 'monthly',  label: 'Per month' },
-  { value: 'weekly',   label: 'Per week' },
-  { value: 'daily',    label: 'Per day' },
+export const entitlementPeriods = (t) => [
+  { value: 'lifetime', label: t('subscriptions:perMembershipLifetime') },
+  { value: 'monthly',  label: t('subscriptions:perMonth') },
+  { value: 'weekly',   label: t('subscriptions:perWeek') },
+  { value: 'daily',    label: t('subscriptions:perDay') },
 ];
 
 export const MEMBERSHIP_STATUS_TONE = {
   draft: 'muted', active: 'success', suspended: 'warning',
   expired: 'muted', cancelled: 'danger',
 };
-export const MEMBERSHIP_STATUS_LABELS = {
+export const membershipStatusLabels = (t) => ({
   draft: 'Draft', active: 'Active', suspended: 'Suspended',
   expired: 'Expired', cancelled: 'Cancelled',
-};
+});

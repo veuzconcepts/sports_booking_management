@@ -1,3 +1,5 @@
+import { useStatusLabel } from '../i18n/statusLabels.js';
+
 const TONES = {
   success: 'badge badge-success',
   warning: 'badge badge-warning',
@@ -20,7 +22,6 @@ const STATUS_TONE = {
   booked:        'info',
   ready_for_delivery: 'info',
   complete_sign: 'success',
-  draft:         'muted',
   pending:       'warning',
   quality_check: 'warning',
   overdue:       'warning',
@@ -31,8 +32,16 @@ const STATUS_TONE = {
   draft:         'muted',
 };
 
+/**
+ * A status pill. The colour comes from the status CODE; the words come from the
+ * translation layer, so `confirmed` stays `confirmed` everywhere it matters and
+ * only what the reader sees changes with the language.
+ *
+ * An explicit `label` still wins, for the callers that pass domain text the
+ * status map does not know about.
+ */
 export function StatusBadge({ status, tone, label }) {
+  const statusLabel = useStatusLabel();
   const resolvedTone = tone || STATUS_TONE[status] || 'muted';
-  const text = label || (status || '').replace(/_/g, ' ');
-  return <span className={TONES[resolvedTone]}>{text}</span>;
+  return <span className={TONES[resolvedTone]}>{statusLabel(status, label)}</span>;
 }

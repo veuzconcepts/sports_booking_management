@@ -1,6 +1,9 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { Clock } from 'lucide-react';
+import { useTranslation } from 'react-i18next';
 
+import { usePopover } from './usePopover.js';
 import { useTimeFormat } from '../services/timeformat.jsx';
 
 /**
@@ -89,32 +92,27 @@ function suggestions(step) {
 }
 
 export function TimePicker({
-  value, onChange, disabled, invalid, step = 30, ariaLabel = 'Time',
+  value, onChange, disabled, invalid, step = 30, ariaLabel,
 }) {
+  const { t } = useTranslation('common');
   const { format24 } = useTimeFormat();
-  const [open, setOpen] = useState(false);
+  const fieldLabel = ariaLabel || t('timeLabel');
   const [draft, setDraft] = useState(null);      // non-null while being typed
-  const wrap = useRef(null);
-  const listRef = useRef(null);
+  // Portalled: the field is used inside the schedule editor, which sits in a
+  // scrolling modal body that would clip an absolutely positioned list.
+  const {
+    triggerRef, popRef, open, setOpen, toggle, close, style,
+  } = usePopover({ width: 132, estimatedHeight: 210, align: 'start' });
 
   const options = useMemo(() => suggestions(step), [step]);
   const shown = draft !== null ? draft : displayTime(value, format24);
 
-  useEffect(() => {
-    if (!open) return undefined;
-    const onDoc = (e) => {
-      if (wrap.current && !wrap.current.contains(e.target)) setOpen(false);
-    };
-    document.addEventListener('mousedown', onDoc);
-    return () => document.removeEventListener('mousedown', onDoc);
-  }, [open]);
-
   // Open the list at the current value rather than at midnight.
   useEffect(() => {
-    if (!open || !listRef.current) return;
-    const active = listRef.current.querySelector('[data-on="1"]');
+    if (!open || !popRef.current) return;
+    const active = popRef.current.querySelector('[data-on="1"]');
     if (active) active.scrollIntoView({ block: 'center' });
-  }, [open]);
+  }, [open, popRef]);
 
   function commit(text) {
     const parsed = parseTimeInput(text, { format24 });
@@ -123,12 +121,12 @@ export function TimePicker({
   }
 
   return (
-    <div className={`tp${invalid ? ' tp--invalid' : ''}`} ref={wrap}>
+    <div className={`tp${invalid ? ' tp--invalid' : ''}`} ref={triggerRef}>
       <input
         className="tp-input"
         type="text"
         inputMode="numeric"
-        aria-label={ariaLabel}
+        aria-label={fieldLabel}
         disabled={disabled}
         value={shown}
         placeholder={format24 ? '00:00' : '12:00 AM'}
@@ -136,29 +134,30 @@ export function TimePicker({
         onChange={(e) => setDraft(e.target.value)}
         onBlur={(e) => commit(e.target.value)}
         onKeyDown={(e) => {
-          if (e.key === 'Enter') { e.preventDefault(); commit(e.currentTarget.value); setOpen(false); }
-          if (e.key === 'Escape') { setDraft(null); setOpen(false); }
+          if (e.key === 'Enter') { e.preventDefault(); commit(e.currentTarget.value); close(); }
+          if (e.key === 'Escape') { setDraft(null); close(); }
         }}
       />
       <button type="button" className="tp-btn" tabIndex={-1} disabled={disabled}
-        aria-label={`Choose ${ariaLabel.toLowerCase()}`}
-        onClick={() => setOpen((o) => !o)}>
+        aria-label={t('chooseField', { field: fieldLabel.toLowerCase() })}
+        onClick={toggle}>
         <Clock size={13} />
       </button>
 
-      {open && !disabled && (
-        <ul className="tp-list" ref={listRef} role="listbox">
+      {open && !disabled && style && createPortal(
+        <ul className="tp-list" ref={popRef} role="listbox" style={style}>
           {options.map((opt) => (
             <li key={opt}>
               <button type="button" data-on={opt === value ? '1' : '0'}
                 className={`tp-opt${opt === value ? ' is-on' : ''}`}
                 onMouseDown={(e) => e.preventDefault()}
-                onClick={() => { setDraft(null); onChange?.(opt); setOpen(false); }}>
+                onClick={() => { setDraft(null); onChange?.(opt); close(); }}>
                 {displayTime(opt, format24)}
               </button>
             </li>
           ))}
-        </ul>
+        </ul>,
+        document.body,
       )}
     </div>
   );

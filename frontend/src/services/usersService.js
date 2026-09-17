@@ -43,11 +43,11 @@ export const accessApi = {
 
 // Behaviour templates a created role maps to. `admin` (full access, all
 // clubs, senior) is super-admin-only to assign - the backend rejects others.
-export const CUSTOM_BASE_ROLES = [
-  { value: 'admin',        label: 'Admin (full access, all clubs)', superOnly: true },
-  { value: 'manager',      label: 'Manager (club-scoped, broad)' },
-  { value: 'facility_operator', label: 'Facility Operator (club-scoped)' },
-  { value: 'facility_staff',         label: 'Facility Staff (club-scoped, limited)' },
+export const customBaseRoles = (t) => [
+  { value: 'admin',        label: t('users:adminFullAccessAllClubs'), superOnly: true },
+  { value: 'manager',      label: t('users:managerClubScopedBroad') },
+  { value: 'facility_operator', label: t('users:facilityOperatorClubScoped') },
+  { value: 'facility_staff',         label: t('users:facilityStaffClubScopedLimited') },
 ];
 
 // Self-service account actions (any authenticated user).
@@ -64,12 +64,12 @@ export const accountApi = {
     api.post('/auth/idle-event/', { event }).then((r) => r.data).catch(() => {}),
 };
 
-export const USER_ROLES = [
-  { value: 'super_admin',  label: 'Super Admin' },
-  { value: 'admin',        label: 'Admin' },
-  { value: 'club_admin', label: 'Club Admin (club-scoped)' },
-  { value: 'manager',      label: 'Manager' },
-  { value: 'facility_operator', label: 'Facility Operator' },
-  { value: 'facility_staff',         label: 'Facility Staff' },
-  { value: 'customer',     label: 'Customer' },
+export const userRoles = (t) => [
+  { value: 'super_admin',  label: t('users:superAdmin') },
+  { value: 'admin',        label: t('users:admin') },
+  { value: 'club_admin', label: t('users:clubAdminClubScoped') },
+  { value: 'manager',      label: t('users:manager') },
+  { value: 'facility_operator', label: t('users:facilityOperator') },
+  { value: 'facility_staff',         label: t('users:facilityStaff') },
+  { value: 'customer',     label: t('common:labels.customer') },
 ];

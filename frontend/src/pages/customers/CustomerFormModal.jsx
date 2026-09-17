@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Controller, useForm } from 'react-hook-form';
 import toast from 'react-hot-toast';
+import { useTranslation } from 'react-i18next';
 
 import { Modal } from '../../components/Modal.jsx';
 import { FormField } from '../../components/FormField.jsx';
@@ -10,21 +11,22 @@ import { customersApi } from '../../services/customersService.js';
 import { useBookingConfig } from '../../hooks/useBookingConfig.js';
 import { apiErrorMessage } from '../../utils/apiError';
 
-const CUSTOMER_SOURCES = [
-  { value: 'web', label: 'Website' },
-  { value: 'admin', label: 'Admin' },
-  { value: 'walk_in', label: 'Walk-in' },
-  { value: 'referral', label: 'Referral' },
-  { value: 'other', label: 'Other' },
+const customerSources = (t) => [
+  { value: 'web', label: t('website') },
+  { value: 'admin', label: t('admin') },
+  { value: 'walk_in', label: t('walk') },
+  { value: 'referral', label: t('referral') },
+  { value: 'other', label: t('other') },
 ];
 
-const CUSTOMER_TYPES = [
-  { value: 'individual', label: 'Individual' },
-  { value: 'corporate', label: 'Corporate' },
-  { value: 'fleet', label: 'Fleet' },
+const customerTypes = (t) => [
+  { value: 'individual', label: t('individual') },
+  { value: 'corporate', label: t('corporate') },
+  { value: 'fleet', label: t('fleet') },
 ];
 
 export function CustomerFormModal({ open, onClose, onSaved, onUseExisting }) {
+  const { t } = useTranslation('customers');
   const { register, handleSubmit, reset, control, watch, formState: { errors, isSubmitting } } =
     useForm({ defaultValues: { source: 'walk_in', customer_type: 'individual' } });
   const { rulesFor } = useBookingConfig();
@@ -58,7 +60,7 @@ export function CustomerFormModal({ open, onClose, onSaved, onUseExisting }) {
       reset();
       onSaved?.(created);
     } catch (e) {
-      toast.error(apiErrorMessage(e, 'Unable to create the customer. Please try again.'));
+      toast.error(apiErrorMessage(e, t('unableCreateCustomerPleaseTry')));
     }
   }
 
@@ -66,26 +68,26 @@ export function CustomerFormModal({ open, onClose, onSaved, onUseExisting }) {
     <Modal
       open={open}
       onClose={onClose}
-      title="New customer"
+      title={t('newCustomer')}
       size="md"
       footer={
         <>
-          <button className="btn btn-secondary" onClick={onClose} type="button">Cancel</button>
+          <button className="btn btn-secondary" onClick={onClose} type="button">{t('common:actions.cancel')}</button>
           <button className="btn btn-primary" onClick={handleSubmit(onSubmit)} disabled={isSubmitting}>
-            {isSubmitting ? 'Saving…' : 'Create customer'}
+            {isSubmitting ? t('common:state.saving') : t('createCustomer')}
           </button>
         </>
       }
     >
       <form onSubmit={handleSubmit(onSubmit)} id="customer-form">
-        <FormField label="Full name" error={errors.full_name?.message}>
+        <FormField label={t('fullName')} error={errors.full_name?.message}>
           <input className="form-input" {...register('full_name', { required: 'Required' })} />
         </FormField>
 
         <div className="row">
           <div className="col">
             <FormField label={`Mobile number${rules.phone_required ? ' *' : ''}`}
-              hint="Recommended - used to find the customer."
+              hint={t('recommendedUsedFindCustomer')}
               error={errors.mobile_number?.message}>
               <Controller name="mobile_number" control={control}
                 rules={{ validate: (v) => {
@@ -99,7 +101,7 @@ export function CustomerFormModal({ open, onClose, onSaved, onUseExisting }) {
           </div>
           <div className="col">
             <FormField label={`Email${rules.email_required ? ' *' : ''}`}
-              hint={rules.email_required ? 'Required.' : 'Optional.'} error={errors.email?.message}>
+              hint={rules.email_required ? t('common:state.required') : t('common:state.optional')} error={errors.email?.message}>
               <input className="form-input" type="email"
                 {...register('email', { required: rules.email_required ? 'Required' : false })} />
             </FormField>
@@ -115,38 +117,38 @@ export function CustomerFormModal({ open, onClose, onSaved, onUseExisting }) {
             <span>An existing customer matches this {match.field === 'phone' ? 'mobile number' : 'email'}: <strong>{match.name || match.code}</strong>.</span>
             <button type="button" className="btn btn-secondary"
               onClick={() => { (onUseExisting || onSaved)?.(match); reset(); setMatch(null); }}>
-              Use existing
+              {t('useExisting')}
             </button>
           </div>
         )}
 
         <div className="row">
           <div className="col">
-            <FormField label="Customer type">
+            <FormField label={t('customerType')}>
               <Controller name="customer_type" control={control} render={({ field }) => (
-                <Select2 options={CUSTOMER_TYPES} value={field.value} onChange={field.onChange} />
+                <Select2 options={customerTypes(t)} value={field.value} onChange={field.onChange} />
               )} />
             </FormField>
           </div>
           <div className="col">
-            <FormField label="Source" hint="Where did this customer come from?">
+            <FormField label={t('sourceLabel')} hint={t('whereDidCustomerCome')}>
               <Controller name="source" control={control} render={({ field }) => (
-                <Select2 options={CUSTOMER_SOURCES} value={field.value} onChange={field.onChange} />
+                <Select2 options={customerSources(t)} value={field.value} onChange={field.onChange} />
               )} />
             </FormField>
           </div>
         </div>
 
-        <FormField label="TRN (Tax Registration Number)" hint="Optional - for VAT-registered (B2B) customers; printed on their tax invoices.">
+        <FormField label={t('trnTaxRegistrationNumber')} hint={t('optionalVatRegisteredB2bCustomers')}>
           <input className="form-input" {...register('trn')} placeholder="100xxxxxxxxxxxx" />
         </FormField>
 
-        <FormField label="Notes">
+        <FormField label={t('common:labels.notes')}>
           <textarea className="form-textarea" rows={3} {...register('notes')} />
         </FormField>
 
         <p className="muted" style={{ fontSize: 12.5, marginTop: 4 }}>
-          No login is created. You can provision a mobile login later from the customer’s page.
+          {t('noLoginCreatedYouCan')}
         </p>
       </form>
     </Modal>

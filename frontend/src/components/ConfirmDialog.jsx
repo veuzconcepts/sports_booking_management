@@ -1,4 +1,5 @@
 import { AlertTriangle } from 'lucide-react';
+import { useTranslation } from 'react-i18next';
 
 import { Modal } from './Modal.jsx';
 
@@ -14,21 +15,22 @@ import { Modal } from './Modal.jsx';
  */
 export function ConfirmDialog({
   open,
-  title = 'Are you sure?',
+  title,
   message,
-  confirmLabel = 'Confirm',
-  cancelLabel = 'Cancel',
+  confirmLabel,
+  cancelLabel,
   tone = 'primary',
   busy = false,
   onConfirm,
   onClose,
 }) {
+  const { t } = useTranslation('common');
   const confirmClass = tone === 'danger' ? 'btn btn-danger' : 'btn btn-primary';
   return (
     <Modal
       open={open}
       onClose={onClose}
-      title={title}
+      title={title || t('common:confirm.title')}
       size="sm"
       footer={
         <>

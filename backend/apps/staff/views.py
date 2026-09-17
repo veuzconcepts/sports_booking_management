@@ -7,6 +7,7 @@ from rest_framework.response import Response
 
 from apps.accounts.models import Role
 from apps.auditlogs.services import log_event
+from config.listing import GroupedListMixin
 
 from .filters import ShiftFilter
 from .models import (
@@ -59,7 +60,7 @@ def _shift_summary(s):
 _STAFF_TRACK = ["employee_id", "employment_type", "skills", "hired_on", "is_available", "notes"]
 
 
-class StaffProfileViewSet(viewsets.ModelViewSet):
+class StaffProfileViewSet(GroupedListMixin, viewsets.ModelViewSet):
     queryset = (
         StaffProfile.objects
         .select_related("user", "base_club")
@@ -67,7 +68,15 @@ class StaffProfileViewSet(viewsets.ModelViewSet):
         .all()
     )
     permission_classes = [permissions.IsAuthenticated, StaffManagePermission]
-    filterset_fields = ["employment_type", "is_available", "user__role"]
+    filterset_fields = ["employment_type", "is_available", "user__role", "base_club"]
+    group_by_fields = {
+        "user__role": {"field": "user__role", "filter_param": "user__role"},
+        "employment_type": {"field": "employment_type"},
+        "base_club": {"field": "base_club_id", "label": "base_club__name",
+                      "filter_param": "base_club", "empty_label": "No club"},
+        "is_available": {"field": "is_available", "true_label": "Available",
+                         "empty_label": "Off"},
+    }
     search_fields = ["employee_id", "user__first_name", "user__last_name",
                      "user__email", "skills"]
     ordering_fields = ["employee_id", "rating", "created_at"]

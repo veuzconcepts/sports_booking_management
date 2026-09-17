@@ -1,0 +1,70 @@
+{
+  "body": "المحتوى",
+  "channel": "القناة",
+  "code": "الرمز",
+  "deliveryLog": "سجل الإرسال",
+  "deliveryLogMessageTemplates": "سجل الإرسال وقوالب الرسائل.",
+  "log": {
+    "columns": {
+      "channel": "القناة",
+      "event": "الحدث",
+      "recipient": "المستلم",
+      "sent": "أُرسلت",
+      "status": "الحالة"
+    },
+    "emptyHint": "تُرسل الإشعارات تلقائياً عند أحداث الحجز والدفع.",
+    "emptyTitle": "لا توجد إشعارات بعد",
+    "filters": {
+      "channel": "القناة",
+      "status": "الحالة"
+    },
+    "groups": {
+      "channel": "القناة",
+      "event": "الحدث",
+      "status": "الحالة"
+    },
+    "resend": "إعادة الإرسال",
+    "resendFailed": "تعذّرت إعادة إرسال الإشعار. يُرجى المحاولة مرة أخرى.",
+    "resent": "تمت إعادة الإرسال",
+    "searchPlaceholder": "المستلم، الموضوع"
+  },
+  "markAllRead": "تعليم الكل كمقروء",
+  "pending": "قيد الانتظار",
+  "push": "إشعار فوري",
+  "read": "مقروء",
+  "sent": "أُرسلت",
+  "stableIdEGBooking": "معرّف ثابت، مثل booking_confirmed.",
+  "subject": "الموضوع",
+  "tabs": {
+    "log": "السجل",
+    "templates": "القوالب"
+  },
+  "templates": {
+    "active": "مفعّل",
+    "columns": {
+      "channel": "القناة",
+      "code": "الرمز",
+      "name": "الاسم",
+      "status": "الحالة",
+      "subject": "الموضوع"
+    },
+    "edit": "تعديل القالب",
+    "emptyHint": "أنشئ القوالب التي يعرضها النظام لكل حدث.",
+    "emptyTitle": "لا توجد قوالب بعد",
+    "filters": {
+      "channel": "القناة",
+      "status": "الحالة"
+    },
+    "groups": {
+      "channel": "القناة",
+      "status": "الحالة"
+    },
+    "inactive": "غير مفعّل",
+    "newTemplate": "قالب جديد",
+    "saved": "تم حفظ القالب",
+    "searchPlaceholder": "الرمز، الاسم، الموضوع"
+  },
+  "templates2": "القوالب",
+  "title": "الإشعارات",
+  "unableSaveYourChangesPlease": "تعذّر حفظ تغييراتك. يُرجى المحاولة مرة أخرى."
+}

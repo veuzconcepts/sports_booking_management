@@ -1,5 +1,6 @@
 import { useForm } from 'react-hook-form';
 import toast from 'react-hot-toast';
+import { useTranslation } from 'react-i18next';
 
 import { PageHeader } from '../components/PageHeader.jsx';
 import { FormField } from '../components/FormField.jsx';
@@ -9,6 +10,7 @@ import api from '../services/apiClient.js';
 import { apiErrorMessage } from '../utils/apiError';
 
 export default function ProfilePage() {
+  const { t } = useTranslation('users');
   const { user } = useAuth();
   const { register, handleSubmit, formState: { errors, isSubmitting } } = useForm({
     defaultValues: {
@@ -21,17 +23,17 @@ export default function ProfilePage() {
   async function onSubmit(values) {
     try {
       await api.patch('/auth/me/', values);
-      toast.success('Profile updated');
+      toast.success(t('profileUpdated'));
     } catch (e) {
-      toast.error(apiErrorMessage(e, 'Unable to save your changes. Please try again.'));
+      toast.error(apiErrorMessage(e, t('unableSaveYourChangesPlease')));
     }
   }
 
   return (
     <>
       <PageHeader
-        title="My profile"
-        subtitle="Update your name, contact details, and password."
+        title={t('myProfile')}
+        subtitle={t('updateYourNameContactDetails')}
       />
 
       <div className="card" style={{ maxWidth: 640 }}>
@@ -39,7 +41,7 @@ export default function ProfilePage() {
           <form onSubmit={handleSubmit(onSubmit)}>
             <div className="row">
               <div className="col">
-                <FormField label="First name" error={errors.first_name?.message}>
+                <FormField label={t('firstName')} error={errors.first_name?.message}>
                   <input
                     className="form-input"
                     {...register('first_name', { required: 'Required' })}
@@ -47,7 +49,7 @@ export default function ProfilePage() {
                 </FormField>
               </div>
               <div className="col">
-                <FormField label="Last name" error={errors.last_name?.message}>
+                <FormField label={t('lastName')} error={errors.last_name?.message}>
                   <input
                     className="form-input"
                     {...register('last_name', { required: 'Required' })}
@@ -56,15 +58,15 @@ export default function ProfilePage() {
               </div>
             </div>
 
-            <FormField label="Email">
+            <FormField label={t('common:labels.email')}>
               <input className="form-input" value={user?.email || ''} disabled />
             </FormField>
 
-            <FormField label="Phone">
+            <FormField label={t('common:labels.phone')}>
               <input className="form-input" {...register('phone')} />
             </FormField>
 
-            <FormField label="Role">
+            <FormField label={t('role')}>
               <input
                 className="form-input"
                 value={(user?.role || '').replace('_', ' ')}
@@ -73,7 +75,7 @@ export default function ProfilePage() {
             </FormField>
 
             <button className="btn btn-primary" type="submit" disabled={isSubmitting}>
-              {isSubmitting ? 'Saving…' : 'Save changes'}
+              {isSubmitting ? t('common:state.saving') : t('common:actions.saveChanges')}
             </button>
           </form>
         </div>

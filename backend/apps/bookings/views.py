@@ -14,6 +14,10 @@ from rest_framework.response import Response
 from apps.accounts import access
 from apps.accounts.models import STAFF_ROLES, Role
 from apps.auditlogs.services import log_event
+from django.db.models import Exists, OuterRef
+
+from apps.payments.models import Invoice, Payment
+from config.listing import GroupedListMixin
 
 from . import services as booking_services
 from .filters import BookingFilter
@@ -76,7 +80,7 @@ def assignment_conflicts(*, worker, facility, club, on_date, at_time, duration,
     return reasons
 
 
-class BookingViewSet(viewsets.ModelViewSet):
+class BookingViewSet(GroupedListMixin, viewsets.ModelViewSet):
     queryset = (
         Booking.objects
         .select_related(
@@ -84,18 +88,50 @@ class BookingViewSet(viewsets.ModelViewSet):
             "facility_type", "club", "facility", "assigned_to",
         )
         .prefetch_related("add_ons", "status_history")
+        # `can_delete` asks whether any money is attached. Answering that per row
+        # cost two EXISTS queries per booking, which a 100-row listing page turns
+        # into 200; as subqueries it is part of the one list query.
+        .annotate(
+            _has_payments=Exists(
+                Payment.objects.filter(booking=OuterRef("pk")).values("pk")),
+            _has_invoices=Exists(
+                Invoice.objects.filter(booking=OuterRef("pk")).values("pk")),
+        )
         .all()
     )
     permission_classes = [permissions.IsAuthenticated, BookingObjectPermission]
     filterset_class = BookingFilter
+    # What the listing search box actually looks through. Deliberately the
+    # fields an operator would search a booking by, not every text column.
     search_fields = ["reference", "customer__full_name", "customer__email",
-                     "customer__mobile_number", "facility_type__name"]
+                     "customer__mobile_number", "walk_in_name", "walk_in_phone",
+                     "facility_type__name", "club__name", "facility__name"]
     ordering_fields = [
         "reference", "customer__full_name", "facility_type__name", "club__name",
         "status", "assigned_to__first_name", "payment_status",
         "scheduled_date", "scheduled_time", "created_at", "total_amount",
     ]
     ordering = ("-created_at",)   # Newest created first by default.
+
+    # Grouping the bookings list. `filter_param` is the query parameter the
+    # table sends back to fetch one group's rows, so every key here must also be
+    # filterable in BookingFilter.
+    group_by_fields = {
+        "club": {"field": "club_id", "label": "club__name",
+                 "filter_param": "club", "empty_label": "No club"},
+        "facility": {"field": "facility_id", "label": "facility__name",
+                     "filter_param": "facility", "empty_label": "Unassigned"},
+        "facility_type": {"field": "facility_type_id", "label": "facility_type__name",
+                          "filter_param": "facility_type"},
+        "status": {"field": "status", "choices": BookingStatus.choices},
+        "payment_status": {"field": "payment_status"},
+        "source": {"field": "source"},
+        "scheduled_date": {"field": "scheduled_date", "filter_param": "scheduled_date"},
+        "customer": {"field": "customer_id", "label": "customer__full_name",
+                     "filter_param": "customer", "empty_label": "Walk-in"},
+        "assigned_to": {"field": "assigned_to_id", "label": "assigned_to__first_name",
+                        "filter_param": "assigned_to", "empty_label": "Unassigned"},
+    }
 
     def get_serializer_class(self):
         if self.action in ("create", "update", "partial_update"):

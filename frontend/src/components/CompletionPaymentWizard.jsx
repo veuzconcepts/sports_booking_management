@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import toast from 'react-hot-toast';
+import { useTranslation } from 'react-i18next';
 
 import { Modal } from './Modal.jsx';
 import { FormField } from './FormField.jsx';
@@ -12,9 +13,9 @@ import { apiErrorMessage } from '../utils/apiError';
 
 // Offline-recordable methods for completing at the counter. Wallet/membership
 // charges go through the dedicated payment flow, not this wizard.
-const PAY_METHODS = [
-  { value: 'cash', label: 'Cash' },
-  { value: 'card', label: 'Card' },
+const payMethods = (t) => [
+  { value: 'cash', label: t('cash') },
+  { value: 'card', label: t('card') },
 ];
 
 /**
@@ -25,6 +26,7 @@ const PAY_METHODS = [
  * booking is already paid (or zero-value), it's a simple confirm.
  */
 export function CompletionPaymentWizard({ open, booking, mode = 'complete', onClose, onCompleted, onChanged }) {
+  const { t } = useTranslation('payments');
   const { hasPerm } = useAuth();
   // Local copy so applying a promo / redeeming a subscription refreshes totals live.
   const [bk, setBk] = useState(booking);
@@ -65,15 +67,15 @@ export function CompletionPaymentWizard({ open, booking, mode = 'complete', onCl
 
   async function doRedeemPoints() {
     const n = parseInt(redeemInput, 10);
-    if (!n || n <= 0) { toast.error('Enter the points to redeem.'); return; }
+    if (!n || n <= 0) { toast.error(t('enterPointsRedeem')); return; }
     setBusy(true);
     try {
       applyUpdated(await bookingsApi.redeemPoints(bk.id, n));
       setRedeemInput('');
       if (bk?.customer) loyaltyApi.summary(bk.customer).then((s) => setPointsBal(s.balance)).catch(() => {});
-      toast.success('Points redeemed');
+      toast.success(t('pointsRedeemed'));
     } catch (e) {
-      toast.error(apiErrorMessage(e, 'Unable to redeem points. Please try again.'));
+      toast.error(apiErrorMessage(e, t('unableRedeemPointsPleaseTry')));
     } finally { setBusy(false); }
   }
 
@@ -82,9 +84,9 @@ export function CompletionPaymentWizard({ open, booking, mode = 'complete', onCl
     try {
       applyUpdated(await bookingsApi.unredeemPoints(bk.id));
       if (bk?.customer) loyaltyApi.summary(bk.customer).then((s) => setPointsBal(s.balance)).catch(() => {});
-      toast.success('Redemption reversed');
+      toast.success(t('redemptionReversed'));
     } catch (e) {
-      toast.error(apiErrorMessage(e, 'Unable to reverse the redemption. Please try again.'));
+      toast.error(apiErrorMessage(e, t('unableReverseRedemptionPleaseTry')));
     } finally { setBusy(false); }
   }
 
@@ -99,9 +101,9 @@ export function CompletionPaymentWizard({ open, booking, mode = 'complete', onCl
       // Only the still-outstanding amount is collected - never the full total.
       setAmount(Number(updated.outstanding ?? updated.total_amount ?? 0).toFixed(decimals));
       onChanged?.(updated);
-      toast.success('Promo applied');
+      toast.success(t('promoApplied'));
     } catch (e) {
-      toast.error(apiErrorMessage(e, 'Unable to apply the promo code. Please try again.'));
+      toast.error(apiErrorMessage(e, t('unableApplyPromoCodePlease')));
     } finally {
       setPromoBusy(false);
     }
@@ -114,9 +116,9 @@ export function CompletionPaymentWizard({ open, booking, mode = 'complete', onCl
       setBk(updated);
       setAmount(Number(updated.outstanding ?? updated.total_amount ?? 0).toFixed(decimals));
       onChanged?.(updated);
-      toast.success('Promo removed');
+      toast.success(t('promoRemoved'));
     } catch (e) {
-      toast.error(apiErrorMessage(e, 'Unable to remove the promo code. Please try again.'));
+      toast.error(apiErrorMessage(e, t('unableRemovePromoCodePlease')));
     } finally {
       setPromoBusy(false);
     }
@@ -134,9 +136,9 @@ export function CompletionPaymentWizard({ open, booking, mode = 'complete', onCl
     setBusy(true);
     try {
       applyUpdated(await bookingsApi.redeemSubscription(bk.id));
-      toast.success('Subscription redeemed - coverage applied');
+      toast.success(t('subscriptionRedeemedCoverageApplied'));
     } catch (e) {
-      toast.error(apiErrorMessage(e, 'Unable to redeem the subscription. Please try again.'));
+      toast.error(apiErrorMessage(e, t('unableRedeemSubscriptionPleaseTry')));
     } finally { setBusy(false); }
   }
 
@@ -144,9 +146,9 @@ export function CompletionPaymentWizard({ open, booking, mode = 'complete', onCl
     setBusy(true);
     try {
       applyUpdated(await bookingsApi.unapplySubscription(bk.id, ''));
-      toast.success('Subscription unapplied - booking is now chargeable');
+      toast.success(t('subscriptionUnappliedBookingNowChargeable'));
     } catch (e) {
-      toast.error(apiErrorMessage(e, 'Unable to unapply the subscription. Please try again.'));
+      toast.error(apiErrorMessage(e, t('unableUnapplySubscriptionPleaseTry')));
     } finally { setBusy(false); }
   }
 
@@ -166,8 +168,8 @@ export function CompletionPaymentWizard({ open, booking, mode = 'complete', onCl
       }
     } catch (e) {
       toast.error(apiErrorMessage(e, isBill
-        ? 'Unable to generate the invoice. Please try again.'
-        : 'Unable to complete the booking. Please try again.'));
+        ? t('invoiceFailed')
+        : t('unableCompleteBookingPleaseTry')));
     } finally {
       setBusy(false);
     }
@@ -179,14 +181,14 @@ export function CompletionPaymentWizard({ open, booking, mode = 'complete', onCl
 
   return (
     <Modal
-      open={open} onClose={onClose} title={isBill ? 'Invoice & Receipt' : 'Complete booking'} size="md"
+      open={open} onClose={onClose} title={isBill ? t('invoiceReceipt') : t('completeBooking')} size="md"
       footer={(
         <>
-          <button className="btn btn-secondary" type="button" onClick={onClose} disabled={busy}>Cancel</button>
+          <button className="btn btn-secondary" type="button" onClick={onClose} disabled={busy}>{t('common:actions.cancel')}</button>
           <button className="btn btn-primary" onClick={submit} disabled={submitDisabled}>
             {busy ? 'Saving…' : (isBill
               ? 'Confirm'
-              : (needsPayment ? 'Record payment & complete' : 'Complete booking'))}
+              : (needsPayment ? t('recordPaymentComplete') : t('completeBooking')))}
           </button>
         </>
       )}
@@ -198,12 +200,12 @@ export function CompletionPaymentWizard({ open, booking, mode = 'complete', onCl
           marginBottom: 10, padding: '10px 12px', borderRadius: 8, fontSize: 13,
           background: 'var(--color-info-bg, #eff6ff)', border: '1px solid var(--color-info, #3b82f6)',
         }}>
-          <strong>Eligible subscription available for this booking.</strong>{' '}
+          <strong>{t('eligibleSubscriptionAvailableBooking')}</strong>{' '}
           {bk.eligible_subscription.membership_number} - {bk.eligible_subscription.plan_name}:{' '}
           {bk.eligible_subscription.covered.map((c) => c.label).join(', ')}.
           <div style={{ marginTop: 8 }}>
             <button className="btn btn-primary btn-sm" disabled={busy} onClick={doRedeem}>
-              Redeem from Subscription
+              {t('redeemSubscription')}
             </button>
           </div>
         </div>
@@ -213,10 +215,10 @@ export function CompletionPaymentWizard({ open, booking, mode = 'complete', onCl
           marginBottom: 10, padding: '10px 12px', borderRadius: 8, fontSize: 13,
           background: 'var(--color-success-bg, #ecfdf5)', border: '1px solid var(--color-success, #10b981)',
         }}>
-          <strong>Covered by membership</strong> ({bk.coverage_snapshot.membership_number} - {bk.coverage_snapshot.plan_name}).
+          <strong>{t('coveredMembership')}</strong> ({bk.coverage_snapshot.membership_number} - {bk.coverage_snapshot.plan_name}).
           <div style={{ marginTop: 8 }}>
             <button className="btn btn-secondary btn-sm" disabled={busy} onClick={doUnapply}>
-              Unapply Subscription
+              {t('unapplySubscription')}
             </button>
           </div>
         </div>
@@ -233,16 +235,16 @@ export function CompletionPaymentWizard({ open, booking, mode = 'complete', onCl
               <span><strong>{bk.loyalty_points_redeemed} points</strong> redeemed
                 {Number(bk?.loyalty_discount) > 0 && (<> · − <Money amount={bk.loyalty_discount} code={currency} /></>)}.</span>
               <button type="button" className="btn btn-ghost btn-sm" style={{ marginLeft: 'auto', color: 'var(--color-danger,#dc2626)' }}
-                disabled={busy} onClick={doUnredeemPoints}>Undo</button>
+                disabled={busy} onClick={doUnredeemPoints}>{t('undo')}</button>
             </div>
           ) : (
             <>
               <strong>{pointsBal} loyalty points available.</strong>
               <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
                 <input className="form-input" type="number" min="1" max={pointsBal} value={redeemInput}
-                  onChange={(e) => setRedeemInput(e.target.value)} placeholder="Points to redeem" style={{ flex: 1 }} />
+                  onChange={(e) => setRedeemInput(e.target.value)} placeholder={t('pointsRedeem')} style={{ flex: 1 }} />
                 <button type="button" className="btn btn-secondary" disabled={busy || !redeemInput} onClick={doRedeemPoints}>
-                  Redeem
+                  {t('redeem')}
                 </button>
               </div>
             </>
@@ -251,17 +253,17 @@ export function CompletionPaymentWizard({ open, booking, mode = 'complete', onCl
       )}
 
       {/* Pricing review */}
-      <div className="modal-section">Pricing summary</div>
+      <div className="modal-section">{t('pricingSummary')}</div>
       <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
-        <SummaryRow label="Original amount" value={<Money amount={bk?.base_amount} code={currency} />} />
+        <SummaryRow label={t('originalAmount')} value={<Money amount={bk?.base_amount} code={currency} />} />
         {Number(bk?.addons_amount) > 0 && (
-          <SummaryRow label="Add-ons" value={<Money amount={bk?.addons_amount} code={currency} />} />
+          <SummaryRow label={t('addOns')} value={<Money amount={bk?.addons_amount} code={currency} />} />
         )}
         {Number(bk?.surcharge_amount) > 0 && (
-          <SummaryRow label="Surcharges / rules" value={<Money amount={bk?.surcharge_amount} code={currency} />} />
+          <SummaryRow label={t('surchargesRules')} value={<Money amount={bk?.surcharge_amount} code={currency} />} />
         )}
         {Number(bk?.discount_amount) > 0 && (
-          <SummaryRow label="Discounts" value={<>− <Money amount={bk?.discount_amount} code={currency} /></>} />
+          <SummaryRow label={t('discounts')} value={<>− <Money amount={bk?.discount_amount} code={currency} /></>} />
         )}
         {Number(bk?.promo_discount) > 0 && (
           <SummaryRow
@@ -282,18 +284,18 @@ export function CompletionPaymentWizard({ open, booking, mode = 'complete', onCl
           />
         )}
         {Number(bk?.tax_amount) > 0 && (
-          <SummaryRow label="Tax (VAT)" value={<Money amount={bk?.tax_amount} code={currency} />} />
+          <SummaryRow label={t('taxVat')} value={<Money amount={bk?.tax_amount} code={currency} />} />
         )}
         <div style={{ borderTop: '1px solid var(--color-border)', margin: '6px 0' }} />
-        <SummaryRow strong label="Total" value={<Money amount={bk?.total_amount} code={currency} />} />
+        <SummaryRow strong label={t('common:labels.total')} value={<Money amount={bk?.total_amount} code={currency} />} />
         {amountPaid > 0 && (
-          <SummaryRow label="Paid" value={<>− <Money amount={amountPaid} code={currency} /></>} />
+          <SummaryRow label={t('paid')} value={<>− <Money amount={amountPaid} code={currency} /></>} />
         )}
         {needsPayment ? (
-          <SummaryRow strong label={amountPaid > 0 ? 'Balance due' : 'Amount due'}
+          <SummaryRow strong label={amountPaid > 0 ? t('balanceDue') : t('amountDue')}
             value={<Money amount={outstanding} code={currency} />} />
         ) : settled ? (
-          <SummaryRow strong label="Payment status"
+          <SummaryRow strong label={t('paymentStatus')}
             value={<span style={{ color: 'var(--color-success, #10b981)' }}>
               Fully paid{bk?.paid_invoice_number ? ` · ${bk.paid_invoice_number}` : ''}
             </span>} />
@@ -303,22 +305,22 @@ export function CompletionPaymentWizard({ open, booking, mode = 'complete', onCl
       {/* Promo management needs promotions.view; available while a balance remains.
           (The masked code still shows in the pricing summary above for others.) */}
       {needsPayment && hasPerm('promotions.view') && (
-        <FormField label="Promo / coupon code" hint="Optional - apply a discount before paying.">
+        <FormField label={t('promoCouponCode')} hint={t('optionalApplyDiscountBeforePaying')}>
           {bk?.promo_code ? (
             <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13 }}>
-              <span>Promo <strong>{bk.promo_code_label || bk.promo_code}</strong> applied
+              <span>{t('promo')} <strong>{bk.promo_code_label || bk.promo_code}</strong> applied
                 {Number(bk?.promo_discount) > 0 && (<> · − <Money amount={bk.promo_discount} code={currency} /></>)}
               </span>
               <button type="button" className="btn btn-ghost btn-sm"
                 style={{ marginLeft: 'auto', color: 'var(--color-danger,#dc2626)' }}
-                disabled={promoBusy} onClick={removePromo}>{promoBusy ? 'Removing…' : 'Remove'}</button>
+                disabled={promoBusy} onClick={removePromo}>{promoBusy ? t('removing') : t('common:actions.remove')}</button>
             </div>
           ) : (
             <div style={{ display: 'flex', gap: 8 }}>
               <input className="form-input" value={promo} onChange={(e) => setPromo(e.target.value)}
-                placeholder="e.g. WELCOME10" style={{ textTransform: 'uppercase', flex: 1 }} />
+                placeholder={t('eGWelcome10')} style={{ textTransform: 'uppercase', flex: 1 }} />
               <button type="button" className="btn btn-secondary" onClick={applyPromo}
-                disabled={promoBusy || !promo.trim()}>{promoBusy ? 'Applying…' : 'Apply'}</button>
+                disabled={promoBusy || !promo.trim()}>{promoBusy ? t('applying') : t('common:actions.apply')}</button>
             </div>
           )}
         </FormField>
@@ -327,24 +329,24 @@ export function CompletionPaymentWizard({ open, booking, mode = 'complete', onCl
       {/* Payment capture - only the outstanding (delta) is ever collected */}
       {needsPayment ? (
         <>
-          <div className="modal-section">Payment</div>
+          <div className="modal-section">{t('payment')}</div>
           <div className="row">
             <div className="col">
-              <FormField label="Payment method">
-                <Select2 options={PAY_METHODS} value={method} onChange={setMethod} />
+              <FormField label={t('paymentMethod')}>
+                <Select2 options={payMethods(t)} value={method} onChange={setMethod} />
               </FormField>
             </div>
             <div className="col">
-              <FormField label="Amount to be paid" error={amountInvalid ? 'Enter a valid amount.' : undefined}>
+              <FormField label={t('amountPaid')} error={amountInvalid ? 'Enter a valid amount.' : undefined}>
                 <input className="form-input" type="number" min="0" value={amount}
                   onChange={(e) => setAmount(e.target.value)} />
               </FormField>
             </div>
           </div>
-          <FormField label="Transaction reference" hint="Optional - terminal / receipt reference.">
+          <FormField label={t('transactionReference')} hint={t('optionalTerminalReceiptReference')}>
             <input className="form-input" value={reference} onChange={(e) => setReference(e.target.value)} />
           </FormField>
-          <FormField label="Notes" hint="Optional - kept on the audit trail.">
+          <FormField label={t('common:labels.notes')} hint={t('optionalKeptAuditTrail')}>
             <textarea className="form-textarea" rows={2} value={notes} onChange={(e) => setNotes(e.target.value)} />
           </FormField>
         </>

@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { ChevronLeft, ChevronRight, Calendar } from 'lucide-react';
+import { useTranslation } from 'react-i18next';
 
 const MONTHS = ['January', 'February', 'March', 'April', 'May', 'June', 'July',
   'August', 'September', 'October', 'November', 'December'];
@@ -14,7 +15,8 @@ const ymd = (d) =>
  * used so the booking calendar only offers days the club is open AND the
  * booking policy allows.
  */
-export function DateCalendar({ value, onChange, closedWeekdays = new Set(), minDate, maxDate, placeholder = 'Choose a date…' }) {
+export function DateCalendar({ value, onChange, closedWeekdays = new Set(), minDate, maxDate, placeholder }) {
+  const { t } = useTranslation('common');
   const [open, setOpen] = useState(false);
   const ref = useRef(null);
   const seed = value ? new Date(`${value}T00:00:00`) : new Date();
@@ -48,11 +50,12 @@ export function DateCalendar({ value, onChange, closedWeekdays = new Set(), minD
         style={{ textAlign: 'left', display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer' }}
         onClick={() => setOpen((o) => !o)}>
         <Calendar size={15} style={{ color: 'var(--color-text-muted)' }} />
-        {value || <span className="muted">{placeholder}</span>}
+        {value || <span className="muted">{placeholder || t('datePlaceholder')}</span>}
       </button>
       {open && (
-        <div style={{ position: 'absolute', zIndex: 60, top: 'calc(100% + 4px)', left: 0, background: '#fff',
-          border: '1px solid var(--color-border)', borderRadius: 10, padding: 10, width: 264,
+        <div style={{ position: 'absolute', zIndex: 60, top: 'calc(100% + 4px)', insetInlineStart: 0, background: '#fff',
+          border: '1px solid var(--color-border)', borderRadius: 10, padding: 10,
+          width: 'min(264px, calc(100vw - 32px))',
           boxShadow: '0 10px 28px rgba(0,0,0,0.14)' }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
             <button type="button" className="icon-btn" onClick={prev}><ChevronLeft size={16} /></button>
@@ -70,7 +73,7 @@ export function DateCalendar({ value, onChange, closedWeekdays = new Set(), minD
               return (
                 <button key={ymd(d)} type="button" disabled={dis}
                   onClick={() => { onChange(ymd(d)); setOpen(false); }}
-                  title={isClosed(d) ? 'Club closed' : undefined}
+                  title={isClosed(d) ? t('clubClosed') : undefined}
                   style={{
                     padding: '6px 0', fontSize: 12.5, borderRadius: 6, border: 'none',
                     cursor: dis ? 'not-allowed' : 'pointer',
@@ -84,7 +87,7 @@ export function DateCalendar({ value, onChange, closedWeekdays = new Set(), minD
               );
             })}
           </div>
-          <div className="muted" style={{ fontSize: 11, marginTop: 8 }}>Struck-through days are closed for this club.</div>
+          <div className="muted" style={{ fontSize: 11, marginTop: 8 }}>{t('struckThroughDaysClosedClub')}</div>
         </div>
       )}
     </div>

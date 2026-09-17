@@ -338,20 +338,29 @@ def _rebase_overnight(prev_cfg) -> tuple[list[Window], list[Window]]:
 # Exceptions (special dates). Imported lazily: this module is imported from
 # model modules, and ScheduleException lives alongside them.
 # --------------------------------------------------------------------------- #
-def _exceptions_between(first, last, club=None, facility=None) -> dict:
-    """{date: winning exception} for each date in [first, last], in ONE query."""
+def _exceptions_between(first, last, club=None, facility=None, *,
+                        exclude_id=None) -> dict:
+    """{date: winning exception} for each date in [first, last], in ONE query.
+
+    `exclude_id` answers "what would apply if this row were not there?", which
+    is what the removal preview needs in order to warn before a special date is
+    deleted.
+    """
     from .models import ScheduleException
 
     if facility is not None and club is None:
         club = facility.club
 
-    rows = list(
+    queryset = (
         ScheduleException.objects
         .filter(is_active=True, start_date__lte=last)
         .filter(Q(end_date__isnull=True, start_date__gte=first)
                 | Q(end_date__gte=first))
         .for_scope(club, facility)
     )
+    if exclude_id:
+        queryset = queryset.exclude(pk=exclude_id)
+    rows = list(queryset)
     if not rows:
         return {}
 
@@ -628,6 +637,54 @@ def validate_slot_minutes(value, *, allow_blank=True):
 # --------------------------------------------------------------------------- #
 # Protecting bookings that already exist
 # --------------------------------------------------------------------------- #
+# Bookings a customer is actually holding. Cancelled, completed and no-show
+# rows cannot be stranded by a schedule change, so they are never reported.
+LIVE_BOOKING_STATUSES = ["booked", "confirmed", "assigned", "arrived", "in_progress"]
+
+
+def _live_bookings(dates, club=None, facility=None, *, limit=50):
+    from apps.bookings.models import Booking
+
+    qs = Booking.objects.filter(
+        scheduled_date__in=list(dates), status__in=LIVE_BOOKING_STATUSES)
+    if facility is not None:
+        qs = qs.filter(facility=facility)
+    elif club is not None:
+        qs = qs.filter(club=club)
+    return qs.select_related("club", "facility", "customer").order_by(
+        "scheduled_date", "scheduled_time")[:limit + 1]
+
+
+def _stranding_reason(booking, day) -> str | None:
+    """Why `day` would no longer allow `booking`, or None if it still fits."""
+    start = to_minutes(booking.scheduled_time)
+    if start is None:
+        return None
+    end = to_minutes(booking.end_time) or start + (booking.duration_minutes or 0)
+
+    inside = any(s.start <= start and end <= s.end for s in day.shifts)
+    in_break = any(overlaps(start, end, b.start, b.end) for b in day.breaks)
+    if day.closed or not day.shifts:
+        return "closed"
+    if in_break:
+        return "break"
+    return None if inside else "outside hours"
+
+
+def _affected_row(booking, reason) -> dict:
+    return {
+        "id": booking.id,
+        "reference": booking.reference,
+        "date": booking.scheduled_date.isoformat(),
+        "time": fmt(booking.scheduled_time),
+        "customer": (booking.customer.full_name if booking.customer_id
+                     else booking.walk_in_name or "Walk-in"),
+        "club": booking.club.name if booking.club_id else "",
+        "facility": booking.facility.name if booking.facility_id else "",
+        "reason": reason,
+    }
+
+
 def bookings_outside_schedule(dates, club=None, facility=None, *, limit=50):
     """Live bookings on `dates` that the CURRENT schedule would no longer allow.
 
@@ -636,46 +693,79 @@ def bookings_outside_schedule(dates, club=None, facility=None, *, limit=50):
     what it would orphan. It only reports: cancelling or moving a booking stays
     an explicit, permissioned action.
     """
-    from apps.bookings.models import Booking
-
-    statuses = ["booked", "confirmed", "assigned", "arrived", "in_progress"]
-    qs = Booking.objects.filter(scheduled_date__in=list(dates), status__in=statuses)
-    if facility is not None:
-        qs = qs.filter(facility=facility)
-    elif club is not None:
-        qs = qs.filter(club=club)
-
     affected = []
     cache: dict = {}
-    for booking in qs.select_related("club", "facility", "customer").order_by(
-            "scheduled_date", "scheduled_time")[:limit + 1]:
+    for booking in _live_bookings(dates, club, facility, limit=limit):
         key = (booking.scheduled_date, booking.club_id, booking.facility_id)
         if key not in cache:
             cache[key] = resolve_for_date(
                 booking.scheduled_date, club=booking.club, facility=booking.facility)
-        day = cache[key]
-
-        start = to_minutes(booking.scheduled_time)
-        if start is None:
-            continue
-        end = to_minutes(booking.end_time) or start + (booking.duration_minutes or 0)
-
-        inside = any(s.start <= start and end <= s.end for s in day.shifts)
-        in_break = any(overlaps(start, end, b.start, b.end) for b in day.breaks)
-        if day.closed or not inside or in_break:
-            affected.append({
-                "id": booking.id,
-                "reference": booking.reference,
-                "date": booking.scheduled_date.isoformat(),
-                "time": fmt(booking.scheduled_time),
-                "customer": (booking.customer.full_name if booking.customer_id
-                             else booking.walk_in_name or "Walk-in"),
-                "club": booking.club.name if booking.club_id else "",
-                "facility": booking.facility.name if booking.facility_id else "",
-                "reason": "closed" if day.closed or not day.shifts
-                          else ("break" if in_break else "outside hours"),
-            })
+        reason = _stranding_reason(booking, cache[key])
+        if reason:
+            affected.append(_affected_row(booking, reason))
     return affected
+
+
+def exception_impact(start, end, *, club=None, facility=None,
+                     day_config=None, exclude_id=None, limit=50):
+    """Live bookings a special date would strand, measured BEFORE it is saved.
+
+    `day_config` is the proposed pattern (`{closed, shifts, breaks}`) that would
+    apply on every date in the range. Passing None instead asks the opposite
+    question, "what breaks if this row goes away?", and resolves each date
+    normally with `exclude_id` left out.
+
+    Nothing here writes, and the answer is only ever shown to someone already
+    allowed to manage that scope's schedule. An administrator is told what a
+    closure would cost before choosing to save it, which is the difference
+    between an informed decision and a silent one.
+    """
+    dates = dates_in(start, end)
+    if not dates:
+        return []
+
+    proposed = None
+    if day_config is not None:
+        shifts, breaks = day_windows(day_config)
+        proposed = ResolvedDay(
+            closed=bool(day_config.get("closed")) or not shifts,
+            shifts=shifts, breaks=breaks,
+            slot_minutes=FALLBACK_SLOT_MINUTES, buffer_before=0, buffer_after=0,
+            source=SCOPE_ORGANIZATION,
+        )
+
+    affected = []
+    cache: dict = {}
+    for booking in _live_bookings(dates, club, facility, limit=limit):
+        if proposed is not None:
+            day = proposed
+        else:
+            key = (booking.scheduled_date, booking.club_id, booking.facility_id)
+            if key not in cache:
+                cache[key] = _resolve_without(
+                    booking.scheduled_date, booking.club, booking.facility, exclude_id)
+            day = cache[key]
+        reason = _stranding_reason(booking, day)
+        if reason:
+            affected.append(_affected_row(booking, reason))
+    return affected
+
+
+def _resolve_without(on_date, club, facility, exclude_id) -> ResolvedDay:
+    """`resolve_for_date` as it would read with one exception row removed."""
+    exception = _exceptions_between(
+        on_date, on_date, club, facility, exclude_id=exclude_id).get(on_date)
+    if exception is not None:
+        cfg = exception.as_day_config()
+    else:
+        cfg, _source = resolve_day_config(day_key(on_date), club, facility)
+    shifts, breaks = day_windows(cfg)
+    return ResolvedDay(
+        closed=bool(cfg.get("closed")) or not shifts,
+        shifts=shifts, breaks=breaks,
+        slot_minutes=FALLBACK_SLOT_MINUTES, buffer_before=0, buffer_after=0,
+        source=SCOPE_ORGANIZATION,
+    )
 
 
 def dates_in(start, end=None, *, cap=370):

@@ -1,0 +1,237 @@
+/* Organization branding and theme settings.
+   Everything here is scoped to the settings screen; the theme itself lives in
+   CSS variables (styles/tokens.css) that the rest of the app already reads. */
+
+.th-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 380px);
+  gap: var(--space-5);
+  align-items: start;
+}
+@media (max-width: 1024px) {
+  .th-layout { grid-template-columns: minmax(0, 1fr); }
+}
+
+/* The preview follows the page on a wide screen, and simply sits above the
+   controls when there is no room beside them. */
+.th-aside { position: sticky; top: calc(var(--topbar-height) + 16px); display: grid; gap: 12px; }
+@media (max-width: 1024px) {
+  .th-aside { position: static; order: -1; }
+}
+
+/* ------------------------------------------------------------- presets --- */
+.th-presets {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(min(190px, 100%), 1fr));
+  gap: 10px;
+}
+.th-preset {
+  display: grid;
+  gap: 8px;
+  padding: 11px 12px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-surface);
+  text-align: start;
+  cursor: pointer;
+  transition: border-color .15s, box-shadow .15s;
+}
+.th-preset:hover { border-color: var(--color-primary-400); }
+.th-preset.is-active {
+  border-color: var(--color-primary-600);
+  box-shadow: 0 0 0 2px var(--color-primary-100);
+}
+.th-preset__head { display: flex; align-items: center; gap: 8px; }
+.th-preset__name {
+  flex: 1; min-width: 0;
+  font-size: 13px; font-weight: 650; color: var(--color-text);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.th-preset__tag {
+  font-size: 10.5px; font-weight: 700; letter-spacing: .04em; text-transform: uppercase;
+  color: var(--color-text-muted);
+}
+.th-preset__swatches { display: flex; gap: 4px; }
+.th-preset__swatch {
+  width: 22px; height: 22px;
+  border-radius: 6px;
+  border: 1px solid rgba(0, 0, 0, .08);
+}
+.th-preset__actions { display: flex; gap: 4px; }
+
+/* -------------------------------------------------------------- fields --- */
+.th-group { margin-bottom: var(--space-5); }
+.th-group__title {
+  margin-bottom: 8px;
+  font-size: 11px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase;
+  color: var(--color-text-muted);
+}
+.th-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(min(240px, 100%), 1fr));
+  gap: 12px;
+}
+.th-field { min-width: 0; }
+.th-field__label {
+  display: block;
+  margin-bottom: 4px;
+  font-size: 12.5px; font-weight: 600; color: var(--color-text);
+}
+.th-field__row {
+  display: flex; align-items: center; gap: 6px;
+  padding: 3px 4px 3px 3px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  background: var(--color-surface);
+}
+.th-field__row--invalid { border-color: var(--color-danger-600); }
+.th-field__reset { width: 26px; height: 26px; flex-shrink: 0; }
+
+/* The native picker, sized to read as a swatch in every browser. */
+.th-swatch {
+  width: 34px; height: 30px;
+  flex-shrink: 0;
+  padding: 0;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  background: none;
+  cursor: pointer;
+}
+.th-swatch::-webkit-color-swatch-wrapper { padding: 2px; }
+.th-swatch::-webkit-color-swatch { border: 0; border-radius: 4px; }
+.th-swatch::-moz-color-swatch { border: 0; border-radius: 4px; }
+
+.th-hex {
+  flex: 1; min-width: 0;
+  border: 0; outline: 0; background: transparent;
+  font: inherit; font-size: 13px;
+  font-variant-numeric: tabular-nums;
+  color: var(--color-text);
+}
+
+/* ------------------------------------------------------------ contrast --- */
+.th-contrast { display: grid; gap: 6px; }
+.th-contrast__item {
+  display: flex; align-items: center; flex-wrap: wrap; gap: 8px;
+  padding: 8px 10px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  font-size: 12.5px;
+}
+.th-contrast__item.is-fail {
+  border-color: var(--color-warning-600);
+  background: var(--color-warning-50);
+}
+.th-contrast__label { flex: 1 1 160px; min-width: 0; }
+.th-contrast__ratio { font-weight: 700; font-variant-numeric: tabular-nums; }
+.th-contrast__ok { color: var(--color-success-600); }
+
+/* ------------------------------------------------------------- preview --- */
+.th-preview {
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  overflow: hidden;
+  background: var(--color-bg);
+  font-size: 11.5px;
+  /* The preview paints itself from the variables written onto this element,
+     so nothing inside may inherit a colour from the page around it. */
+  color: var(--color-text);
+}
+.th-preview__chrome { display: grid; }
+.th-preview__header {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 8px 10px;
+  background: var(--header-bg);
+  color: var(--header-text);
+}
+.th-preview__brand { font-weight: 800; font-size: 11px; letter-spacing: .05em; text-transform: uppercase; }
+.th-preview__avatar {
+  width: 18px; height: 18px; border-radius: 50%;
+  background: var(--btn-primary-bg);
+}
+.th-preview__body { display: grid; grid-template-columns: 104px minmax(0, 1fr); min-height: 190px; }
+.th-preview__sidebar {
+  display: grid; align-content: start; gap: 2px;
+  padding: 8px 6px;
+  background: var(--sidebar-bg);
+  border-inline-end: 1px solid var(--color-border);
+}
+.th-preview__nav {
+  display: flex; align-items: center; gap: 6px;
+  padding: 6px 7px;
+  border-radius: var(--radius-sm);
+  color: var(--sidebar-text);
+}
+.th-preview__nav.is-active {
+  background: var(--sidebar-active-bg);
+  color: var(--sidebar-active-text);
+  font-weight: 650;
+}
+.th-preview__main { padding: 10px; background: var(--color-bg); }
+.th-preview__card {
+  display: grid; gap: 8px;
+  padding: 10px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-surface);
+}
+.th-preview__card-title { font-weight: 700; font-size: 12px; }
+.th-preview__controls { display: flex; align-items: center; gap: 10px; }
+.th-preview__btn {
+  padding: 5px 11px;
+  border-radius: var(--radius-sm);
+  background: var(--btn-primary-bg);
+  color: var(--btn-primary-text);
+  font: inherit; font-size: 11px; font-weight: 650;
+}
+.th-preview__link { color: var(--color-link); text-decoration: underline; }
+.th-preview__input {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 5px 8px;
+  border: 1px solid var(--color-focus);
+  border-radius: var(--radius-sm);
+  background: var(--color-surface);
+  color: var(--color-text-muted);
+  box-shadow: 0 0 0 2px rgba(var(--color-focus-rgb, 132, 96, 180), .18);
+}
+.th-preview__table { width: 100%; border-collapse: collapse; }
+.th-preview__table th {
+  padding: 5px 7px;
+  text-align: start;
+  background: var(--table-header-bg);
+  color: var(--color-text-muted);
+  font-size: 10px; letter-spacing: .04em; text-transform: uppercase;
+  border-bottom: 1px solid var(--color-border);
+}
+.th-preview__table td {
+  padding: 5px 7px;
+  border-bottom: 1px solid var(--color-border-soft);
+}
+.th-preview__table tbody tr:hover { background: var(--table-row-hover); }
+.th-preview__table tbody tr.is-selected { background: var(--table-row-selected); }
+.th-preview__badge {
+  display: inline-block;
+  padding: 1px 7px;
+  border-radius: 999px;
+  font-size: 10px; font-weight: 650;
+}
+.th-preview__badge.is-ok { background: var(--color-success-50); color: var(--color-success-600); }
+.th-preview__badge.is-warn { background: var(--color-warning-50); color: var(--color-warning-600); }
+
+/* ------------------------------------------------------------ dirty bar --- */
+.th-bar {
+  position: sticky;
+  bottom: 0;
+  z-index: 5;
+  display: flex; align-items: center; flex-wrap: wrap; gap: 10px;
+  margin-top: var(--space-5);
+  padding: 10px 14px;
+  border: 1px solid var(--color-primary-200);
+  border-radius: var(--radius-md);
+  background: var(--color-primary-50);
+}
+.th-bar__text { flex: 1 1 200px; font-size: 13px; font-weight: 600; color: var(--color-text); }
+@media (max-width: 480px) {
+  .th-bar { flex-direction: column; align-items: stretch; }
+  .th-bar .btn { width: 100%; }
+}

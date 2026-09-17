@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { CalendarCheck, DollarSign, Users, Repeat, TrendingUp } from 'lucide-react';
+import { CalendarCheck, Wallet, Users, Repeat, TrendingUp } from 'lucide-react';
+import { useTranslation } from 'react-i18next';
 import {
   ResponsiveContainer, AreaChart, Area, Tooltip, XAxis, YAxis, CartesianGrid,
   PieChart, Pie, Cell, Legend,
@@ -24,6 +25,7 @@ const STATUS_COLORS = {
 };
 
 export default function DashboardPage() {
+  const { t } = useTranslation('dashboard');
   const navigate = useNavigate();
   const { role } = useAuth();
   const canSeeReports = MANAGERS.includes(role);
@@ -46,16 +48,16 @@ export default function DashboardPage() {
   }));
   const statusData = summary
     ? [
-        { name: 'In progress', value: summary.active_bookings, color: STATUS_COLORS.active },
-        { name: 'Completed', value: summary.completed_bookings, color: STATUS_COLORS.completed },
+        { name: t('inProgress'), value: summary.active_bookings, color: STATUS_COLORS.active },
+        { name: t('completed'), value: summary.completed_bookings, color: STATUS_COLORS.completed },
       ].filter((c) => c.value > 0)
     : [];
 
   return (
     <>
       <PageHeader
-        title="Dashboard"
-        subtitle="Live overview of bookings across every club."
+        title={t('dashboard')}
+        subtitle={t('liveOverviewBookingsAcrossEvery')}
         actions={
           STAFF.includes(role) && (
             <button className="btn btn-primary" onClick={() => navigate('/bookings')}>+ New booking</button>
@@ -65,10 +67,10 @@ export default function DashboardPage() {
 
       {canSeeReports && (
         <div className="metric-grid">
-          <MetricCard label="Net revenue (all-time)" value={summary ? <Money amount={summary.net_revenue} /> : '-'} icon={DollarSign} tint="green" />
-          <MetricCard label="Active bookings" value={summary ? String(summary.active_bookings) : '-'} icon={CalendarCheck} tint="blue" />
-          <MetricCard label="Customers" value={summary ? String(summary.total_customers) : '-'} icon={Users} tint="purple" />
-          <MetricCard label="Repeat rate" value={summary ? `${summary.repeat_rate_percent}%` : '-'} icon={Repeat} tint="amber" />
+          <MetricCard label={t('netRevenueAllTime')} value={summary ? <Money amount={summary.net_revenue} /> : '-'} icon={Wallet} tint="green" />
+          <MetricCard label={t('activeBookings')} value={summary ? String(summary.active_bookings) : '-'} icon={CalendarCheck} tint="blue" />
+          <MetricCard label={t('customers')} value={summary ? String(summary.total_customers) : '-'} icon={Users} tint="purple" />
+          <MetricCard label={t('repeatRate')} value={summary ? `${summary.repeat_rate_percent}%` : '-'} icon={Repeat} tint="amber" />
         </div>
       )}
 
@@ -77,8 +79,8 @@ export default function DashboardPage() {
           <div className="card">
             <div className="card-header">
               <div>
-                <h3 className="card-title">Net revenue (last 14 days)</h3>
-                <p className="card-subtitle">Paid less refunds across all channels.</p>
+                <h3 className="card-title">{t('netRevenueLast14Days')}</h3>
+                <p className="card-subtitle">{t('paidLessRefundsAcrossAll')}</p>
               </div>
               <span className="badge badge-success"><TrendingUp size={12} /> AOV {summary ? <Money amount={summary.average_order_value} /> : '-'}</span>
             </div>
@@ -104,13 +106,13 @@ export default function DashboardPage() {
           <div className="card">
             <div className="card-header">
               <div>
-                <h3 className="card-title">Booking mix</h3>
-                <p className="card-subtitle">Share of bookings by stage.</p>
+                <h3 className="card-title">{t('bookingMix')}</h3>
+                <p className="card-subtitle">{t('shareBookingsStage')}</p>
               </div>
             </div>
             <div className="card-body" style={{ height: 280 }}>
               {statusData.length === 0 ? (
-                <div className="center" style={{ height: '100%' }}><span className="muted">No bookings yet.</span></div>
+                <div className="center" style={{ height: '100%' }}><span className="muted">{t('noBookingsYet')}</span></div>
               ) : (
                 <ResponsiveContainer width="100%" height="100%">
                   <PieChart>
@@ -132,20 +134,20 @@ export default function DashboardPage() {
       <div className="card">
         <div className="card-header">
           <div>
-            <h3 className="card-title">Recent bookings</h3>
-            <p className="card-subtitle">Latest activity across all clubs.</p>
+            <h3 className="card-title">{t('recentBookings')}</h3>
+            <p className="card-subtitle">{t('latestActivityAcrossAllClubs')}</p>
           </div>
-          <button className="btn btn-secondary" onClick={() => navigate('/bookings')}>View all</button>
+          <button className="btn btn-secondary" onClick={() => navigate('/bookings')}>{t('viewAll')}</button>
         </div>
         {recent.length === 0 ? (
-          <div className="empty"><p>No bookings yet.</p></div>
+          <div className="empty"><p>{t('noBookingsYet')}</p></div>
         ) : (
           <div className="table-wrapper">
             <table className="table">
               <thead>
                 <tr>
-                  <th>Booking</th><th>Customer</th><th>Club</th><th>Facility</th>
-                  <th>Status</th><th style={{ textAlign: 'right' }}>Total</th>
+                  <th>{t('booking')}</th><th>{t('common:labels.customer')}</th><th>{t('common:labels.club')}</th><th>{t('common:labels.facility')}</th>
+                  <th>{t('common:labels.status')}</th><th style={{ textAlign: 'right' }}>{t('common:labels.total')}</th>
                 </tr>
               </thead>
               <tbody>

@@ -1,0 +1,19 @@
+{
+  "required": "This field is required.",
+  "requiredNamed": "{{field}} is required.",
+  "invalidEmail": "Enter a valid email address.",
+  "invalidPhone": "Enter a valid phone number for the selected country.",
+  "invalidMobile": "Enter a valid mobile number for the selected country.",
+  "invalidDate": "Enter a valid date.",
+  "invalidTime": "Enter a valid time.",
+  "invalidNumber": "Enter a number.",
+  "minLength": "Use at least {{count}} characters.",
+  "maxLength": "Use no more than {{count}} characters.",
+  "min": "Must be at least {{min}}.",
+  "max": "Must be no more than {{max}}.",
+  "positive": "Enter a value greater than zero.",
+  "passwordMismatch": "The passwords do not match.",
+  "selectOne": "Choose an option.",
+  "endBeforeStart": "The end cannot come before the start.",
+  "timeEndBeforeStart": "The end time must be after the start time."
+}

@@ -1,12 +1,12 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Plus, Trash2, Pencil, Video, Image as ImageIcon, Upload, X } from 'lucide-react';
 import toast from 'react-hot-toast';
+import { useTranslation } from 'react-i18next';
 import { Controller, useForm } from 'react-hook-form';
 
-import { PageHeader } from '../../components/PageHeader.jsx';
-import { DataTable } from '../../components/DataTable.jsx';
+import { PageTabs } from '../../components/PageTabs.jsx';
 import { StatusBadge } from '../../components/StatusBadge.jsx';
-import { Toolbar } from '../../components/Toolbar.jsx';
+import { ListPage, ListView } from '../../components/listview/index.js';
 import { Modal } from '../../components/Modal.jsx';
 import { ConfirmDialog } from '../../components/ConfirmDialog.jsx';
 import { TimeInput } from '../../components/TimeInput.jsx';
@@ -15,18 +15,17 @@ import { ImageUploader } from '../../components/ImageUploader.jsx';
 import { RichTextEditor } from '../../components/RichTextEditor.jsx';
 import { Toggle } from '../../components/Toggle.jsx';
 import { Select2 } from '../../components/Select2.jsx';
-import { useApiList } from '../../hooks/useApiList.js';
 import { useAuth } from '../../hooks/useAuth.jsx';
 import { useDefaultTaxPercent } from '../../hooks/useDefaultTaxPercent.js';
 import { formatApiError, apiErrorMessage } from '../../utils/apiError.js';
 
 import {
-  ADJUSTMENT_TYPES,
-  CUSTOMER_TYPES,
-  DAYS_OF_WEEK,
-  RULE_TYPES,
-  FACILITY_BADGES,
-  FACILITY_KINDS,
+  adjustmentTypes,
+  customerTypes,
+  daysOfWeek,
+  ruleTypes,
+  facilityBadges,
+  facilityKinds,
   addonsApi,
   pricingRulesApi,
   facilityTypesApi,
@@ -44,145 +43,140 @@ function trimZeros(v) {
   return s.includes('.') ? s.replace(/\.?0+$/, '') : s;
 }
 
-const TABS = [
-  { key: 'categories', label: 'Categories' },
-  { key: 'types',      label: 'Facility Types' },
-  { key: 'addons',   label: 'Add-ons' },
-  { key: 'pricing',  label: 'Pricing Rules' },
+const tabs = (t) => [
+  { key: 'categories', label: t('categories2') },
+  { key: 'types',      label: t('facilityTypes2') },
+  { key: 'addons',   label: t('addOns') },
+  { key: 'pricing',  label: t('pricingRules') },
 ];
 
-const tabBtnStyle = (active) => ({
-  padding: '8px 14px',
-  border: 'none',
-  background: 'transparent',
-  borderBottom: active ? '2px solid var(--color-primary-600)' : '2px solid transparent',
-  color: active ? 'var(--color-text)' : 'var(--color-text-muted)',
-  fontWeight: 600,
-  fontSize: 13.5,
-  cursor: 'pointer',
-});
 
+const categoryGroups = (t) => [
+  { key: 'kind', label: t('kind2') },
+  { key: 'is_active', label: t('common:labels.status') },
+];
+
+const typeGroups = (t) => [
+  { key: 'is_active', label: t('common:labels.status') },
+  { key: 'online_booking_enabled', label: t('onlineBooking2') },
+];
+
+const addonGroups = (t) => [{ key: 'is_active', label: t('common:labels.status') }];
+
+const ruleGroups = (t) => [
+  { key: 'rule_type', label: t('ruleType3') },
+  { key: 'is_active', label: t('common:labels.status') },
+];
 
 export default function FacilitiesPage() {
+  const { t } = useTranslation('facilities');
   const [tab, setTab] = useTabParam('categories');
 
   return (
-    <>
-      <PageHeader
-        title="Facilities Catalogue"
-        subtitle="Facility categories, the bookable facility types under them, add-ons and pricing rules."
-      />
-
-      <div
-        style={{
-          display: 'flex',
-          gap: 4,
-          borderBottom: '1px solid var(--color-border)',
-          marginBottom: 18,
-        }}
-      >
-        {TABS.map((t) => (
-          <button key={t.key} style={tabBtnStyle(tab === t.key)} onClick={() => setTab(t.key)}>
-            {t.label}
-          </button>
-        ))}
-      </div>
-
+    <ListPage
+      title={t('facilitiesCatalogue')}
+      subtitle={t('facilityCategoriesBookableFacilityTypes')}
+      tabs={(
+        <PageTabs tabs={tabs(t)} active={tab} onChange={setTab}
+          label={t('facilitiesCatalogue')} />
+      )}
+    >
       {tab === 'categories' && <FacilityCategoriesTab />}
       {tab === 'types'      && <FacilityTypesTab />}
       {tab === 'addons'   && <AddOnsTab />}
       {tab === 'pricing'  && <PricingRulesTab />}
-    </>
+    </ListPage>
   );
 }
 
 /* ----- Facility categories tab -------------------------------------------- */
 function FacilityCategoriesTab() {
+  const { t } = useTranslation('facilities');
   const { hasPerm } = useAuth();
   const [modalOpen, setModalOpen] = useState(false);
   const [editItem, setEditItem] = useState(null);
   const fetcher = useCallback((q) => facilityCategoriesApi.list(q), []);
-  const { rows, loading, count, query, setQuery, reload } = useApiList(fetcher);
+  const [reloadKey, setReloadKey] = useState(0);
+  const reload = useCallback(() => setReloadKey((k) => k + 1), []);
 
   function openNew() { setEditItem(null); setModalOpen(true); }
   function openEdit(row) { setEditItem(row); setModalOpen(true); }
 
+  const columns = useMemo(() => [
+    {
+      key: 'name', header: t('categories.columns.category'), sortKey: 'name', minWidth: 220,
+      alwaysVisible: true,
+      render: (r) => (
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          {r.icon && <img src={r.icon} alt="" style={{ width: 26, height: 26, borderRadius: 6, objectFit: 'cover' }} />}
+          <div>
+            <div style={{ fontWeight: 600 }}>
+              {r.name}
+              {r.badge_status === 'show' && r.badge_label && (
+                <StatusBadge tone="warning" label={r.badge_label} />
+              )}
+            </div>
+            <div className="muted" style={{ fontSize: 12 }}>{r.slug}</div>
+          </div>
+        </div>
+      ),
+    },
+    {
+      key: 'kind', header: t('categories.columns.kind'), sortKey: 'kind', minWidth: 130,
+      render: (r) => <StatusBadge tone="info" label={(r.kind || '').replace('_', ' ')} />,
+    },
+    {
+      key: 'price', header: t('categories.columns.basePrice'), sortKey: 'base_price', align: 'right',
+      minWidth: 110, nowrap: true,
+      render: (r) => <Money amount={r.base_price} />,
+    },
+    { key: 'featured', header: t('categories.columns.featured'), minWidth: 90, priority: 'low', render: (r) => (r.is_featured ? '★' : '-') },
+    { key: 'order', header: t('categories.columns.order'), sortKey: 'display_order', align: 'right',
+      minWidth: 80, priority: 'low', render: (r) => r.display_order },
+    {
+      key: 'status', header: t('categories.columns.status'), sortKey: 'is_active', minWidth: 110,
+      render: (r) => (
+        <StatusBadge
+          tone={r.is_active ? 'success' : 'muted'}
+          label={r.is_active ? t('common:state.active') : t('common:state.inactive')}
+        />
+      ),
+    },
+  ], [t]);
+
+  const filters = useMemo(() => [
+    { key: 'kind', label: t('categories.filters.kind'), type: 'select', options: facilityKinds(t) },
+    { key: 'is_active', label: t('categories.filters.status'), type: 'boolean',
+      trueLabel: t('common.active'), falseLabel: t('common.inactive') },
+  ], [t]);
+
   return (
     <>
-      <Toolbar
-        searchValue={query.search}
-        onSearchChange={(v) => setQuery({ ...query, search: v || undefined, page: 1 })}
-        searchPlaceholder="Search categories…"
-        filters={[
-          {
-            value: query.kind,
-            options: FACILITY_KINDS,
-            placeholder: 'All kinds',
-            onChange: (v) => setQuery({ ...query, kind: v, page: 1 }),
-          },
-        ]}
-        right={
-          hasPerm('facilities.add') && <button className="btn btn-primary" onClick={openNew}>
-            <Plus size={15} /> Add category
-          </button>
-        }
-      />
-
-      <DataTable
-        loading={loading}
-        rows={rows}
-        page={query.page || 1}
-        count={count}
-        onPageChange={(p) => setQuery({ ...query, page: p })}
+      <ListView
+        tableKey="facility-categories"
+        fetcher={fetcher}
+        reloadKey={reloadKey}
+        defaultOrdering="display_order"
+        searchPlaceholder={t('categories.searchPlaceholder')}
+        emptyTitle={t('categories.emptyTitle')}
+        emptyHint={t('categories.emptyHint')}
         onRowClick={openEdit}
-        emptyTitle="No categories yet"
-        emptyHint="Start by adding your facility categories."
-        columns={[
-          {
-            key: 'name', header: 'Category',
-            render: (r) => (
-              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                {r.icon && <img src={r.icon} alt="" style={{ width: 26, height: 26, borderRadius: 6, objectFit: 'cover' }} />}
-                <div>
-                  <div style={{ fontWeight: 600 }}>
-                    {r.name}
-                    {r.badge_status === 'show' && r.badge_label && (
-                      <StatusBadge tone="warning" label={r.badge_label} />
-                    )}
-                  </div>
-                  <div className="muted" style={{ fontSize: 12 }}>{r.slug}</div>
-                </div>
-              </div>
-            ),
-          },
-          {
-            key: 'kind', header: 'Kind',
-            render: (r) => <StatusBadge tone="info" label={(r.kind || '').replace('_', ' ')} />,
-          },
-          {
-            key: 'price', header: 'Base price',
-            render: (r) => <Money amount={r.base_price} />,
-          },
-          { key: 'featured', header: 'Featured', render: (r) => (r.is_featured ? '★' : '-') },
-          { key: 'order', header: 'Order', render: (r) => r.display_order },
-          {
-            key: 'status', header: 'Status',
-            render: (r) => (
-              <StatusBadge
-                tone={r.is_active ? 'success' : 'muted'}
-                label={r.is_active ? 'Active' : 'Inactive'}
-              />
-            ),
-          },
-        ]}
+        columns={columns}
+        filters={filters}
+        groupOptions={categoryGroups(t)}
+        toolbarRight={hasPerm('facilities.add') && (
+          <button className="btn btn-primary" onClick={openNew}>
+            <Plus size={15} /> {t('categories.add')}
+          </button>
+        )}
       />
 
       <FacilityCategoryFormModal
         open={modalOpen}
         category={editItem}
         onClose={() => setModalOpen(false)}
-        onSaved={() => { setModalOpen(false); toast.success('Category saved'); reload(); }}
-        onDeleted={() => { setModalOpen(false); toast.success('Category deleted'); reload(); }}
+        onSaved={() => { setModalOpen(false); toast.success(t('categories.saved')); reload(); }}
+        onDeleted={() => { setModalOpen(false); toast.success(t('categories.deleted')); reload(); }}
       />
     </>
   );
@@ -200,6 +194,7 @@ const toSlug = (s) =>
     .replace(/-+/g, '-');        // collapse repeats
 
 function FacilityCategoryFormModal({ open, category, onClose, onSaved, onDeleted }) {
+  const { t } = useTranslation('facilities');
   const isEdit = Boolean(category);
   const { register, handleSubmit, reset, setValue, watch, control, formState: { errors, isSubmitting } } = useForm();
 
@@ -239,8 +234,8 @@ function FacilityCategoryFormModal({ open, category, onClose, onSaved, onDeleted
         apiErrorMessage(
           e,
           e.response?.status === 409
-            ? 'This category is in use and cannot be deleted.'
-            : 'Unable to delete the category. Please try again.',
+            ? t('categoryUseCannotDeleted')
+            : t('unableDeleteCategoryPleaseTry'),
         ),
       );
     } finally {
@@ -313,20 +308,20 @@ function FacilityCategoryFormModal({ open, category, onClose, onSaved, onDeleted
           {isEdit && (
             <button className="btn btn-danger" type="button" onClick={() => setConfirmDelete(true)}
                     style={{ marginRight: 'auto' }}>
-              <Trash2 size={15} /> Delete
+              <Trash2 size={15} /> {t('common:actions.delete')}
             </button>
           )}
-          <button className="btn btn-secondary" onClick={onClose} type="button">Cancel</button>
+          <button className="btn btn-secondary" onClick={onClose} type="button">{t('common:actions.cancel')}</button>
           <button className="btn btn-primary" onClick={handleSubmit(onSubmit)} disabled={isSubmitting}>
-            {isSubmitting ? 'Saving…' : 'Save category'}
+            {isSubmitting ? t('common:state.saving') : t('saveCategory')}
           </button>
         </>
       }
     >
-      <SectionTitle>Basic info</SectionTitle>
+      <SectionTitle>{t('basicInfo')}</SectionTitle>
       <div className="row">
         <div className="col">
-          <FormField label="Name *" hint="e.g. Racket Sports, Aquatics, Indoor Spaces" error={errors.name?.message}>
+          <FormField label={t('name')} hint={t('eGRacketSportsAquatics')} error={errors.name?.message}>
             <input
               className="form-input"
               {...nameField}
@@ -340,7 +335,7 @@ function FacilityCategoryFormModal({ open, category, onClose, onSaved, onDeleted
           </FormField>
         </div>
         <div className="col">
-          <FormField label="Slug *" error={errors.slug?.message}>
+          <FormField label={t('slug')} error={errors.slug?.message}>
             <input
               className="form-input"
               {...slugField}
@@ -352,36 +347,36 @@ function FacilityCategoryFormModal({ open, category, onClose, onSaved, onDeleted
           </FormField>
         </div>
       </div>
-      <FormField label="Description" hint="Rich text - use bold, lists and links. Shown on the website."
+      <FormField label={t('description')} hint={t('richTextUseBoldLists')}
                  error={errors.description?.message}>
         <Controller name="description" control={control}
           render={({ field }) => (
             <RichTextEditor value={field.value || ''} onChange={field.onChange}
-              placeholder="Describe this category…" />
+              placeholder={t('describeCategory')} />
           )} />
       </FormField>
       <div className="row">
         <div className="col">
-          <FormField label="Kind *" error={errors.kind?.message}>
+          <FormField label={t('kind')} error={errors.kind?.message}>
             <Controller name="kind" control={control} rules={{ required: 'Select a kind' }}
               render={({ field }) => (
-                <Select2 options={FACILITY_KINDS} value={field.value} onChange={field.onChange}
-                         placeholder="Select kind…" error={errors.kind?.message} />
+                <Select2 options={facilityKinds(t)} value={field.value} onChange={field.onChange}
+                         placeholder={t('selectKind')} error={errors.kind?.message} />
               )} />
           </FormField>
         </div>
         <div className="col">
-          <FormField label="Base price" hint="Used when a booking is made against the category itself.">
+          <FormField label={t('basePrice')} hint={t('usedWhenBookingMadeAgainst')}>
             <input className="form-input" type="number" min="0" step="0.01"
                    {...register('base_price', { min: { value: 0, message: '0 or more' } })} />
           </FormField>
         </div>
       </div>
 
-      <SectionTitle>Media</SectionTitle>
+      <SectionTitle>{t('media')}</SectionTitle>
       <ImageUploader
-        label="Display / Banner Image"
-        hint="Wide banner shown on the category page. Drag & zoom to crop."
+        label={t('displayBannerImage')}
+        hint={t('wideBannerShownCategoryPage')}
         aspect={3}
         output={{ width: 1200, height: 400, type: 'image/jpeg', quality: 0.9 }}
         currentUrl={category?.banner_image}
@@ -389,8 +384,8 @@ function FacilityCategoryFormModal({ open, category, onClose, onSaved, onDeleted
         onChange={setBannerFile}
       />
       <ImageUploader
-        label="Media Icon"
-        hint="Portrait 4:5 image used on the website facility cards (800×1000). Drag & zoom to crop."
+        label={t('mediaIcon')}
+        hint={t('portrait45ImageUsed')}
         aspect={4 / 5}
         output={{ width: 800, height: 1000, type: 'image/jpeg', quality: 0.9 }}
         currentUrl={category?.icon}
@@ -398,10 +393,10 @@ function FacilityCategoryFormModal({ open, category, onClose, onSaved, onDeleted
         onChange={setIconFile}
       />
 
-      <SectionTitle>Badge & display</SectionTitle>
+      <SectionTitle>{t('badgeDisplay')}</SectionTitle>
       <div className="row">
         <div className="col">
-          <FormField label={`Badge Label${badgeShow ? ' *' : ''}`} hint="e.g. NEW, POPULAR, PREMIUM"
+          <FormField label={`Badge Label${badgeShow ? ' *' : ''}`} hint={t('eGNewPopularPremium')}
                      error={errors.badge_label?.message}>
             <input className="form-input"
               {...register('badge_label', {
@@ -412,7 +407,7 @@ function FacilityCategoryFormModal({ open, category, onClose, onSaved, onDeleted
           </FormField>
         </div>
         <div className="col">
-          <FormField label="Display Order" hint="e.g. 1, 2, 3" error={errors.display_order?.message}>
+          <FormField label={t('displayOrder')} hint="e.g. 1, 2, 3" error={errors.display_order?.message}>
             <input className="form-input" type="number" min="0"
               {...register('display_order', {
                 min: { value: 0, message: 'Must be 0 or greater' },
@@ -422,23 +417,23 @@ function FacilityCategoryFormModal({ open, category, onClose, onSaved, onDeleted
         </div>
       </div>
       <div className="toggle-grid">
-        <Toggle label="Show Badge" description="Display the badge on the category"
+        <Toggle label={t('showBadge')} description={t('displayBadgeCategory')}
                 {...register('badge_show')} />
-        <Toggle label="Active" description="Visible & available to book"
+        <Toggle label={t('common:state.active')} description={t('visibleAvailableBook')}
                 {...register('is_active')} />
-        <Toggle label="Featured" description="Highlight as a featured category"
+        <Toggle label={t('featured')} description={t('highlightAsFeaturedCategory')}
                 {...register('is_featured')} />
       </div>
 
-      <SectionTitle>Facility types</SectionTitle>
-      <FormField label="Facility types in this category"
-                 hint="Pick the facility types to place under this category.">
+      <SectionTitle>{t('facilityTypes')}</SectionTitle>
+      <FormField label={t('facilityTypesCategory')}
+                 hint={t('pickFacilityTypesPlaceUnder')}>
         {facilityTypeList.length === 0 ? (
-          <p className="muted" style={{ fontSize: 13 }}>No facility types created yet. Add them in the Facility Types tab.</p>
+          <p className="muted" style={{ fontSize: 13 }}>{t('noFacilityTypesCreatedYet')}</p>
         ) : (
           <Select2
             multiple
-            placeholder="Select facility types…"
+            placeholder={t('selectFacilityTypes')}
             options={facilityTypeList.map((s) => ({
               value: s.id,
               label: s.name,
@@ -449,14 +444,14 @@ function FacilityCategoryFormModal({ open, category, onClose, onSaved, onDeleted
         )}
       </FormField>
 
-      <SectionTitle>Availability</SectionTitle>
-      <FormField label="Clubs (Optional)">
+      <SectionTitle>{t('availability')}</SectionTitle>
+      <FormField label={t('clubsOptional')}>
         {clubs.length === 0 ? (
-          <p className="muted" style={{ fontSize: 13 }}>No clubs configured yet.</p>
+          <p className="muted" style={{ fontSize: 13 }}>{t('noClubsConfiguredYet')}</p>
         ) : (
           <Select2
             multiple
-            placeholder="Select clubs…"
+            placeholder={t('selectClubs')}
             options={clubs.map((s) => ({ value: s.id, label: s.name }))}
             value={[...siteIds]}
             onChange={(vals) => setSiteIds(new Set(vals))}
@@ -464,12 +459,12 @@ function FacilityCategoryFormModal({ open, category, onClose, onSaved, onDeleted
         )}
       </FormField>
 
-      <SectionTitle>SEO (optional)</SectionTitle>
-      <FormField label="Meta Title" error={errors.meta_title?.message}>
+      <SectionTitle>{t('seoOptional')}</SectionTitle>
+      <FormField label={t('metaTitle')} error={errors.meta_title?.message}>
         <input className="form-input"
           {...register('meta_title', { maxLength: { value: 160, message: 'Keep under 160 characters' } })} />
       </FormField>
-      <FormField label="Meta Description" error={errors.meta_description?.message}>
+      <FormField label={t('metaDescription')} error={errors.meta_description?.message}>
         <textarea className="form-textarea" rows={2}
           {...register('meta_description', { maxLength: { value: 300, message: 'Keep under 300 characters' } })} />
       </FormField>
@@ -478,14 +473,14 @@ function FacilityCategoryFormModal({ open, category, onClose, onSaved, onDeleted
     <ConfirmDialog
       open={confirmDelete}
       tone="danger"
-      title="Delete this category?"
+      title={t('deleteCategory')}
       message={
         <>
           <strong>{category?.name}</strong> will be permanently removed. This is only possible
           if no bookings reference it - otherwise the delete will be blocked.
         </>
       }
-      confirmLabel="Delete"
+      confirmLabel={t('common:actions.delete')}
       busy={deleting}
       onConfirm={handleDelete}
       onClose={() => setConfirmDelete(false)}
@@ -497,12 +492,14 @@ function FacilityCategoryFormModal({ open, category, onClose, onSaved, onDeleted
 /* ----- Facility types tab (the bookable, priced offerings) ------------------ */
 
 function FacilityTypesTab() {
+  const { t } = useTranslation('facilities');
   const { hasPerm } = useAuth();
   const [modalOpen, setModalOpen] = useState(false);
   const [editItem, setEditItem] = useState(null);
   const [categories, setCategories] = useState([]);
   const fetcher = useCallback((q) => facilityTypesApi.list(q), []);
-  const { rows, loading, count, query, setQuery, reload } = useApiList(fetcher);
+  const [reloadKey, setReloadKey] = useState(0);
+  const reload = useCallback(() => setReloadKey((k) => k + 1), []);
 
   useEffect(() => {
     facilityCategoriesApi.list({ page_size: 100 }).then((d) => setCategories(d.results || d)).catch(() => {});
@@ -511,92 +508,88 @@ function FacilityTypesTab() {
   function openNew() { setEditItem(null); setModalOpen(true); }
   function openEdit(row) { setEditItem(row); setModalOpen(true); }
 
+  const columns = useMemo(() => [
+    {
+      key: 'name', header: t('types.columns.facilityType'), sortKey: 'name', minWidth: 260,
+      alwaysVisible: true,
+      render: (r) => (
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+          {r.image ? (
+            <img src={r.image} alt="" style={{ width: 36, height: 36, borderRadius: 8, objectFit: 'cover', flexShrink: 0 }} />
+          ) : (
+            <div style={{
+              width: 36, height: 36, borderRadius: 8, flexShrink: 0,
+              background: 'var(--color-border-soft)', display: 'flex',
+              alignItems: 'center', justifyContent: 'center', color: 'var(--color-text-muted)',
+            }}>
+              {r.video ? <Video size={16} /> : <ImageIcon size={16} />}
+            </div>
+          )}
+          <div style={{ minWidth: 0 }}>
+            <div style={{ fontWeight: 600 }}>
+              {r.name}
+              {r.tagline && <span className="muted" style={{ fontWeight: 500 }}> - {r.tagline}</span>}
+            </div>
+            <div style={{ display: 'flex', gap: 6, alignItems: 'center', fontSize: 12 }}>
+              <span className="muted">{(r.category_names || []).join(', ')}</span>
+              {r.badge && <StatusBadge tone="warning" label={badgeLabel(t, r.badge)} />}
+            </div>
+          </div>
+        </div>
+      ),
+    },
+    { key: 'price', header: t('types.columns.slotPrice'), sortKey: 'price', align: 'right',
+      minWidth: 110, nowrap: true,
+      render: (r) => <Money amount={r.price} /> },
+    { key: 'duration', header: t('types.columns.duration'), sortKey: 'duration_minutes',
+      align: 'right', minWidth: 100, nowrap: true,
+      render: (r) => t('types.minutes', { count: r.duration_minutes }) },
+    { key: 'tax', header: t('types.columns.tax'), align: 'right', minWidth: 80, priority: 'low',
+      render: (r) => `${Number(r.tax_percent).toFixed(0)}%` },
+    { key: 'disc', header: t('types.columns.discount'), align: 'right', minWidth: 100, priority: 'low',
+      render: (r) => `${Number(r.discount_percent).toFixed(0)}%` },
+    { key: 'online', header: t('types.columns.online'), minWidth: 110, priority: 'medium',
+      render: (r) => (
+        <StatusBadge tone={r.online_booking_enabled ? 'info' : 'muted'}
+                     label={r.online_booking_enabled ? t('types.bookable') : t('types.off')} />
+      ) },
+    {
+      key: 'status', header: t('categories.columns.status'), sortKey: 'is_active', minWidth: 110,
+      render: (r) => (
+        <StatusBadge tone={r.is_active ? 'success' : 'muted'}
+                     label={r.is_active ? t('common.active') : t('common.inactive')} />
+      ),
+    },
+  ], [t]);
+
+  const filters = useMemo(() => [
+    { key: 'categories', label: t('types.filters.category'), type: 'select',
+      options: categories.map((c) => ({ value: c.id, label: c.name })) },
+    { key: 'is_active', label: t('categories.filters.status'), type: 'boolean',
+      trueLabel: t('common.active'), falseLabel: t('common.inactive') },
+    { key: 'online_booking_enabled', label: t('types.filters.onlineBooking'), type: 'boolean',
+      trueLabel: t('types.bookable'), falseLabel: t('types.off') },
+  ], [categories, t]);
+
   return (
     <>
-      <Toolbar
-        searchValue={query.search}
-        onSearchChange={(v) => setQuery({ ...query, search: v || undefined, page: 1 })}
-        searchPlaceholder="Search facility types…"
-        filters={[
-          {
-            value: query.categories,
-            options: categories.map((c) => ({ value: c.id, label: c.name })),
-            placeholder: 'All categories',
-            onChange: (v) => setQuery({ ...query, categories: v, page: 1 }),
-          },
-          {
-            value: query.is_active,
-            options: [{ value: 'true', label: 'Active' }, { value: 'false', label: 'Inactive' }],
-            placeholder: 'Any status',
-            onChange: (v) => setQuery({ ...query, is_active: v, page: 1 }),
-          },
-        ]}
-        right={
-          hasPerm('facilities.add') && <button className="btn btn-primary" onClick={openNew}>
-            <Plus size={15} /> Add facility type
-          </button>
-        }
-      />
-
-      <DataTable
-        loading={loading}
-        rows={rows}
+      <ListView
+        tableKey="facility-types"
+        fetcher={fetcher}
+        reloadKey={reloadKey}
+        defaultOrdering="name"
+        searchPlaceholder={t('types.searchPlaceholder')}
+        emptyTitle={t('types.emptyTitle')}
+        emptyHint={t('types.emptyHint')}
         onRowClick={openEdit}
-        page={query.page || 1}
-        count={count}
-        onPageChange={(p) => setQuery({ ...query, page: p })}
-        emptyTitle="No facility types yet"
-        emptyHint="Create the bookable facility types customers can reserve under each category."
-        columns={[
-          {
-            key: 'name', header: 'Facility type',
-            render: (r) => (
-              <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                {r.image ? (
-                  <img src={r.image} alt="" style={{ width: 36, height: 36, borderRadius: 8, objectFit: 'cover', flexShrink: 0 }} />
-                ) : (
-                  <div style={{
-                    width: 36, height: 36, borderRadius: 8, flexShrink: 0,
-                    background: 'var(--color-border-soft)', display: 'flex',
-                    alignItems: 'center', justifyContent: 'center', color: 'var(--color-text-muted)',
-                  }}>
-                    {r.video ? <Video size={16} /> : <ImageIcon size={16} />}
-                  </div>
-                )}
-                <div style={{ minWidth: 0 }}>
-                  <div style={{ fontWeight: 600 }}>
-                    {r.name}
-                    {r.tagline && <span className="muted" style={{ fontWeight: 500 }}> - {r.tagline}</span>}
-                  </div>
-                  <div style={{ display: 'flex', gap: 6, alignItems: 'center', fontSize: 12 }}>
-                    <span className="muted">{(r.category_names || []).join(', ')}</span>
-                    {r.badge && <StatusBadge tone="warning" label={badgeLabel(r.badge)} />}
-                  </div>
-                </div>
-              </div>
-            ),
-          },
-          { key: 'price', header: 'Slot price', align: 'right',
-            render: (r) => <Money amount={r.price} /> },
-          { key: 'duration', header: 'Duration', align: 'right',
-            render: (r) => `${r.duration_minutes} min` },
-          { key: 'tax', header: 'Tax', align: 'right',
-            render: (r) => `${Number(r.tax_percent).toFixed(0)}%` },
-          { key: 'disc', header: 'Discount', align: 'right',
-            render: (r) => `${Number(r.discount_percent).toFixed(0)}%` },
-          { key: 'online', header: 'Online',
-            render: (r) => (
-              <StatusBadge tone={r.online_booking_enabled ? 'info' : 'muted'}
-                           label={r.online_booking_enabled ? 'Bookable' : 'Off'} />
-            ) },
-          {
-            key: 'status', header: 'Status',
-            render: (r) => (
-              <StatusBadge tone={r.is_active ? 'success' : 'muted'}
-                           label={r.is_active ? 'Active' : 'Inactive'} />
-            ),
-          },
-        ]}
+        columns={columns}
+        filters={filters}
+        groupOptions={typeGroups(t)}
+        toolbarRight={hasPerm('facilities.add') && (
+          <button className="btn btn-primary" onClick={openNew}>
+            <Plus size={15} /> {t('types.add')}
+          </button>
+        )}
       />
 
       <FacilityTypeFormModal
@@ -604,16 +597,17 @@ function FacilityTypesTab() {
         item={editItem}
         categories={categories}
         onClose={() => setModalOpen(false)}
-        onSaved={() => { setModalOpen(false); toast.success('Facility type saved'); reload(); }}
-        onDeleted={() => { setModalOpen(false); toast.success('Facility type deleted'); reload(); }}
+        onSaved={() => { setModalOpen(false); toast.success(t('types.saved')); reload(); }}
+        onDeleted={() => { setModalOpen(false); toast.success(t('types.deleted')); reload(); }}
       />
     </>
   );
 }
 
-const badgeLabel = (v) => FACILITY_BADGES.find((b) => b.value === v)?.label || v;
+const badgeLabel = (t, v) => facilityBadges(t).find((b) => b.value === v)?.label || v;
 
 function FacilityTypeFormModal({ open, item, categories, onClose, onSaved, onDeleted }) {
+  const { t } = useTranslation('facilities');
   const isEdit = Boolean(item);
   const defaultTaxPct = useDefaultTaxPercent();
   const { register, handleSubmit, reset, watch, control, formState: { errors, isSubmitting } } = useForm();
@@ -669,18 +663,18 @@ function FacilityTypeFormModal({ open, item, categories, onClose, onSaved, onDel
       onDeleted?.();
     } catch (e) {
       setConfirmDelete(false);
-      toast.error(apiErrorMessage(e, 'Unable to delete the facility type. Please try again.'));
+      toast.error(apiErrorMessage(e, t('unableDeleteFacilityTypePlease')));
     } finally { setDeleting(false); }
   }
 
   async function onSubmit(v) {
     if (!categoryIds.length) {
       setCatError('Select at least one category');
-      toast.error('Select at least one category for this facility type.');
+      toast.error(t('selectLeastOneCategoryFacility'));
       return;
     }
     if (!v.available_all_clubs && siteIds.length === 0) {
-      toast.error('Select at least one club, or turn on "Available at all clubs".');
+      toast.error(t('selectClubOrAllClubs'));
       return;
     }
 
@@ -732,31 +726,31 @@ function FacilityTypeFormModal({ open, item, categories, onClose, onSaved, onDel
           {isEdit && (
             <button className="btn btn-danger" type="button" onClick={() => setConfirmDelete(true)}
                     style={{ marginRight: 'auto' }}>
-              <Trash2 size={15} /> Delete
+              <Trash2 size={15} /> {t('common:actions.delete')}
             </button>
           )}
-          <button className="btn btn-secondary" onClick={onClose} type="button">Cancel</button>
+          <button className="btn btn-secondary" onClick={onClose} type="button">{t('common:actions.cancel')}</button>
           <button className="btn btn-primary" onClick={handleSubmit(onSubmit)} disabled={isSubmitting}>
-            {isSubmitting ? 'Saving…' : 'Save facility type'}
+            {isSubmitting ? t('common:state.saving') : t('saveFacilityType')}
           </button>
         </>
       }
     >
-      <SectionTitle>Basic info</SectionTitle>
+      <SectionTitle>{t('basicInfo')}</SectionTitle>
       <div className="row">
         <div className="col">
-          <FormField label="Facility Type Name *" error={errors.name?.message}>
+          <FormField label={t('facilityTypeName')} error={errors.name?.message}>
             <input className="form-input" {...register('name', { required: 'Name is required' })} />
           </FormField>
         </div>
         <div className="col">
-          <FormField label="Categories *" hint="Select one or more categories." error={catError}>
+          <FormField label={t('categoriesField')} hint={t('selectOneMoreCategories')} error={catError}>
             <Select2
               multiple
               options={categories.map((c) => ({ value: c.id, label: c.name }))}
               value={categoryIds}
               onChange={(vals) => { setCategoryIds(vals); if (vals.length) setCatError(''); }}
-              placeholder="Select categories…"
+              placeholder={t('selectCategories')}
               error={catError}
             />
           </FormField>
@@ -764,36 +758,36 @@ function FacilityTypeFormModal({ open, item, categories, onClose, onSaved, onDel
       </div>
       <div className="row">
         <div className="col">
-          <FormField label="Tagline" hint="Shown next to the name, e.g. 'Floodlit, all-weather'.">
+          <FormField label={t('tagline')} hint={t('taglineHint')}>
             <input className="form-input" {...register('tagline')} />
           </FormField>
         </div>
         <div className="col">
-          <FormField label="Badge">
+          <FormField label={t('badge')}>
             <Controller name="badge" control={control} render={({ field }) => (
-              <Select2 options={FACILITY_BADGES} value={field.value} onChange={field.onChange}
-                       placeholder="None" clearable />
+              <Select2 options={facilityBadges(t)} value={field.value} onChange={field.onChange}
+                       placeholder={t('common:state.none')} clearable />
             )} />
           </FormField>
         </div>
       </div>
-      <FormField label="Description">
+      <FormField label={t('description')}>
         <textarea className="form-textarea" rows={2} {...register('description')} />
       </FormField>
-      <FormField label="What's Included">
+      <FormField label={t('whatsIncluded')}>
         <Controller name="whats_included" control={control}
           render={({ field }) => (
             <RichTextEditor value={field.value || ''} onChange={field.onChange}
-              placeholder="e.g. Floodlights included after 18:00…" />
+              placeholder={t('eGFloodlightsIncludedAfter')} />
           )} />
       </FormField>
-      <FormField label="What's Not Included">
+      <FormField label={t('whatsNotIncluded')}>
         <textarea className="form-textarea" rows={3} {...register('whats_not_included')}
           placeholder={'e.g. Equipment hire\nCoaching\nChanging-room lockers'} />
       </FormField>
-      <SectionTitle>Price, duration &amp; charges</SectionTitle>
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 12 }}>
-        <FormField label="Slot price *" error={errors.price?.message}>
+      <SectionTitle>{t('priceDurationCharges')}</SectionTitle>
+      <div className="form-grid form-grid--4">
+        <FormField label={t('slotPrice')} error={errors.price?.message}>
           <div style={{ position: 'relative' }}>
             <span style={{
               position: 'absolute', left: 10, top: '50%', transform: 'translateY(-50%)',
@@ -803,67 +797,67 @@ function FacilityTypeFormModal({ open, item, categories, onClose, onSaved, onDel
                    {...register('price', { min: { value: 0, message: '0 or more' } })} />
           </div>
         </FormField>
-        <FormField label="Duration (minutes) *" error={errors.duration_minutes?.message}>
+        <FormField label={t('durationMinutes')} error={errors.duration_minutes?.message}>
           <input className="form-input" type="number" min="1"
             {...register('duration_minutes', {
               required: 'Required',
               min: { value: 1, message: 'Must be at least 1 minute' },
             })} />
         </FormField>
-        <FormField label="Tax / VAT (%)" error={errors.tax_percent?.message}>
+        <FormField label={t('taxVat')} error={errors.tax_percent?.message}>
           <input className="form-input" type="number" min="0" max="100" step="0.01"
             {...register('tax_percent', { min: { value: 0, message: '0 or more' } })} />
         </FormField>
-        <FormField label="Discount (%)" error={errors.discount_percent?.message}>
+        <FormField label={t('discount')} error={errors.discount_percent?.message}>
           <input className="form-input" type="number" min="0" max="100" step="0.01"
             {...register('discount_percent', { min: { value: 0, message: '0 or more' } })} />
         </FormField>
       </div>
-      <Toggle label="Tax inclusive"
-              description="On = price already includes tax. Off = tax is added on top."
+      <Toggle label={t('taxInclusive')}
+              description={t('priceAlreadyIncludesTaxOff')}
               {...register('tax_inclusive')} />
 
-      <SectionTitle>Media</SectionTitle>
+      <SectionTitle>{t('media')}</SectionTitle>
       <ImageUploader
-        label="Facility Image"
-        hint="Shown on the facility card. Drag & zoom to crop."
+        label={t('facilityImage')}
+        hint={t('shownFacilityCardDragZoom')}
         aspect={1}
         output={{ width: 600, height: 600, type: 'image/jpeg', quality: 0.9 }}
         currentUrl={item?.image}
         file={imageFile}
         onChange={setImageFile}
       />
-      <FormField label="Facility Video" hint="Optional short clip (MP4/WebM). Replaces the image when present.">
+      <FormField label={t('facilityVideo')} hint={t('optionalShortClipMp4Webm')}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
           <label className="btn btn-secondary" style={{ display: 'inline-flex', alignItems: 'center', gap: 8, cursor: 'pointer' }}>
-            <Upload size={15} /> {videoFile || item?.video ? 'Change video' : 'Upload video'}
+            <Upload size={15} /> {videoFile || item?.video ? t('changeVideo') : t('uploadVideo')}
             <input type="file" accept="video/*" hidden
                    onChange={(e) => setVideoFile(e.target.files?.[0] || null)} />
           </label>
           {videoFile ? (
             <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12.5, color: 'var(--color-text)' }}>
               <Video size={14} /> {videoFile.name}
-              <button type="button" className="icon-btn" title="Remove video" onClick={() => setVideoFile(null)}><X size={14} /></button>
+              <button type="button" className="icon-btn" title={t('removeVideo')} onClick={() => setVideoFile(null)}><X size={14} /></button>
             </span>
           ) : item?.video ? (
             <a href={item.video} target="_blank" rel="noreferrer" className="muted"
                style={{ fontSize: 12.5, display: 'inline-flex', alignItems: 'center', gap: 6 }}>
-              <Video size={14} /> Current video
+              <Video size={14} /> {t('currentVideo')}
             </a>
           ) : (
-            <span className="muted" style={{ fontSize: 12.5 }}>No video selected</span>
+            <span className="muted" style={{ fontSize: 12.5 }}>{t('noVideoSelected')}</span>
           )}
         </div>
       </FormField>
 
-      <SectionTitle>Add-ons</SectionTitle>
-      <FormField label="Available add-ons" hint="Optional extras customers can attach to this booking.">
+      <SectionTitle>{t('addOns')}</SectionTitle>
+      <FormField label={t('availableAddOns')} hint={t('optionalExtrasCustomersCanAttach')}>
         {addons.length === 0 ? (
-          <p className="muted" style={{ fontSize: 13 }}>No add-ons configured yet.</p>
+          <p className="muted" style={{ fontSize: 13 }}>{t('noAddOnsConfiguredYet')}</p>
         ) : (
           <Select2
             multiple
-            placeholder="Select add-ons…"
+            placeholder={t('selectAddOns')}
             options={addons.map((a) => ({ value: a.id, label: a.name }))}
             value={addonIds}
             onChange={setAddonIds}
@@ -871,18 +865,18 @@ function FacilityTypeFormModal({ open, item, categories, onClose, onSaved, onDel
         )}
       </FormField>
 
-      <SectionTitle>Availability</SectionTitle>
-      <Toggle label="Available at all clubs"
-              description="Turn off to choose specific clubs"
+      <SectionTitle>{t('availability')}</SectionTitle>
+      <Toggle label={t('availableAllClubs')}
+              description={t('turnOffChooseSpecificClubs')}
               {...register('available_all_clubs')} />
       {!allSites && (
-        <FormField label="Clubs *">
+        <FormField label={t('clubs')}>
           {clubs.length === 0 ? (
-            <p className="muted" style={{ fontSize: 13 }}>No clubs configured yet.</p>
+            <p className="muted" style={{ fontSize: 13 }}>{t('noClubsConfiguredYet')}</p>
           ) : (
             <Select2
               multiple
-              placeholder="Select clubs…"
+              placeholder={t('selectClubs')}
               options={clubs.map((s) => ({ value: s.id, label: s.name }))}
               value={siteIds}
               onChange={setSiteIds}
@@ -891,23 +885,23 @@ function FacilityTypeFormModal({ open, item, categories, onClose, onSaved, onDel
         </FormField>
       )}
 
-      <SectionTitle>Options</SectionTitle>
+      <SectionTitle>{t('options')}</SectionTitle>
       <div className="toggle-grid">
-        <Toggle label="Staff Required" description="Needs an assigned staff member" {...register('staff_required')} />
-        <Toggle label="Facility Required" description="Occupies a physical court, lane or room" {...register('facility_required')} />
-        <Toggle label="Online Booking" description="Bookable from the website" {...register('online_booking_enabled')} />
+        <Toggle label={t('staffRequired')} description={t('needsAssignedStaffMember')} {...register('staff_required')} />
+        <Toggle label={t('facilityRequired')} description={t('occupiesPhysicalCourtLaneRoom')} {...register('facility_required')} />
+        <Toggle label={t('onlineBooking')} description={t('bookableWebsite')} {...register('online_booking_enabled')} />
       </div>
-      <div className="toggle-grid" style={{ gridTemplateColumns: '1fr' }}>
-        <Toggle label="Active" description="Visible & available to book" {...register('is_active')} />
+      <div className="toggle-grid toggle-grid--1">
+        <Toggle label={t('common:state.active')} description={t('visibleAvailableBook')} {...register('is_active')} />
       </div>
     </Modal>
 
     <ConfirmDialog
       open={confirmDelete}
       tone="danger"
-      title="Delete this facility type?"
+      title={t('deleteFacilityType')}
       message={<><strong>{item?.name}</strong> will be permanently removed.</>}
-      confirmLabel="Delete"
+      confirmLabel={t('common:actions.delete')}
       busy={deleting}
       onConfirm={handleDelete}
       onClose={() => setConfirmDelete(false)}
@@ -918,12 +912,14 @@ function FacilityTypeFormModal({ open, item, categories, onClose, onSaved, onDel
 
 /* ----- Add-ons tab --------------------------------------------------------- */
 function AddOnsTab() {
+  const { t } = useTranslation('facilities');
   const { hasPerm } = useAuth();
   const [modalOpen, setModalOpen] = useState(false);
   const [editItem, setEditItem] = useState(null);
   const [categories, setCategories] = useState([]);
   const fetcher = useCallback((q) => addonsApi.list(q), []);
-  const { rows, loading, count, query, setQuery, reload } = useApiList(fetcher);
+  const [reloadKey, setReloadKey] = useState(0);
+  const reload = useCallback(() => setReloadKey((k) => k + 1), []);
 
   useEffect(() => {
     facilityCategoriesApi.list({ page_size: 100 }).then((d) => setCategories(d.results || d)).catch(() => {});
@@ -932,75 +928,68 @@ function AddOnsTab() {
   function openNew() { setEditItem(null); setModalOpen(true); }
   function openEdit(row) { setEditItem(row); setModalOpen(true); }
 
+  const columns = useMemo(() => [
+    {
+      key: 'name', header: t('addons.columns.addon'), sortKey: 'name', minWidth: 240,
+      alwaysVisible: true,
+      render: (r) => (
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+          {r.image ? (
+            <img src={r.image} alt="" style={{ width: 34, height: 34, borderRadius: 8, objectFit: 'cover', flexShrink: 0 }} />
+          ) : (
+            <div style={{
+              width: 34, height: 34, borderRadius: 8, flexShrink: 0,
+              background: 'var(--color-border-soft)', display: 'flex',
+              alignItems: 'center', justifyContent: 'center', color: 'var(--color-text-muted)',
+            }}><ImageIcon size={15} /></div>
+          )}
+          <div style={{ minWidth: 0 }}>
+            <div style={{ fontWeight: 600 }}>
+              {r.name}
+              {r.is_featured && <StatusBadge tone="warning" label={t('featured')} />}
+            </div>
+            <div className="muted" style={{ fontSize: 12 }}>
+              {r.code ? `${r.code} · ` : ''}{(r.category_names || []).join(', ') || 'No category'}
+            </div>
+          </div>
+        </div>
+      ),
+    },
+    { key: 'price', header: t('price2'), align: 'right', render: (r) => <Money amount={r.price} /> },
+    { key: 'tax', header: t('tax'), align: 'right', render: (r) => `${Number(r.tax_percent).toFixed(0)}%` },
+    { key: 'dur', header: t('duration'), align: 'right', render: (r) => `${r.duration_minutes} min` },
+    { key: 'order', header: t('order'), align: 'right', render: (r) => r.display_order },
+    { key: 'status', header: t('categories.columns.status'), sortKey: 'is_active', minWidth: 110,
+      render: (r) => <StatusBadge tone={r.is_active ? 'success' : 'muted'}
+                                  label={r.is_active ? t('common.active') : t('common.inactive')} /> },
+  ], [t]);
+
+  const filters = useMemo(() => [
+    { key: 'categories', label: t('category'), type: 'select',
+      options: categories.map((c) => ({ value: c.id, label: c.name })) },
+    { key: 'is_active', label: t('categories.filters.status'), type: 'boolean',
+      trueLabel: t('common.active'), falseLabel: t('common.inactive') },
+  ], [categories, t]);
+
   return (
     <>
-      <Toolbar
-        searchValue={query.search}
-        onSearchChange={(v) => setQuery({ ...query, search: v || undefined, page: 1 })}
-        searchPlaceholder="Search add-ons…"
-        filters={[
-          {
-            value: query.categories,
-            options: categories.map((c) => ({ value: c.id, label: c.name })),
-            placeholder: 'All categories',
-            onChange: (v) => setQuery({ ...query, categories: v, page: 1 }),
-          },
-          {
-            value: query.is_active,
-            options: [{ value: 'true', label: 'Active' }, { value: 'false', label: 'Inactive' }],
-            placeholder: 'Any status',
-            onChange: (v) => setQuery({ ...query, is_active: v, page: 1 }),
-          },
-        ]}
-        right={
-          hasPerm('facilities.add') && <button className="btn btn-primary" onClick={openNew}>
-            <Plus size={15} /> Add add-on
-          </button>
-        }
-      />
-      <DataTable
-        loading={loading}
-        rows={rows}
+      <ListView
+        tableKey="facility-addons"
+        fetcher={fetcher}
+        reloadKey={reloadKey}
+        defaultOrdering="name"
+        searchPlaceholder={t('addons.searchPlaceholder')}
+        emptyTitle={t('addons.emptyTitle')}
+        emptyHint={t('addons.emptyHint')}
         onRowClick={openEdit}
-        page={query.page || 1}
-        count={count}
-        onPageChange={(p) => setQuery({ ...query, page: p })}
-        emptyTitle="No add-ons yet"
-        emptyHint="Add-ons like equipment hire or floodlights let customers tailor a booking."
-        columns={[
-          {
-            key: 'name', header: 'Add-on',
-            render: (r) => (
-              <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                {r.image ? (
-                  <img src={r.image} alt="" style={{ width: 34, height: 34, borderRadius: 8, objectFit: 'cover', flexShrink: 0 }} />
-                ) : (
-                  <div style={{
-                    width: 34, height: 34, borderRadius: 8, flexShrink: 0,
-                    background: 'var(--color-border-soft)', display: 'flex',
-                    alignItems: 'center', justifyContent: 'center', color: 'var(--color-text-muted)',
-                  }}><ImageIcon size={15} /></div>
-                )}
-                <div style={{ minWidth: 0 }}>
-                  <div style={{ fontWeight: 600 }}>
-                    {r.name}
-                    {r.is_featured && <StatusBadge tone="warning" label="Featured" />}
-                  </div>
-                  <div className="muted" style={{ fontSize: 12 }}>
-                    {r.code ? `${r.code} · ` : ''}{(r.category_names || []).join(', ') || 'No category'}
-                  </div>
-                </div>
-              </div>
-            ),
-          },
-          { key: 'price', header: 'Price', align: 'right', render: (r) => <Money amount={r.price} /> },
-          { key: 'tax', header: 'Tax', align: 'right', render: (r) => `${Number(r.tax_percent).toFixed(0)}%` },
-          { key: 'dur', header: 'Duration', align: 'right', render: (r) => `${r.duration_minutes} min` },
-          { key: 'order', header: 'Order', align: 'right', render: (r) => r.display_order },
-          { key: 'status', header: 'Status',
-            render: (r) => <StatusBadge tone={r.is_active ? 'success' : 'muted'}
-                                        label={r.is_active ? 'Active' : 'Inactive'} /> },
-        ]}
+        columns={columns}
+        filters={filters}
+        groupOptions={addonGroups(t)}
+        toolbarRight={hasPerm('facilities.add') && (
+          <button className="btn btn-primary" onClick={openNew}>
+            <Plus size={15} /> {t('addons.add')}
+          </button>
+        )}
       />
 
       <AddOnFormModal
@@ -1008,14 +997,15 @@ function AddOnsTab() {
         addon={editItem}
         categories={categories}
         onClose={() => setModalOpen(false)}
-        onSaved={() => { setModalOpen(false); toast.success('Add-on saved'); reload(); }}
-        onDeleted={() => { setModalOpen(false); toast.success('Add-on deleted'); reload(); }}
+        onSaved={() => { setModalOpen(false); toast.success(t('addSaved')); reload(); }}
+        onDeleted={() => { setModalOpen(false); toast.success(t('addDeleted')); reload(); }}
       />
     </>
   );
 }
 
 function AddOnFormModal({ open, addon, categories, onClose, onSaved, onDeleted }) {
+  const { t } = useTranslation('facilities');
   const isEdit = Boolean(addon);
   const defaultTaxPct = useDefaultTaxPercent();
   const { register, handleSubmit, reset, watch, formState: { errors, isSubmitting } } = useForm();
@@ -1062,13 +1052,13 @@ function AddOnFormModal({ open, addon, categories, onClose, onSaved, onDeleted }
       onDeleted?.();
     } catch (e) {
       setConfirmDelete(false);
-      toast.error(apiErrorMessage(e, 'Unable to delete the add-on. Please try again.'));
+      toast.error(apiErrorMessage(e, t('unableDeleteAddPleaseTry')));
     } finally { setDeleting(false); }
   }
 
   async function onSubmit(v) {
     if (!v.available_all_clubs && siteIds.length === 0) {
-      toast.error('Select at least one club, or turn on "Available at all clubs".');
+      toast.error(t('selectClubOrAllClubs'));
       return;
     }
     const fd = new FormData();
@@ -1106,59 +1096,59 @@ function AddOnFormModal({ open, addon, categories, onClose, onSaved, onDeleted }
           {isEdit && (
             <button className="btn btn-danger" type="button" onClick={() => setConfirmDelete(true)}
                     style={{ marginRight: 'auto' }}>
-              <Trash2 size={15} /> Delete
+              <Trash2 size={15} /> {t('common:actions.delete')}
             </button>
           )}
-          <button className="btn btn-secondary" onClick={onClose} type="button">Cancel</button>
+          <button className="btn btn-secondary" onClick={onClose} type="button">{t('common:actions.cancel')}</button>
           <button className="btn btn-primary" onClick={handleSubmit(onSubmit)} disabled={isSubmitting}>
-            {isSubmitting ? 'Saving…' : 'Save add-on'}
+            {isSubmitting ? t('common:state.saving') : t('saveAdd')}
           </button>
         </>
       }
     >
-      <SectionTitle>Basic info</SectionTitle>
+      <SectionTitle>{t('basicInfo')}</SectionTitle>
       <div className="row">
         <div className="col">
-          <FormField label="Add-on Name *" error={errors.name?.message}>
+          <FormField label={t('addName')} error={errors.name?.message}>
             <input className="form-input" {...register('name', { required: 'Name is required' })} />
           </FormField>
         </div>
         <div className="col">
-          <FormField label="Add-on Code" hint="Optional unique code / SKU." error={errors.code?.message}>
+          <FormField label={t('addCode')} hint={t('optionalUniqueCodeSku')} error={errors.code?.message}>
             <input className="form-input" {...register('code')} />
           </FormField>
         </div>
       </div>
-      <FormField label="Description">
+      <FormField label={t('description')}>
         <textarea className="form-textarea" rows={2} {...register('description')} />
       </FormField>
       <div className="row">
         <div className="col">
-          <FormField label="Categories" hint="Select one or more (optional).">
+          <FormField label={t('categories2')} hint={t('selectOneMoreOptional')}>
             <Select2
               multiple
               options={categories.map((c) => ({ value: c.id, label: c.name }))}
               value={categoryIds}
               onChange={setCategoryIds}
-              placeholder="Select categories…"
+              placeholder={t('selectCategories')}
             />
           </FormField>
         </div>
         <div className="col">
-          <FormField label="Display Order" error={errors.display_order?.message}>
+          <FormField label={t('displayOrder')} error={errors.display_order?.message}>
             <input className="form-input" type="number" min="0"
               {...register('display_order', { min: { value: 0, message: '0 or more' } })} />
           </FormField>
         </div>
       </div>
-      <FormField label="Facility types"
-                 hint="Optionally offer this add-on on specific facility types.">
+      <FormField label={t('facilityTypes')}
+                 hint={t('optionallyOfferAddSpecificFacility')}>
         {facilityTypeOptions.length === 0 ? (
-          <p className="muted" style={{ fontSize: 13 }}>No facility types created yet.</p>
+          <p className="muted" style={{ fontSize: 13 }}>{t('noFacilityTypesCreatedYet2')}</p>
         ) : (
           <Select2
             multiple
-            placeholder="Select facility types…"
+            placeholder={t('selectFacilityTypes')}
             options={facilityTypeOptions.map((s) => ({ value: s.id, label: s.name }))}
             value={facilityTypeSel}
             onChange={setFacilityTypeSel}
@@ -1166,32 +1156,32 @@ function AddOnFormModal({ open, addon, categories, onClose, onSaved, onDeleted }
         )}
       </FormField>
 
-      <SectionTitle>Pricing</SectionTitle>
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 12 }}>
-        <FormField label="Price *" error={errors.price?.message}>
+      <SectionTitle>{t('pricingSection')}</SectionTitle>
+      <div className="form-grid form-grid--3">
+        <FormField label={t('price')} error={errors.price?.message}>
           <div style={{ position: 'relative' }}>
             <span style={{ position: 'absolute', left: 10, top: '50%', transform: 'translateY(-50%)', color: 'var(--color-text-muted)', fontSize: 13 }}><CurrencySymbol /></span>
             <input className="form-input" type="number" min="0" step="0.01" style={{ paddingLeft: 30 }}
               {...register('price', { required: 'Required', min: { value: 0, message: '0 or more' } })} />
           </div>
         </FormField>
-        <FormField label="Tax / VAT (%)" error={errors.tax_percent?.message}>
+        <FormField label={t('taxVat')} error={errors.tax_percent?.message}>
           <input className="form-input" type="number" min="0" max="100" step="0.01"
             {...register('tax_percent', { min: { value: 0, message: '0 or more' } })} />
         </FormField>
-        <FormField label="Duration (minutes)" error={errors.duration_minutes?.message}>
+        <FormField label={t('durationMinutes2')} error={errors.duration_minutes?.message}>
           <input className="form-input" type="number" min="0"
             {...register('duration_minutes', { min: { value: 0, message: '0 or more' } })} />
         </FormField>
       </div>
-      <Toggle label="Tax inclusive"
-              description="On = price already includes tax. Off = tax is added on top."
+      <Toggle label={t('taxInclusive')}
+              description={t('priceAlreadyIncludesTaxOff')}
               {...register('tax_inclusive')} />
 
-      <SectionTitle>Media</SectionTitle>
+      <SectionTitle>{t('media')}</SectionTitle>
       <ImageUploader
-        label="Image / Icon"
-        hint="Optional. Square icon shown with the add-on."
+        label={t('imageIcon')}
+        hint={t('optionalSquareIconShownAdd')}
         aspect={1}
         output={{ width: 256, height: 256, type: 'image/png' }}
         currentUrl={addon?.image}
@@ -1199,18 +1189,18 @@ function AddOnFormModal({ open, addon, categories, onClose, onSaved, onDeleted }
         onChange={setImageFile}
       />
 
-      <SectionTitle>Availability</SectionTitle>
-      <Toggle label="Available at all clubs"
-              description="Turn off to choose specific clubs"
+      <SectionTitle>{t('availability')}</SectionTitle>
+      <Toggle label={t('availableAllClubs')}
+              description={t('turnOffChooseSpecificClubs')}
               {...register('available_all_clubs')} />
       {!allSites && (
-        <FormField label="Clubs *">
+        <FormField label={t('clubs')}>
           {clubs.length === 0 ? (
-            <p className="muted" style={{ fontSize: 13 }}>No clubs configured yet.</p>
+            <p className="muted" style={{ fontSize: 13 }}>{t('noClubsConfiguredYet')}</p>
           ) : (
             <Select2
               multiple
-              placeholder="Select clubs…"
+              placeholder={t('selectClubs')}
               options={clubs.map((s) => ({ value: s.id, label: s.name }))}
               value={siteIds}
               onChange={setSiteIds}
@@ -1219,19 +1209,19 @@ function AddOnFormModal({ open, addon, categories, onClose, onSaved, onDeleted }
         </FormField>
       )}
 
-      <SectionTitle>Options</SectionTitle>
-      <div className="toggle-grid" style={{ gridTemplateColumns: 'repeat(2, minmax(0, 1fr))' }}>
-        <Toggle label="Featured Add-on" description="Highlight this add-on" {...register('is_featured')} />
-        <Toggle label="Active" description="Available to attach to facility types" {...register('is_active')} />
+      <SectionTitle>{t('options')}</SectionTitle>
+      <div className="toggle-grid toggle-grid--2">
+        <Toggle label={t('featuredAdd')} description={t('highlightAdd')} {...register('is_featured')} />
+        <Toggle label={t('common:state.active')} description={t('availableAttachFacilityTypes')} {...register('is_active')} />
       </div>
     </Modal>
 
     <ConfirmDialog
       open={confirmDelete}
       tone="danger"
-      title="Delete this add-on?"
+      title={t('deleteAdd')}
       message={<><strong>{addon?.name}</strong> will be permanently removed.</>}
-      confirmLabel="Delete"
+      confirmLabel={t('common:actions.delete')}
       busy={deleting}
       onConfirm={handleDelete}
       onClose={() => setConfirmDelete(false)}
@@ -1242,91 +1232,85 @@ function AddOnFormModal({ open, addon, categories, onClose, onSaved, onDeleted }
 
 /* ----- Pricing Rules tab --------------------------------------------------- */
 function PricingRulesTab() {
+  const { t } = useTranslation('facilities');
   const { hasPerm } = useAuth();
   const [modalOpen, setModalOpen] = useState(false);
   const [editItem, setEditItem] = useState(null);
   const fetcher = useCallback((q) => pricingRulesApi.list(q), []);
-  const { rows, loading, count, query, setQuery, reload } = useApiList(fetcher);
+  const [reloadKey, setReloadKey] = useState(0);
+  const reload = useCallback(() => setReloadKey((k) => k + 1), []);
 
   function openNew() { setEditItem(null); setModalOpen(true); }
   function openEdit(row) { setEditItem(row); setModalOpen(true); }
 
+  const columns = useMemo(() => [
+    {
+      key: 'name', header: t('pricing.columns.rule'), sortKey: 'name', minWidth: 240,
+      alwaysVisible: true,
+      render: (r) => (
+        <div>
+          <div style={{ fontWeight: 600 }}>{r.name}</div>
+          <div className="muted" style={{ fontSize: 12 }}>{r.code}</div>
+        </div>
+      ),
+    },
+    { key: 'applies', header: t('applies'), truncate: true, width: 150,
+      render: (r) => <span>{r.applies_to_summary}</span> },
+    { key: 'type', header: t('ruleType2'),
+      render: (r) => <StatusBadge tone="info" label={r.rule_type_display} /> },
+    { key: 'cond', header: t('condition'), truncate: true, width: 200,
+      render: (r) => <span className="muted">{r.condition_summary}</span> },
+    { key: 'adj', header: t('adjustment'), align: 'right',
+      render: (r) => <strong>{r.adjustment_display}</strong> },
+    { key: 'priority', header: t('priority2'), align: 'right', render: (r) => r.priority },
+    { key: 'validity', header: t('validity'), render: (r) => <span className="muted">{r.validity_summary}</span> },
+    { key: 'status', header: t('categories.columns.status'), sortKey: 'is_active', minWidth: 110,
+      render: (r) => <StatusBadge tone={r.is_active ? 'success' : 'muted'}
+                                  label={r.is_active ? t('common.active') : t('common.inactive')} /> },
+    { key: 'actions', header: '', align: 'right',
+      render: (r) => (
+        <div className="table-actions">
+          <button className="icon-btn" title={t('editRule')}
+                  onClick={(e) => { e.stopPropagation(); openEdit(r); }}>
+            <Pencil size={15} />
+          </button>
+        </div>
+      ) },
+  ], [t]);
+
+  const filters = useMemo(() => [
+    { key: 'rule_type', label: t('pricing.filters.ruleType'), type: 'select', options: ruleTypes(t) },
+    { key: 'is_active', label: t('categories.filters.status'), type: 'boolean',
+      trueLabel: t('common.active'), falseLabel: t('common.inactive') },
+  ], [t]);
+
   return (
     <>
-      <Toolbar
-        searchValue={query.search}
-        onSearchChange={(v) => setQuery({ ...query, search: v || undefined, page: 1 })}
-        searchPlaceholder="Search pricing rules…"
-        filters={[
-          {
-            value: query.rule_type,
-            options: RULE_TYPES,
-            placeholder: 'All rule types',
-            onChange: (v) => setQuery({ ...query, rule_type: v, page: 1 }),
-          },
-          {
-            value: query.is_active,
-            options: [{ value: 'true', label: 'Active' }, { value: 'false', label: 'Inactive' }],
-            placeholder: 'Any status',
-            onChange: (v) => setQuery({ ...query, is_active: v, page: 1 }),
-          },
-        ]}
-        right={
-          hasPerm('facilities.add') && <button className="btn btn-primary" onClick={openNew}>
-            <Plus size={15} /> Add rule
-          </button>
-        }
-      />
-      <DataTable
-        loading={loading}
-        rows={rows}
+      <ListView
+        tableKey="pricing-rules"
+        fetcher={fetcher}
+        reloadKey={reloadKey}
+        defaultOrdering="priority"
+        searchPlaceholder={t('pricing.searchPlaceholder')}
+        emptyTitle={t('pricing.emptyTitle')}
+        emptyHint={t('pricing.emptyHint')}
         onRowClick={openEdit}
-        page={query.page || 1}
-        count={count}
-        onPageChange={(p) => setQuery({ ...query, page: p })}
-        emptyTitle="No pricing rules yet"
-        emptyHint="Create dynamic pricing rules to adjust prices by club, membership, season and more."
-        columns={[
-          {
-            key: 'name', header: 'Rule',
-            render: (r) => (
-              <div>
-                <div style={{ fontWeight: 600 }}>{r.name}</div>
-                <div className="muted" style={{ fontSize: 12 }}>{r.code}</div>
-              </div>
-            ),
-          },
-          { key: 'applies', header: 'Applies To', truncate: true, width: 150,
-            render: (r) => <span>{r.applies_to_summary}</span> },
-          { key: 'type', header: 'Rule Type',
-            render: (r) => <StatusBadge tone="info" label={r.rule_type_display} /> },
-          { key: 'cond', header: 'Condition', truncate: true, width: 200,
-            render: (r) => <span className="muted">{r.condition_summary}</span> },
-          { key: 'adj', header: 'Adjustment', align: 'right',
-            render: (r) => <strong>{r.adjustment_display}</strong> },
-          { key: 'priority', header: 'Priority', align: 'right', render: (r) => r.priority },
-          { key: 'validity', header: 'Validity', render: (r) => <span className="muted">{r.validity_summary}</span> },
-          { key: 'status', header: 'Status',
-            render: (r) => <StatusBadge tone={r.is_active ? 'success' : 'muted'}
-                                        label={r.is_active ? 'Active' : 'Inactive'} /> },
-          { key: 'actions', header: '', align: 'right',
-            render: (r) => (
-              <div className="table-actions">
-                <button className="icon-btn" title="Edit rule"
-                        onClick={(e) => { e.stopPropagation(); openEdit(r); }}>
-                  <Pencil size={15} />
-                </button>
-              </div>
-            ) },
-        ]}
+        columns={columns}
+        filters={filters}
+        groupOptions={ruleGroups(t)}
+        toolbarRight={hasPerm('facilities.add') && (
+          <button className="btn btn-primary" onClick={openNew}>
+            <Plus size={15} /> {t('pricing.add')}
+          </button>
+        )}
       />
 
       <PricingRuleFormModal
         open={modalOpen}
         rule={editItem}
         onClose={() => setModalOpen(false)}
-        onSaved={() => { setModalOpen(false); toast.success('Pricing rule saved'); reload(); }}
-        onDeleted={() => { setModalOpen(false); toast.success('Pricing rule deleted'); reload(); }}
+        onSaved={() => { setModalOpen(false); toast.success(t('pricingRuleSaved')); reload(); }}
+        onDeleted={() => { setModalOpen(false); toast.success(t('pricingRuleDeleted')); reload(); }}
       />
     </>
   );
@@ -1347,6 +1331,7 @@ const genRuleCode = (name) => (name || '').trim().toUpperCase()
   .replace(/[^A-Z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 20);
 
 function PricingRuleFormModal({ open, rule, onClose, onSaved, onDeleted }) {
+  const { t } = useTranslation('facilities');
   const isEdit = Boolean(rule);
   const { register, handleSubmit, reset, watch, control, setValue,
           formState: { errors, isSubmitting } } = useForm();
@@ -1425,7 +1410,7 @@ function PricingRuleFormModal({ open, rule, onClose, onSaved, onDeleted }) {
       });
       setPreview(d);
     } catch (e) {
-      toast.error(apiErrorMessage(e, 'Unable to generate the preview. Please try again.'));
+      toast.error(apiErrorMessage(e, t('unableGeneratePreviewPleaseTry')));
     } finally { setPreviewing(false); }
   }
 
@@ -1437,7 +1422,7 @@ function PricingRuleFormModal({ open, rule, onClose, onSaved, onDeleted }) {
       onDeleted?.();
     } catch (e) {
       setConfirmDelete(false);
-      toast.error(apiErrorMessage(e, 'Unable to delete the pricing rule. Please try again.'));
+      toast.error(apiErrorMessage(e, t('unableDeletePricingRulePlease')));
     } finally { setDeleting(false); }
   }
 
@@ -1487,20 +1472,20 @@ function PricingRuleFormModal({ open, rule, onClose, onSaved, onDeleted }) {
           {isEdit && (
             <button className="btn btn-danger" type="button" onClick={() => setConfirmDelete(true)}
                     style={{ marginRight: 'auto' }}>
-              <Trash2 size={15} /> Delete
+              <Trash2 size={15} /> {t('common:actions.delete')}
             </button>
           )}
-          <button className="btn btn-secondary" onClick={onClose} type="button">Cancel</button>
+          <button className="btn btn-secondary" onClick={onClose} type="button">{t('common:actions.cancel')}</button>
           <button className="btn btn-primary" onClick={handleSubmit(onSubmit)} disabled={isSubmitting}>
-            {isSubmitting ? 'Saving…' : 'Save rule'}
+            {isSubmitting ? t('common:state.saving') : t('saveRule')}
           </button>
         </>
       }
     >
-      <SectionTitle>Basic information</SectionTitle>
+      <SectionTitle>{t('basicInformation')}</SectionTitle>
       <div className="row">
         <div className="col">
-          <FormField label="Rule Name *" error={errors.name?.message}>
+          <FormField label={t('ruleName')} error={errors.name?.message}>
             <input className="form-input" {...(() => {
               const f = register('name', { required: 'Name is required' });
               return {
@@ -1515,7 +1500,7 @@ function PricingRuleFormModal({ open, rule, onClose, onSaved, onDeleted }) {
           </FormField>
         </div>
         <div className="col">
-          <FormField label="Rule Code *" hint="Auto-filled from the name; edit if needed." error={errors.code?.message}>
+          <FormField label={t('ruleCode')} hint={t('autoFilledNameEditIf')} error={errors.code?.message}>
             <input className="form-input" {...(() => {
               const f = register('code', { required: 'Code is required' });
               return {
@@ -1526,59 +1511,59 @@ function PricingRuleFormModal({ open, rule, onClose, onSaved, onDeleted }) {
           </FormField>
         </div>
       </div>
-      <FormField label="Description">
+      <FormField label={t('description')}>
         <textarea className="form-textarea" rows={2} {...register('description')} />
       </FormField>
       <div className="row">
         <div className="col">
-          <FormField label="Priority *" hint="Lower number = higher priority." error={errors.priority?.message}>
+          <FormField label={t('priority')} hint={t('lowerNumberHigherPriority')} error={errors.priority?.message}>
             <input className="form-input" type="number" min="0"
                    {...register('priority', { required: 'Required', min: { value: 0, message: '0 or more' } })} />
           </FormField>
         </div>
         <div className="col">
-          <FormField label="Display Order">
+          <FormField label={t('displayOrder')}>
             <input className="form-input" type="number" min="0" {...register('display_order')} />
           </FormField>
         </div>
         <div className="col">
-          <FormField label="Rule Type *" error={errors.rule_type?.message}>
+          <FormField label={t('ruleType')} error={errors.rule_type?.message}>
             <Controller name="rule_type" control={control} rules={{ required: 'Select a rule type' }}
               render={({ field }) => (
-                <Select2 options={RULE_TYPES} value={field.value} onChange={field.onChange}
-                         placeholder="Select rule type…" error={errors.rule_type?.message} />
+                <Select2 options={ruleTypes(t)} value={field.value} onChange={field.onChange}
+                         placeholder={t('selectRuleType')} error={errors.rule_type?.message} />
               )} />
           </FormField>
         </div>
       </div>
 
-      <SectionTitle>Apply rule to</SectionTitle>
+      <SectionTitle>{t('applyRule')}</SectionTitle>
       <div className="row">
         <div className="col">
-          <FormField label="Facility Categories">
-            <Select2 multiple placeholder="All categories"
+          <FormField label={t('facilityCategories')}>
+            <Select2 multiple placeholder={t('allCategories')}
               options={cats.map((c) => ({ value: c.id, label: c.name }))}
               value={catIds} onChange={setCatIds} />
           </FormField>
         </div>
         <div className="col">
-          <FormField label="Specific Facility Types">
-            <Select2 multiple placeholder="All facility types"
+          <FormField label={t('specificFacilityTypes')}>
+            <Select2 multiple placeholder={t('allFacilityTypes')}
               options={pkgs.map((p) => ({ value: p.id, label: p.name }))}
               value={pkgIds} onChange={setPkgIds} />
           </FormField>
         </div>
       </div>
-      <FormField label="Add-ons">
-        <Select2 multiple placeholder="No add-ons"
+      <FormField label={t('addOns')}>
+        <Select2 multiple placeholder={t('noAddOns')}
           options={adds.map((a) => ({ value: a.id, label: a.name }))}
           value={addIds} onChange={setAddIds} />
       </FormField>
 
-      <SectionTitle>Conditions</SectionTitle>
+      <SectionTitle>{t('conditions')}</SectionTitle>
       {showFor('club', ruleType) && (
-        <FormField label="Clubs">
-          <Select2 multiple placeholder="Any club"
+        <FormField label={t('clubs2')}>
+          <Select2 multiple placeholder={t('anyClub')}
             options={clubs.map((b) => ({ value: b.id, label: b.name }))}
             value={clubIds} onChange={setClubIds} />
         </FormField>
@@ -1586,14 +1571,14 @@ function PricingRuleFormModal({ open, rule, onClose, onSaved, onDeleted }) {
       {showFor('membership', ruleType) && (
         <div className="row">
           <div className="col">
-            <FormField label="Customer Types">
-              <Select2 multiple placeholder="Any customer type"
-                options={CUSTOMER_TYPES} value={cTypes} onChange={setCTypes} />
+            <FormField label={t('customerTypes')}>
+              <Select2 multiple placeholder={t('anyCustomerType')}
+                options={customerTypes(t)} value={cTypes} onChange={setCTypes} />
             </FormField>
           </div>
           <div className="col">
-            <FormField label="Membership Plans">
-              <Select2 multiple placeholder="Any plan"
+            <FormField label={t('membershipPlans')}>
+              <Select2 multiple placeholder={t('anyPlan')}
                 options={plans.map((p) => ({ value: p.id, label: p.name }))}
                 value={planIds} onChange={setPlanIds} />
             </FormField>
@@ -1602,30 +1587,30 @@ function PricingRuleFormModal({ open, rule, onClose, onSaved, onDeleted }) {
       )}
       <div className="row">
         <div className="col">
-          <FormField label="Minimum Amount">
+          <FormField label={t('minimumAmount')}>
             <input className="form-input" type="number" min="0" step="0.01" {...register('min_amount')} />
           </FormField>
         </div>
         <div className="col">
-          <FormField label="Minimum Quantity">
+          <FormField label={t('minimumQuantity')}>
             <input className="form-input" type="number" min="0" {...register('min_quantity')} />
           </FormField>
         </div>
       </div>
 
-      <SectionTitle>Adjustment</SectionTitle>
+      <SectionTitle>{t('adjustment')}</SectionTitle>
       <div className="row">
         <div className="col">
-          <FormField label="Adjustment Type *" error={errors.adjustment_type?.message}>
+          <FormField label={t('adjustmentType')} error={errors.adjustment_type?.message}>
             <Controller name="adjustment_type" control={control} rules={{ required: 'Required' }}
               render={({ field }) => (
-                <Select2 options={ADJUSTMENT_TYPES} value={field.value} onChange={field.onChange}
-                         placeholder="Select…" error={errors.adjustment_type?.message} />
+                <Select2 options={adjustmentTypes(t)} value={field.value} onChange={field.onChange}
+                         placeholder={t('select')} error={errors.adjustment_type?.message} />
               )} />
           </FormField>
         </div>
         <div className="col">
-          <FormField label={isPercent ? 'Adjustment Value (%) *' : 'Adjustment Value *'} error={errors.adjustment_value?.message}>
+          <FormField label={isPercent ? t('adjustmentValue') : t('adjustmentValue2')} error={errors.adjustment_value?.message}>
             <input className="form-input" type="number" min="0" max={isPercent ? 100 : undefined} step="0.01"
                    {...register('adjustment_value', {
                      required: 'Required',
@@ -1639,51 +1624,51 @@ function PricingRuleFormModal({ open, rule, onClose, onSaved, onDeleted }) {
           </FormField>
         </div>
         <div className="col">
-          <FormField label="Currency">
+          <FormField label={t('common:labels.currency')}>
             <Controller name="currency" control={control} render={({ field }) => (
               <Select2 options={CURRENCY_OPTIONS} value={field.value} onChange={field.onChange}
-                       placeholder="System default" clearable />
+                       placeholder={t('systemDefault')} clearable />
             )} />
           </FormField>
         </div>
       </div>
-      <div className="toggle-grid" style={{ gridTemplateColumns: 'repeat(3, minmax(0, 1fr))' }}>
-        <Toggle label="Tax / VAT applicable" description="Apply tax on the adjusted price" {...register('tax_applicable')} />
-        <Toggle label="Allow stacking" description="Let other rules also apply" {...register('allow_stacking')} />
-        <Toggle label="Active" description="Rule is in effect" {...register('is_active')} />
+      <div className="toggle-grid">
+        <Toggle label={t('taxVatApplicable')} description={t('applyTaxAdjustedPrice')} {...register('tax_applicable')} />
+        <Toggle label={t('allowStacking')} description={t('letOtherRulesAlsoApply')} {...register('allow_stacking')} />
+        <Toggle label={t('common:state.active')} description={t('ruleEffect')} {...register('is_active')} />
       </div>
 
-      <SectionTitle>Validity</SectionTitle>
+      <SectionTitle>{t('validity')}</SectionTitle>
       <div className="row">
         <div className="col">
-          <FormField label="Valid From *" error={errors.valid_from?.message}>
+          <FormField label={t('valid')} error={errors.valid_from?.message}>
             <input className="form-input" type="date"
                    {...register('valid_from', { required: 'Valid From is required' })} />
           </FormField>
         </div>
         <div className="col">
-          <FormField label="Valid To *" error={errors.valid_to?.message}>
+          <FormField label={t('valid2')} error={errors.valid_to?.message}>
             <input className="form-input" type="date"
                    {...register('valid_to', { required: 'Valid To is required' })} />
           </FormField>
         </div>
       </div>
       {showFor('days', ruleType) && (
-        <FormField label="Active Days">
-          <Select2 multiple placeholder="Any day"
-            options={DAYS_OF_WEEK} value={days} onChange={setDays} />
+        <FormField label={t('activeDays')}>
+          <Select2 multiple placeholder={t('anyDay')}
+            options={daysOfWeek(t)} value={days} onChange={setDays} />
         </FormField>
       )}
       {showFor('time', ruleType) && (
         <div className="row">
           <div className="col">
-            <FormField label="Start Time" error={errors.start_time?.message}>
+            <FormField label={t('startTime')} error={errors.start_time?.message}>
               <Controller name="start_time" control={control}
                 render={({ field }) => <TimeInput value={field.value || ''} onChange={field.onChange} />} />
             </FormField>
           </div>
           <div className="col">
-            <FormField label="End Time" error={errors.end_time?.message}>
+            <FormField label={t('endTime')} error={errors.end_time?.message}>
               <Controller name="end_time" control={control}
                 render={({ field }) => <TimeInput value={field.value || ''} onChange={field.onChange} />} />
             </FormField>
@@ -1691,28 +1676,28 @@ function PricingRuleFormModal({ open, rule, onClose, onSaved, onDeleted }) {
         </div>
       )}
       {!showFor('days', ruleType) && !showFor('time', ruleType) && (
-        <p className="muted" style={{ fontSize: 13 }}>This rule type has no day or time-of-day conditions.</p>
+        <p className="muted" style={{ fontSize: 13 }}>{t('ruleTypeHasNoDay')}</p>
       )}
 
-      <SectionTitle>Calculation preview</SectionTitle>
+      <SectionTitle>{t('calculationPreview')}</SectionTitle>
       <div style={{ border: '1px solid var(--color-border)', borderRadius: 10, padding: 14, background: '#fafbfd' }}>
         <div style={{ display: 'flex', alignItems: 'flex-end', gap: 10, flexWrap: 'wrap' }}>
           <div style={{ width: 160 }}>
-            <FormField label="Base price">
+            <FormField label={t('basePrice')}>
               <input className="form-input" type="number" min="0" step="0.01"
                      value={previewBase} onChange={(e) => setPreviewBase(e.target.value)} />
             </FormField>
           </div>
           <button type="button" className="btn btn-secondary btn-sm" onClick={runPreview} disabled={previewing}
                   style={{ marginBottom: 11 }}>
-            {previewing ? 'Calculating…' : 'Preview'}
+            {previewing ? t('calculating') : t('preview')}
           </button>
         </div>
         {preview && (
           <div style={{ display: 'flex', gap: 18, flexWrap: 'wrap', fontSize: 13.5 }}>
-            <span className="muted">Base: <strong style={{ color: 'var(--color-text)' }}><Money amount={preview.base_price} code={preview.currency} /></strong></span>
-            <span className="muted">Adjustment: <strong style={{ color: 'var(--color-text)' }}>{preview.adjustment_label}</strong></span>
-            <span className="muted">Final: <strong style={{ color: 'var(--color-primary-600)' }}><Money amount={preview.final_price} code={preview.currency} /></strong></span>
+            <span className="muted">{t('base')} <strong style={{ color: 'var(--color-text)' }}><Money amount={preview.base_price} code={preview.currency} /></strong></span>
+            <span className="muted">{t('adjustment2')} <strong style={{ color: 'var(--color-text)' }}>{preview.adjustment_label}</strong></span>
+            <span className="muted">{t('final')} <strong style={{ color: 'var(--color-primary-600)' }}><Money amount={preview.final_price} code={preview.currency} /></strong></span>
           </div>
         )}
       </div>
@@ -1721,9 +1706,9 @@ function PricingRuleFormModal({ open, rule, onClose, onSaved, onDeleted }) {
     <ConfirmDialog
       open={confirmDelete}
       tone="danger"
-      title="Delete this pricing rule?"
+      title={t('deletePricingRule')}
       message={<><strong>{rule?.name}</strong> will be permanently removed.</>}
-      confirmLabel="Delete"
+      confirmLabel={t('common:actions.delete')}
       busy={deleting}
       onConfirm={handleDelete}
       onClose={() => setConfirmDelete(false)}

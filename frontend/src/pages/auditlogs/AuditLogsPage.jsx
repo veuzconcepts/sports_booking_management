@@ -1,63 +1,80 @@
-import { useCallback, useState } from 'react';
+import { useCallback, useMemo } from 'react';
+import { useTranslation } from 'react-i18next';
 import { useSearchParams } from 'react-router-dom';
 
-import { PageHeader } from '../../components/PageHeader.jsx';
-import { DataTable } from '../../components/DataTable.jsx';
-import { Toolbar } from '../../components/Toolbar.jsx';
+import { ListPage, ListView } from '../../components/listview/index.js';
 import { StatusBadge } from '../../components/StatusBadge.jsx';
-import { useApiList } from '../../hooks/useApiList.js';
 import { formatDateTime } from '../../services/timeformat.jsx';
 
-import { AUDIT_METHODS, auditApi } from '../../services/auditService.js';
+import { auditMethods, auditApi } from '../../services/auditService.js';
 
 const methodTone = (m) => ({ POST: 'success', PATCH: 'info', PUT: 'info', DELETE: 'danger' }[m] || 'muted');
+
+const GROUP_KEYS = [
+  ['method', 'groups.method'],
+  ['status_code', 'groups.statusCode'],
+  ['actor', 'groups.actor'],
+];
 
 export default function AuditLogsPage() {
   const [searchParams] = useSearchParams();
   const fetcher = useCallback((q) => auditApi.list(q), []);
-  // Seed the search from ?search= so deep links (e.g. "View audit logs" from the
-  // Active Sessions screen) land pre-filtered to that user.
-  const initial = searchParams.get('search') ? { search: searchParams.get('search') } : undefined;
-  const { rows, loading, count, query, setQuery } = useApiList(fetcher, initial);
+
+  // Deep links such as "View audit logs" from Active Sessions arrive with
+  // ?search=, which ListView reads straight from the URL.
+  const deepLinked = Boolean(searchParams.get('search'));
+  const { t } = useTranslation('auditlogs');
+
+
+  const columns = useMemo(() => [
+    { key: 'when', header: t('columns.when'), sortKey: 'created_at', nowrap: true,
+      minWidth: 170, alwaysVisible: true,
+      render: (r) => formatDateTime(r.created_at) },
+    { key: 'actor', header: t('columns.actor'), sortKey: 'actor__email', minWidth: 180,
+      truncate: true,
+      render: (r) => (
+        <div>
+          {r.actor_name || t('anonymous')}
+          <div className="muted" style={{ fontSize: 12 }}>{r.actor_email || '-'}</div>
+        </div>
+      ) },
+    { key: 'method', header: t('columns.method'), sortKey: 'method', minWidth: 90,
+      render: (r) => <StatusBadge tone={methodTone(r.method)} label={r.method} /> },
+    { key: 'path', header: t('columns.path'), minWidth: 220, truncate: true,
+      render: (r) => <code style={{ fontSize: 12 }}>{r.path}</code> },
+    { key: 'event', header: t('columns.event'), minWidth: 150, truncate: true,
+      render: (r) => r.event || <span className="muted">-</span> },
+    { key: 'status', header: t('columns.status'), sortKey: 'status_code', minWidth: 90,
+      priority: 'medium',
+      render: (r) => (
+        <StatusBadge tone={r.status_code < 400 ? 'success' : 'danger'}
+          label={String(r.status_code)} />
+      ) },
+  ], [t]);
+
+  const groupOptions = useMemo(
+    () => GROUP_KEYS.map(([key, labelKey]) => ({ key, label: t(labelKey) })), [t]);
+
+  const filters = useMemo(() => [
+    { key: 'method', label: t('filters.method'), type: 'select', options: auditMethods(t) },
+  ], [t]);
 
   return (
-    <>
-      <PageHeader
-        title="Audit Logs"
-        subtitle="Immutable trail of every mutating request and sensitive domain event."
+    <ListPage
+      title={t('title')}
+      subtitle={t('subtitle')}
+    >
+      <ListView
+        tableKey="audit-logs"
+        fetcher={fetcher}
+        defaultOrdering="-created_at"
+        searchPlaceholder={t('searchPlaceholder')}
+        emptyTitle={deepLinked ? t('emptySearchTitle') : t('emptyTitle')}
+        emptyHint={t('emptyHint')}
+        columns={columns}
+        filters={filters}
+        groupOptions={groupOptions}
       />
-
-      <Toolbar
-        searchValue={query.search}
-        onSearchChange={(v) => setQuery({ ...query, search: v || undefined, page: 1 })}
-        searchPlaceholder="Path, actor email…"
-        filters={[
-          { value: query.method, options: AUDIT_METHODS, placeholder: 'All methods',
-            onChange: (v) => setQuery({ ...query, method: v, page: 1 }) },
-        ]}
-      />
-
-      <DataTable
-        loading={loading}
-        rows={rows}
-        page={query.page || 1}
-        count={count}
-        onPageChange={(p) => setQuery({ ...query, page: p })}
-        emptyTitle="No audit entries"
-        emptyHint="Mutating API requests are recorded here automatically."
-        columns={[
-          { key: 'when', header: 'When', render: (r) => formatDateTime(r.created_at) },
-          { key: 'actor', header: 'Actor', render: (r) => (
-            <div>{r.actor_name || 'Anonymous'}<div className="muted" style={{ fontSize: 12 }}>{r.actor_email || '-'}</div></div>
-          ) },
-          { key: 'method', header: 'Method', render: (r) => <StatusBadge tone={methodTone(r.method)} label={r.method} /> },
-          { key: 'path', header: 'Path', render: (r) => <code style={{ fontSize: 12 }}>{r.path}</code> },
-          { key: 'event', header: 'Event', render: (r) => r.event || <span className="muted">-</span> },
-          { key: 'status', header: 'Status', render: (r) => (
-            <StatusBadge tone={r.status_code < 400 ? 'success' : 'danger'} label={String(r.status_code)} />
-          ) },
-        ]}
-      />
-    </>
+    </ListPage>
   );
 }

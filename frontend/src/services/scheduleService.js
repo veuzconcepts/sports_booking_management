@@ -25,4 +25,15 @@ export const scheduleExceptionsApi = {
   create: (data)   => api.post('/settings/schedule-exceptions/', data).then((r) => r.data),
   update: (id, d)  => api.patch(`/settings/schedule-exceptions/${id}/`, d).then((r) => r.data),
   remove: (id)     => api.delete(`/settings/schedule-exceptions/${id}/`),
+
+  /**
+   * Bookings a special date would strand, asked BEFORE anything is saved.
+   * Send the same body the save would send; nothing is written.
+   */
+  impact: (data) => api.post('/settings/schedule-exceptions/impact/', data)
+    .then((r) => r.data),
+
+  /** Bookings that would fall outside the schedule if this row were removed. */
+  removalImpact: (id) => api.get(`/settings/schedule-exceptions/${id}/removal-impact/`)
+    .then((r) => r.data),
 };

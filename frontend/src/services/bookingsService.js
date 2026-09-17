@@ -123,56 +123,54 @@ export function bookingEditInitial(b) {
   };
 }
 
-export const BOOKING_STATUSES = [
-  { value: 'booked',      label: 'Pending' },
-  { value: 'confirmed',   label: 'Confirmed' },
-  { value: 'assigned',    label: 'Assigned' },
-  { value: 'arrived',     label: 'Checked in' },
-  { value: 'in_progress', label: 'In progress' },
-  { value: 'completed',   label: 'Completed' },
-  { value: 'closed',      label: 'Closed' },
-  { value: 'cancelled',   label: 'Cancelled' },
-  { value: 'no_show',     label: 'No-show' },
+// One vocabulary: the same `status.*` keys the badges and the calendar use.
+export const BOOKING_STATUS_VALUES = [
+  'booked', 'confirmed', 'assigned', 'arrived', 'in_progress',
+  'completed', 'closed', 'cancelled', 'no_show',
 ];
 
-export const BOOKING_SOURCES = [
-  { value: 'admin',   label: 'Admin' },
-  { value: 'website', label: 'Website' },
-  { value: 'phone',   label: 'Phone' },
-  { value: 'walk_in', label: 'Walk-in' },
-  { value: 'other',   label: 'Other' },
+export const bookingStatuses = (t) => BOOKING_STATUS_VALUES.map((value) => ({
+  value, label: t(`bookings:status.${value}`),
+}));
+
+export const bookingSources = (t) => [
+  { value: 'admin',   label: t('bookings:admin') },
+  { value: 'website', label: t('bookings:website') },
+  { value: 'phone',   label: t('common:labels.phone') },
+  { value: 'walk_in', label: t('bookings:walk') },
+  { value: 'other',   label: t('bookings:other') },
 ];
 
-export const RECURRENCE_RULES = [
-  { value: 'none',        label: 'One-off' },
-  { value: 'weekly',      label: 'Weekly' },
-  { value: 'fortnightly', label: 'Fortnightly' },
+export const recurrenceRules = (t) => [
+  { value: 'none',        label: t('bookings:oneOff') },
+  { value: 'weekly',      label: t('bookings:weekly') },
+  { value: 'fortnightly', label: t('bookings:fortnightly') },
 ];
 
-export const BOOKING_TYPES = [
-  { value: 'walk_in', label: 'Walk-in' },
-  { value: 'advance', label: 'Advance' },
+export const bookingTypes = (t) => [
+  { value: 'walk_in', label: t('bookings:walk') },
+  { value: 'advance', label: t('bookings:advance') },
 ];
 
-export const BOOKING_PRIORITIES = [
-  { value: 'normal', label: 'Normal' },
-  { value: 'urgent', label: 'Urgent' },
+export const bookingPriorities = (t) => [
+  { value: 'normal', label: t('bookings:normal') },
+  { value: 'urgent', label: t('bookings:urgent') },
   { value: 'vip',    label: 'VIP' },
 ];
 
-export const PAYMENT_STATUSES = [
-  { value: 'pending',             label: 'Pending' },
-  { value: 'paid',                label: 'Paid' },
-  { value: 'partially_paid',      label: 'Partially paid' },
-  { value: 'covered',             label: 'Covered by membership' },
-  { value: 'no_payment_required', label: 'No payment required' },
+export const BOOKING_PAYMENT_STATUS_VALUES = [
+  'pending', 'paid', 'partially_paid', 'covered', 'no_payment_required',
 ];
 
-export const PAYMENT_METHODS = [
-  { value: 'cash',          label: 'Cash' },
-  { value: 'card',          label: 'Card' },
-  { value: 'online',        label: 'Online' },
-  { value: 'bank_transfer', label: 'Bank transfer' },
+export const paymentStatuses = (t) => BOOKING_PAYMENT_STATUS_VALUES.map((value) => ({
+  value, label: t(`bookings:paymentStatus.${value}`),
+}));
+
+export const paymentMethods = (t) => [
+  { value: 'cash',          label: t('bookings:cash') },
+  { value: 'card',          label: t('bookings:card2') },
+  { value: 'online',        label: t('bookings:online') },
+  { value: 'bank_transfer', label: t('bookings:bankTransfer') },
 ];
 
 // Forward transitions offered in the UI, keyed by current status. Cancel is a

@@ -7,12 +7,15 @@ const name = branding?.name || 'Club Booking';
 // Per-theme logos with the static file as a graceful fallback.
 const logoDark = branding?.logo_dark || '/logo.svg';   // for dark backgrounds (default)
 const logoLight = branding?.logo_light || '/logo.svg'; // for light backgrounds
+// Anchors match the sections the homepage renders. Kept in code rather than
+// the CMS because there is no menu content type: inventing one here would add a
+// second place navigation is decided.
 const links = [
-  { label: 'Home', href: '/' },
-  { label: 'Services', href: '#services' },
-  { label: 'About Us', href: '#why' },
-  { label: 'FAQs', href: '#faq' },
-  { label: 'Contact', href: '#footer' },
+  { label: 'Sports', href: '/#sports' },
+  { label: 'Availability', href: '/#availability' },
+  { label: 'Clubs', href: '/#clubs' },
+  { label: 'For clubs', href: '/#owners' },
+  { label: 'FAQs', href: '/#faq' },
 ];
 ---
 <header class="site-header">
@@ -32,7 +35,7 @@ const links = [
         <path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z"/>
       </svg>
     </button>
-    {!hideCta && <a href="/book" class="btn btn-amber site-header__cta">Book Now</a>}
+    {!hideCta && <a href="/book" class="btn btn-amber site-header__cta">Book now</a>}
   </div>
 </header>
 
@@ -41,11 +44,13 @@ const links = [
     var btn = document.querySelector('[data-theme-toggle]');
     if (!btn) return;
     btn.addEventListener('click', function () {
-      var cur = document.documentElement.getAttribute('data-theme') === 'light' ? 'light' : 'dark';
-      var next = cur === 'light' ? 'dark' : 'light';
+      var cur = document.documentElement.getAttribute('data-theme') === 'dark' ? 'dark' : 'light';
+      var next = cur === 'dark' ? 'light' : 'dark';
       document.documentElement.setAttribute('data-theme', next);
       document.documentElement.style.colorScheme = next;
-      try { localStorage.setItem('dc-theme', next); } catch (e) {}
+      // 'cb-theme' is the key BaseLayout reads before paint. This wrote
+      // 'dc-theme', so the choice was forgotten on every reload.
+      try { localStorage.setItem('cb-theme', next); } catch (e) {}
       btn.setAttribute('aria-pressed', String(next === 'light'));
     });
   })();
@@ -59,7 +64,7 @@ const links = [
     border-bottom: 1px solid var(--line);
   }
   .site-header__inner {
-    display: flex; align-items: center; gap: 24px; height: 100px;
+    display: flex; align-items: center; gap: 24px; height: 76px;
   }
   .brand {
     display: inline-flex; align-items: center;
@@ -68,13 +73,12 @@ const links = [
   .brand img {
     /* Tall so the mark reads large - uploaded logos sit inside a padded (contain)
        frame, so a bigger box is needed to match the old static logo's presence. */
-    height: 88px; width: auto; max-width: 340px; object-fit: contain; display: block;
-    /* a touch of depth so the wordmark stands out crisply on white */
-    filter: drop-shadow(0 2px 6px rgba(33, 27, 78, 0.12));
+    height: 52px; width: auto; max-width: 260px; object-fit: contain; display: block;
+    filter: drop-shadow(0 2px 6px rgba(11, 31, 23, 0.10));
   }
   .brand:hover { transform: translateY(-1px); }
-  .brand:hover img { filter: drop-shadow(0 4px 12px rgba(111, 74, 158, 0.28)); }
-  @media (max-width: 600px) { .brand img { height: 60px; } .site-header__inner { height: 76px; } }
+  .brand:hover img { filter: drop-shadow(0 4px 12px rgba(21, 64, 44, 0.24)); }
+  @media (max-width: 600px) { .brand img { height: 40px; } .site-header__inner { height: 64px; } }
   /* Show ONLY the logo that matches the active theme (dark is the default).
      Scoped with `.brand` so these beat the `.brand img` rule on specificity. */
   .brand .brand__logo--dark { display: block; }
@@ -85,7 +89,8 @@ const links = [
     display: flex; gap: 26px; margin-left: auto;
     font-weight: 500; font-size: 0.95rem;
   }
-  .nav a:hover { color: var(--indigo-600); }
+  .nav a { color: var(--text); transition: color .15s ease; }
+  .nav a:hover { color: var(--ink); }
   .site-header__cta { padding: 10px 22px; }
 
   /* Theme switcher */
@@ -95,7 +100,7 @@ const links = [
     border: 1px solid var(--line); background: var(--surface); color: var(--ink);
     transition: color .2s ease, border-color .2s ease, transform .2s ease, background .2s ease;
   }
-  .theme-toggle:hover { color: var(--amber-600); border-color: var(--amber-600); transform: translateY(-1px); }
+  .theme-toggle:hover { color: var(--brand-soft); border-color: var(--brand-soft); transform: translateY(-1px); }
   .theme-toggle svg { display: block; }
   /* Dark (default) shows the sun (click → light); light shows the moon. */
   .theme-toggle__moon { display: none; }

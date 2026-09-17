@@ -5,6 +5,7 @@ import {
   Building2, Clock, Coins, FileText, Share2, Image as ImageIcon,
 } from 'lucide-react';
 import toast from 'react-hot-toast';
+import { useTranslation } from 'react-i18next';
 
 import { PageHeader } from '../../components/PageHeader.jsx';
 import { FormField } from '../../components/FormField.jsx';
@@ -19,6 +20,7 @@ import { organizationApi, currencyApi } from '../../services/settingsService.js'
 import ClubsAndFacilities from '../settings/ClubsAndFacilities.jsx';
 import { RichTextEditor } from '../../components/RichTextEditor.jsx';
 import { useTabParam } from '../../hooks/useTabParam.js';
+import { ThemeSettings } from '../../theme/ThemeSettings.jsx';
 import { apiErrorMessage } from '../../utils/apiError.js';
 
 const orgTabBtn = (active) => ({
@@ -55,16 +57,16 @@ const TZ_OPTIONS = (() => {
 
 // Each platform: brand icon + brand colour for the icon badge. First SOCIAL_VISIBLE
 // show by default; the rest expand under "View More".
-const SOCIALS = [
+const socials = (t) => [
   { key: 'twitter', label: 'X', icon: Twitter, color: '#000000', ph: 'https://www.x.com/xyz' },
-  { key: 'facebook', label: 'Facebook', icon: Facebook, color: '#1877F2', ph: 'https://facebook.com/…' },
-  { key: 'linkedin', label: 'LinkedIn', icon: Linkedin, color: '#0A66C2', ph: 'https://linkedin.com/company/…' },
-  { key: 'youtube', label: 'YouTube', icon: Youtube, color: '#FF0000', ph: 'https://youtube.com/@…' },
-  { key: 'instagram', label: 'Instagram', icon: Instagram,
+  { key: 'facebook', label: t('facebook'), icon: Facebook, color: '#1877F2', ph: 'https://facebook.com/…' },
+  { key: 'linkedin', label: t('linkedin'), icon: Linkedin, color: '#0A66C2', ph: 'https://linkedin.com/company/…' },
+  { key: 'youtube', label: t('youtube'), icon: Youtube, color: '#FF0000', ph: 'https://youtube.com/@…' },
+  { key: 'instagram', label: t('instagram'), icon: Instagram,
     color: 'radial-gradient(circle at 30% 110%, #fdf497 0%, #fd5949 45%, #d6249f 60%, #285AEB 90%)',
     ph: 'https://instagram.com/…' },
-  { key: 'tiktok', label: 'TikTok', icon: Music2, color: '#111111', ph: 'https://tiktok.com/@…' },
-  { key: 'whatsapp', label: 'WhatsApp', icon: MessageCircle, color: '#25D366', ph: '+971 50 000 0000' },
+  { key: 'tiktok', label: t('tiktok'), icon: Music2, color: '#111111', ph: 'https://tiktok.com/@…' },
+  { key: 'whatsapp', label: t('whatsapp'), icon: MessageCircle, color: '#25D366', ph: '+971 50 000 0000' },
 ];
 const SOCIAL_VISIBLE = 5;
 const LINK_BTN = { border: 'none', background: 'none', color: 'var(--color-primary-600)', cursor: 'pointer', fontWeight: 600, fontSize: 13 };
@@ -101,20 +103,21 @@ const DESCRIPTION_MAX = 10000;
 const plainLen = (html) => (html || '').replace(/<[^>]*>/g, '').replace(/&nbsp;/gi, ' ').trim().length;
 
 // In-page section navigator (left rail) for the Organization Info tab.
-const ORG_SECTIONS = [
-  { id: 'org-profile', label: 'Profile', icon: Building2 },
-  { id: 'org-branding', label: 'Branding', icon: ImageIcon },
-  { id: 'org-location', label: 'Location & Time Zone', icon: MapPin },
-  { id: 'org-hours', label: 'Business Hours', icon: Clock },
-  { id: 'org-currency', label: 'Currency', icon: Coins },
-  { id: 'org-other', label: 'Other Details', icon: FileText },
-  { id: 'org-social', label: 'Social Media', icon: Share2 },
+const orgSections = (t) => [
+  { id: 'org-profile', label: t('profile'), icon: Building2 },
+  { id: 'org-branding', label: t('branding'), icon: ImageIcon },
+  { id: 'org-location', label: t('locationTimeZone'), icon: MapPin },
+  { id: 'org-hours', label: t('businessHours'), icon: Clock },
+  { id: 'org-currency', label: t('common:labels.currency'), icon: Coins },
+  { id: 'org-other', label: t('otherDetails'), icon: FileText },
+  { id: 'org-social', label: t('socialMedia'), icon: Share2 },
 ];
 
 function SectionNav() {
-  const [active, setActive] = useState(ORG_SECTIONS[0].id);
+  const { t } = useTranslation('organization');
+  const [active, setActive] = useState(orgSections(t)[0].id);
   useEffect(() => {
-    const els = ORG_SECTIONS.map((s) => document.getElementById(s.id)).filter(Boolean);
+    const els = orgSections(t).map((s) => document.getElementById(s.id)).filter(Boolean);
     const obs = new IntersectionObserver((entries) => {
       entries.forEach((e) => { if (e.isIntersecting) setActive(e.target.id); });
     }, { rootMargin: '-15% 0px -75% 0px', threshold: 0 });
@@ -134,7 +137,7 @@ function SectionNav() {
   };
   return (
     <nav className="org-nav">
-      {ORG_SECTIONS.map((s) => {
+      {orgSections(t).map((s) => {
         const Icon = s.icon;
         return (
           <button key={s.id} type="button" onClick={() => go(s.id)}
@@ -158,23 +161,23 @@ function sampleTime(is24) {
 // Branding & SEO: upload the logo variants (per theme + layout), favicon, default
 // social image, and the SEO fallback title/description. Logos use "contain" so the
 // whole mark is kept (transparent padding, no clipping). Saved via multipart.
-const LOGO_SLOTS = [
-  { key: 'logo_light', label: 'Logo - light mode (horizontal)',
+const logoSlots = (t) => [
+  { key: 'logo_light', label: t('logoLightModeHorizontal'),
     hint: '', aspect: 3.2,
     output: { width: 960, height: 300, type: 'image/png' }, fit: 'contain' },
-  { key: 'logo_dark', label: 'Logo - dark mode (horizontal)',
+  { key: 'logo_dark', label: t('logoDarkModeHorizontal'),
     hint: '', aspect: 3.2,
     output: { width: 960, height: 300, type: 'image/png' }, fit: 'contain' },
-  { key: 'logo_light_vertical', label: 'Logo - light mode (vertical)',
+  { key: 'logo_light_vertical', label: t('logoLightModeVertical'),
     hint: '', aspect: 0.8,
     output: { width: 360, height: 450, type: 'image/png' }, fit: 'contain' },
-  { key: 'logo_dark_vertical', label: 'Logo - dark mode (vertical)',
+  { key: 'logo_dark_vertical', label: t('logoDarkModeVertical'),
     hint: '', aspect: 0.8,
     output: { width: 360, height: 450, type: 'image/png' }, fit: 'contain' },
-  { key: 'favicon', label: 'Favicon',
-    hint: 'Browser-tab icon. Square; keep it simple.', aspect: 1,
+  { key: 'favicon', label: t('favicon'),
+    hint: t('browserTabIconSquareKeep'), aspect: 1,
     output: { width: 128, height: 128, type: 'image/png' }, fit: 'contain' },
-  { key: 'og_image', label: 'Default social image (Open Graph)',
+  { key: 'og_image', label: t('defaultSocialImageOpenGraph'),
     hint: '', aspect: 1.91,
     output: { width: 1200, height: 630, type: 'image/jpeg', quality: 0.9 }, fit: 'cover' },
 ];
@@ -183,16 +186,17 @@ const LOGO_SLOTS = [
 // the SEO fallbacks in the parent's `form`, so the page's main "Save changes"
 // button persists everything in one go (no separate save button here).
 function BrandingCard({ org, files, setFiles, form, set }) {
+  const { t } = useTranslation('organization');
   return (
     <div className="card org-anchor" id="org-branding">
       <div className="card-header">
         <div>
-          <h3 className="card-title">Branding</h3>
-          <p className="card-subtitle">Logos, favicon and search/social defaults used across the website.</p>
+          <h3 className="card-title">{t('branding')}</h3>
+          <p className="card-subtitle">{t('logosFaviconSearchSocialDefaults')}</p>
         </div>
       </div>
       <div className="card-body" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: 16 }}>
-        {LOGO_SLOTS.map((s) => (
+        {logoSlots(t).map((s) => (
           <ImageUploader
             key={s.key}
             label={s.label}
@@ -207,13 +211,13 @@ function BrandingCard({ org, files, setFiles, form, set }) {
             onChange={(f) => setFiles((prev) => ({ ...prev, [s.key]: f }))}
           />
         ))}
-        <FormField label="SEO title (fallback)" hint="Used when a page has no per-page SEO title.">
+        <FormField label={t('seoTitleFallback')} hint={t('usedWhenPageHasNo')}>
           <input className="form-input" value={form.meta_title || ''} onChange={set('meta_title')}
-            placeholder="Club Booking - Courts, pitches and halls" />
+            placeholder={t('clubBookingCourtsPitchesHalls')} />
         </FormField>
-        <FormField label="SEO description (fallback)" hint="Used when a page has no per-page SEO description.">
+        <FormField label={t('seoDescriptionFallback')} hint={t('usedWhenPageHasNo2')}>
           <textarea className="form-textarea" rows={3} value={form.meta_description || ''} onChange={set('meta_description')}
-            placeholder="Book courts, pitches and halls at your local club." />
+            placeholder={t('bookCourtsPitchesHallsYour')} />
         </FormField>
       </div>
     </div>
@@ -221,6 +225,7 @@ function BrandingCard({ org, files, setFiles, form, set }) {
 }
 
 export default function OrganizationInfoPage() {
+  const { t } = useTranslation('organization');
   const [tab, setTab] = useTabParam('info');
   const [form, setForm] = useState(EMPTY);
   // The timeline is a read-only preview of the week, hidden until asked for so
@@ -239,7 +244,7 @@ export default function OrganizationInfoPage() {
   useEffect(() => {
     organizationApi.get()
       .then((d) => setForm(hydrate(d)))
-      .catch((e) => toast.error(apiErrorMessage(e, 'Unable to load organization info. Please try again.')))
+      .catch((e) => toast.error(apiErrorMessage(e, t('unableLoadOrganizationInfoPlease'))))
       .finally(() => setLoading(false));
   }, []);
 
@@ -251,19 +256,19 @@ export default function OrganizationInfoPage() {
     const v = draft.trim();
     if (!v) return;                       // nothing to save for an empty field
     setForm((f) => ({ ...f, [key]: v }));
-    try { await organizationApi.update({ [key]: v }); toast.success('Link saved'); }
-    catch (e) { toast.error(apiErrorMessage(e, 'Unable to save the link. Please try again.')); }
+    try { await organizationApi.update({ [key]: v }); toast.success(t('linkSaved')); }
+    catch (e) { toast.error(apiErrorMessage(e, t('unableSaveLinkPleaseTry'))); }
     setEditingKey(null); setDraft('');
   }
   async function removeSocial(key) {
     setForm((f) => ({ ...f, [key]: '' }));
-    try { await organizationApi.update({ [key]: '' }); toast.success('Link removed'); }
-    catch (e) { toast.error(apiErrorMessage(e, 'Unable to remove the link. Please try again.')); }
+    try { await organizationApi.update({ [key]: '' }); toast.success(t('linkRemoved')); }
+    catch (e) { toast.error(apiErrorMessage(e, t('unableRemoveLinkPleaseTry'))); }
   }
 
   async function save() {
     if (form.phone && !isPhoneValid(form.phone)) {
-      toast.error('Enter a valid phone number for the selected country');
+      toast.error(t('enterValidPhoneNumberSelected'));
       return;
     }
     setSaving(true);
@@ -284,9 +289,9 @@ export default function OrganizationInfoPage() {
         setBrandingFiles({});
       }
       setForm(hydrate(d));
-      toast.success('Organization info saved');
+      toast.success(t('organizationInfoSaved'));
     } catch (e) {
-      toast.error(apiErrorMessage(e, 'Unable to save organization info. Please try again.'));
+      toast.error(apiErrorMessage(e, t('unableSaveOrganizationInfoPlease')));
     } finally { setSaving(false); }
   }
 
@@ -294,37 +299,38 @@ export default function OrganizationInfoPage() {
     <>
       <div className="org-stickytop">
         <PageHeader
-          title="Organization Info"
-          subtitle="Company profile, clubs & facilities, currency, and more."
+          title={t('organizationInfo')}
+          subtitle={t('companyProfileClubsFacilitiesCurrency')}
           actions={tab === 'info' && !loading
-            ? <button className="btn btn-primary" onClick={save} disabled={saving}>{saving ? 'Saving…' : 'Save changes'}</button>
+            ? <button className="btn btn-primary" onClick={save} disabled={saving}>{saving ? t('common:state.saving') : t('common:actions.saveChanges')}</button>
             : null}
         />
 
         <div style={{ display: 'flex', gap: 4, borderBottom: '1px solid var(--color-border)', marginBottom: 18 }}>
-          <button style={orgTabBtn(tab === 'info')} onClick={() => setTab('info')}>Organization Info</button>
-          <button style={orgTabBtn(tab === 'clubs')} onClick={() => setTab('clubs')}>Clubs &amp; Facilities</button>
+          <button style={orgTabBtn(tab === 'info')} onClick={() => setTab('info')}>{t('organizationInfo')}</button>
+          <button style={orgTabBtn(tab === 'theme')} onClick={() => setTab('theme')}>{t('theme.tab')}</button>
+          <button style={orgTabBtn(tab === 'clubs')} onClick={() => setTab('clubs')}>{t('clubsAndFacilities')}</button>
         </div>
       </div>
 
-      {tab === 'clubs' ? <ClubsAndFacilities /> : loading ? (
-        <div className="card"><div className="card-body center" style={{ padding: 56 }}><span className="muted">Loading…</span></div></div>
+      {tab === 'clubs' ? <ClubsAndFacilities /> : tab === 'theme' ? <ThemeSettings /> : loading ? (
+        <div className="card"><div className="card-body center" style={{ padding: 56 }}><span className="muted">{t('common:state.loading')}</span></div></div>
       ) : (
       <div className="org-layout">
         <SectionNav />
         <div style={{ display: 'grid', gap: 16, minWidth: 0 }}>
         {/* Profile */}
         <div className="card org-anchor" id="org-profile">
-          <div className="card-header"><h3 className="card-title">Profile</h3></div>
-          <div className="card-body" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
-            <FormField label="Organization name"><input className="form-input" value={form.name} onChange={set('name')} placeholder="Veuz Concepts" /></FormField>
-            <FormField label="Legal name"><input className="form-input" value={form.legal_name} onChange={set('legal_name')} placeholder="Veuz Concepts LLC" /></FormField>
-            <FormField label="TRN (Tax Registration Number)" hint="Printed on tax invoices, receipts & credit notes (required for UAE VAT).">
+          <div className="card-header"><h3 className="card-title">{t('profile')}</h3></div>
+          <div className="card-body form-grid form-grid--2" style={{ gap: 14 }}>
+            <FormField label={t('organizationName')}><input className="form-input" value={form.name} onChange={set('name')} placeholder={t('veuzConcepts')} /></FormField>
+            <FormField label={t('legalName')}><input className="form-input" value={form.legal_name} onChange={set('legal_name')} placeholder={t('veuzConceptsLlc')} /></FormField>
+            <FormField label={t('trnTaxRegistrationNumber')} hint={t('printedTaxInvoicesReceiptsCredit')}>
               <input className="form-input" value={form.trn} onChange={set('trn')} placeholder="100xxxxxxxxxxxx" />
             </FormField>
-            <FormField label="Website"><input className="form-input" value={form.website} onChange={set('website')} placeholder="https://example.com" /></FormField>
-            <FormField label="Email"><input className="form-input" type="email" value={form.email} onChange={set('email')} placeholder="hello@example.com" /></FormField>
-            <FormField label="Phone" error={form.phone && !isPhoneValid(form.phone) ? 'Enter a valid phone number for the selected country' : undefined}>
+            <FormField label={t('website')}><input className="form-input" value={form.website} onChange={set('website')} placeholder="https://example.com" /></FormField>
+            <FormField label={t('common:labels.email')}><input className="form-input" type="email" value={form.email} onChange={set('email')} placeholder={t('helloExampleCom')} /></FormField>
+            <FormField label={t('common:labels.phone')} error={form.phone && !isPhoneValid(form.phone) ? 'Enter a valid phone number for the selected country' : undefined}>
               <PhoneField value={form.phone} onChange={(v) => setForm((f) => ({ ...f, phone: v }))} invalid={!!form.phone && !isPhoneValid(form.phone)} />
             </FormField>
           </div>
@@ -335,16 +341,16 @@ export default function OrganizationInfoPage() {
 
         {/* Location & timezone */}
         <div className="card org-anchor" id="org-location">
-          <div className="card-header"><h3 className="card-title">Location &amp; Time Zone</h3></div>
+          <div className="card-header"><h3 className="card-title">{t('locationTimeZone')}</h3></div>
           <div className="card-body" style={{ display: 'grid', gap: 16 }}>
-            <FormField label="Location">
+            <FormField label={t('location')}>
               <LocationField value={form.address} onChange={(v) => setForm((f) => ({ ...f, address: v }))} />
             </FormField>
-            <FormField label="Country">
+            <FormField label={t('country')}>
               <Select2 options={countryOptions()} value={form.country} onChange={set('country')}
-                placeholder="Select country…" clearable />
+                placeholder={t('selectCountry')} clearable />
             </FormField>
-            <FormField label="Time Zone">
+            <FormField label={t('timeZone')}>
               <Select2 options={TZ_OPTIONS} value={form.timezone} onChange={set('timezone')} />
             </FormField>
             <div>
@@ -355,10 +361,10 @@ export default function OrganizationInfoPage() {
                 />
                 24-Hour Format
                 <Info size={14} style={{ color: 'var(--color-text-muted)' }}
-                      title="Display times in 24-hour format (e.g. 17:00) instead of 12-hour (5:00 PM)." />
+                      title={t('displayTimes24HourFormat')} />
               </label>
               <p className="muted" style={{ fontSize: 13, marginTop: 6 }}>
-                Preview: <strong>{sampleTime(form.time_format_24h)}</strong>
+                {t('preview')} <strong>{sampleTime(form.time_format_24h)}</strong>
               </p>
             </div>
             <div>
@@ -367,14 +373,14 @@ export default function OrganizationInfoPage() {
                   type="checkbox" checked={!!form.require_refund_approval}
                   onChange={(e) => setForm((f) => ({ ...f, require_refund_approval: e.target.checked }))}
                 />
-                Require refund approval
+                {t('requireRefundApproval')}
                 <Info size={14} style={{ color: 'var(--color-text-muted)' }}
-                      title="When on, a refund (credit note) needs maker-checker approval before the money is returned. When off, refunds are processed immediately." />
+                      title={t('whenRefundCreditNoteNeeds')} />
               </label>
               <p className="muted" style={{ fontSize: 13, marginTop: 6 }}>
                 {form.require_refund_approval
-                  ? 'Refunds are submitted for approval before processing.'
-                  : 'Refunds are processed immediately, without approval.'}
+                  ? t('refundsSubmittedApprovalBeforeProcessing')
+                  : t('refundsProcessedImmediatelyWithoutApproval')}
               </p>
             </div>
             <div>
@@ -383,14 +389,14 @@ export default function OrganizationInfoPage() {
                   type="checkbox" checked={!!form.allow_multiple_memberships}
                   onChange={(e) => setForm((f) => ({ ...f, allow_multiple_memberships: e.target.checked }))}
                 />
-                Allow multiple active memberships
+                {t('allowMultipleActiveMemberships')}
                 <Info size={14} style={{ color: 'var(--color-text-muted)' }}
-                      title="When off, a customer can hold only one active membership at a time. When on, they may hold several." />
+                      title={t('whenOffCustomerCanHold')} />
               </label>
               <p className="muted" style={{ fontSize: 13, marginTop: 6 }}>
                 {form.allow_multiple_memberships
-                  ? 'Customers may hold several active memberships.'
-                  : 'One active membership per customer.'}
+                  ? t('customersMayHoldSeveralActive')
+                  : t('oneActiveMembershipPerCustomer')}
               </p>
             </div>
           </div>
@@ -400,14 +406,14 @@ export default function OrganizationInfoPage() {
         <div className="card org-anchor" id="org-hours">
           <div className="card-header">
             <div>
-              <h3 className="card-title">Business Hours</h3>
+              <h3 className="card-title">{t('businessHours')}</h3>
               <p className="card-subtitle">
-                The default every club and facility follows unless it sets its own.
+                {t('defaultEveryClubFacilityFollows')}
               </p>
             </div>
             <button type="button" className="btn btn-secondary"
               onClick={() => setTimeline((v) => !v)}>
-              {timeline ? 'Hide timeline' : 'Weekly timeline'}
+              {timeline ? t('hideTimeline') : t('weeklyTimeline')}
             </button>
           </div>
           <div className="card-body" style={{ display: 'grid', gap: 14 }}>
@@ -433,31 +439,31 @@ export default function OrganizationInfoPage() {
 
         {/* Other details - summary + rich description */}
         <div className="card org-anchor" id="org-other">
-          <div className="card-header"><h3 className="card-title">Other Details</h3></div>
+          <div className="card-header"><h3 className="card-title">{t('otherDetails')}</h3></div>
           <div className="card-body" style={{ display: 'grid', gap: 18 }}>
             <div>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 6 }}>
-                <span className="form-label" style={{ fontWeight: 600, margin: 0 }}>Summary</span>
+                <span className="form-label" style={{ fontWeight: 600, margin: 0 }}>{t('summary')}</span>
                 <span className="muted" style={{ fontSize: 12 }}>{(form.summary || '').length} / {SUMMARY_MAX}</span>
               </div>
               <textarea
                 className="form-input" rows={2} maxLength={SUMMARY_MAX}
                 value={form.summary} onChange={set('summary')}
-                placeholder="A short summary of your organization…" style={{ resize: 'vertical' }}
+                placeholder={t('shortSummaryYourOrganization')} style={{ resize: 'vertical' }}
               />
               <p className="muted" style={{ fontSize: 12.5, marginTop: 4 }}>
-                Use relevant keywords in your summary to make your organization easier to find.
+                {t('useRelevantKeywordsYourSummary')}
               </p>
             </div>
             <div>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 6 }}>
-                <span className="form-label" style={{ fontWeight: 600, margin: 0 }}>Description</span>
+                <span className="form-label" style={{ fontWeight: 600, margin: 0 }}>{t('description')}</span>
                 <span className="muted" style={{ fontSize: 12 }}>{plainLen(form.description)}/{DESCRIPTION_MAX}</span>
               </div>
               <RichTextEditor
                 value={form.description}
                 onChange={(html) => setForm((f) => ({ ...f, description: html }))}
-                placeholder="Describe your organization…"
+                placeholder={t('describeYourOrganization')}
               />
             </div>
           </div>
@@ -465,9 +471,9 @@ export default function OrganizationInfoPage() {
 
         {/* Social media - per-row inline "Link" (last) */}
         <div className="card org-anchor" id="org-social">
-          <div className="card-header"><h3 className="card-title">Social Media</h3></div>
+          <div className="card-header"><h3 className="card-title">{t('socialMedia')}</h3></div>
           <div className="card-body" style={{ padding: 0 }}>
-            {(showAllSocials ? SOCIALS : SOCIALS.slice(0, SOCIAL_VISIBLE)).map((s, i) => {
+            {(showAllSocials ? socials(t) : socials(t).slice(0, SOCIAL_VISIBLE)).map((s, i) => {
               const Icon = s.icon;
               const val = form[s.key];
               const isEditing = editingKey === s.key;
@@ -489,31 +495,31 @@ export default function OrganizationInfoPage() {
                           className="form-input" autoFocus value={draft} placeholder={s.ph}
                           onChange={(e) => setDraft(e.target.value)}
                           onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); if (draft.trim()) saveSocial(s.key); } if (e.key === 'Escape') cancelEditSocial(); }}
-                          style={{ width: 300, borderTopRightRadius: 0, borderBottomRightRadius: 0 }}
+                          style={{ flex: '1 1 200px', minWidth: 0, borderTopRightRadius: 0, borderBottomRightRadius: 0 }}
                         />
                         <button type="button" className="btn btn-primary" onClick={() => saveSocial(s.key)} disabled={!draft.trim()}
-                          style={{ borderTopLeftRadius: 0, borderBottomLeftRadius: 0 }}>Save</button>
+                          style={{ borderTopLeftRadius: 0, borderBottomLeftRadius: 0 }}>{t('common:actions.save')}</button>
                       </span>
-                      <button type="button" className="icon-btn" title="Cancel" onClick={cancelEditSocial}
+                      <button type="button" className="icon-btn" title={t('common:actions.cancel')} onClick={cancelEditSocial}
                         style={{ borderRadius: '50%', border: '1px solid var(--color-border)' }}><X size={15} /></button>
                     </span>
                   ) : val ? (
                     <span style={{ display: 'inline-flex', alignItems: 'center', gap: 14 }}>
                       <a href={val} target="_blank" rel="noreferrer" className="muted"
                          style={{ maxWidth: 300, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontSize: 13 }}>{val}</a>
-                      <button type="button" onClick={() => startEditSocial(s.key)} style={LINK_BTN}>Edit</button>
-                      <button type="button" onClick={() => removeSocial(s.key)} style={{ ...LINK_BTN, color: '#dc2626' }}>Remove</button>
+                      <button type="button" onClick={() => startEditSocial(s.key)} style={LINK_BTN}>{t('common:actions.edit')}</button>
+                      <button type="button" onClick={() => removeSocial(s.key)} style={{ ...LINK_BTN, color: '#dc2626' }}>{t('common:actions.remove')}</button>
                     </span>
                   ) : (
                     <button type="button" onClick={() => startEditSocial(s.key)}
                       style={{ ...LINK_BTN, display: 'inline-flex', alignItems: 'center', gap: 5 }}>
-                      <Plus size={15} /> Link
+                      <Plus size={15} /> {t('link')}
                     </button>
                   )}
                 </div>
               );
             })}
-            {SOCIALS.length > SOCIAL_VISIBLE && (
+            {socials(t).length > SOCIAL_VISIBLE && (
               <button type="button" onClick={() => setShowAllSocials((v) => !v)}
                 style={{
                   width: '100%', padding: '11px', border: 'none', cursor: 'pointer',
@@ -521,7 +527,7 @@ export default function OrganizationInfoPage() {
                   background: 'rgba(99,102,241,0.06)', color: 'var(--color-primary-600)', fontWeight: 600,
                   display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 6,
                 }}>
-                {showAllSocials ? <>View Less <ChevronUp size={16} /></> : <>View More <ChevronDown size={16} /></>}
+                {showAllSocials ? <>{t('viewLess')} <ChevronUp size={16} /></> : <>{t('viewMore')} <ChevronDown size={16} /></>}
               </button>
             )}
           </div>
@@ -535,6 +541,7 @@ export default function OrganizationInfoPage() {
 
 
 function LocationField({ value, onChange }) {
+  const { t } = useTranslation('organization');
   const [editing, setEditing] = useState(!value);
   const [draft, setDraft] = useState(value || '');
   useEffect(() => { setDraft(value || ''); setEditing(!value); }, [value]);
@@ -555,10 +562,10 @@ function LocationField({ value, onChange }) {
         <input
           className="form-input" value={draft} onChange={(e) => setDraft(e.target.value)}
           onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); apply(); } }}
-          placeholder="Search address or place name…" style={{ paddingRight: 38 }}
+          placeholder={t('searchAddressPlaceName')} style={{ paddingRight: 38 }}
         />
         <button
-          type="button" onClick={apply} title="Search" aria-label="Search location"
+          type="button" onClick={apply} title={t('common:actions.search')} aria-label={t('searchLocation')}
           style={{ position: 'absolute', right: 8, top: '50%', transform: 'translateY(-50%)', border: 'none', background: 'transparent', cursor: 'pointer', color: 'var(--color-text-muted)' }}
         >
           <Search size={16} />
@@ -571,7 +578,7 @@ function LocationField({ value, onChange }) {
     <div>
       <div style={{ position: 'relative', borderRadius: 10, overflow: 'hidden', border: '1px solid var(--color-border)' }}>
         <iframe
-          title="Location map" src={embed}
+          title={t('locationMap')} src={embed}
           style={{ width: '100%', height: 300, border: 0, display: 'block' }}
           loading="lazy" referrerPolicy="no-referrer-when-downgrade"
         />
@@ -579,7 +586,7 @@ function LocationField({ value, onChange }) {
           href={openUrl} target="_blank" rel="noreferrer" className="btn btn-secondary"
           style={{ position: 'absolute', top: 10, left: 10, fontSize: 12.5, display: 'inline-flex', alignItems: 'center', gap: 6 }}
         >
-          Open in Maps <ExternalLink size={14} />
+          {t('openMaps')} <ExternalLink size={14} />
         </a>
       </div>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 12, marginTop: 10 }}>
@@ -588,8 +595,8 @@ function LocationField({ value, onChange }) {
           {value}
         </span>
         <span style={{ display: 'inline-flex', gap: 12, fontSize: 13, whiteSpace: 'nowrap' }}>
-          <button type="button" onClick={() => setEditing(true)} style={{ border: 'none', background: 'none', color: 'var(--color-primary-600)', cursor: 'pointer', fontWeight: 600 }}>Edit</button>
-          <button type="button" onClick={() => onChange('')} style={{ border: 'none', background: 'none', color: '#dc2626', cursor: 'pointer', fontWeight: 600 }}>Remove</button>
+          <button type="button" onClick={() => setEditing(true)} style={{ border: 'none', background: 'none', color: 'var(--color-primary-600)', cursor: 'pointer', fontWeight: 600 }}>{t('common:actions.edit')}</button>
+          <button type="button" onClick={() => onChange('')} style={{ border: 'none', background: 'none', color: '#dc2626', cursor: 'pointer', fontWeight: 600 }}>{t('common:actions.remove')}</button>
         </span>
       </div>
     </div>
@@ -597,6 +604,7 @@ function LocationField({ value, onChange }) {
 }
 
 function CurrencyCard() {
+  const { t } = useTranslation('organization');
   const { reload: reloadCurrency } = useCurrency();
   const [choices, setChoices] = useState([]);
   const [currency, setCurrency] = useState('');
@@ -605,8 +613,12 @@ function CurrencyCard() {
 
   useEffect(() => {
     currencyApi.get()
-      .then((d) => { setChoices(d.choices); setCurrency(d.currency); setInitial(d.currency); })
-      .catch((e) => toast.error(apiErrorMessage(e, 'Unable to load currency settings. Please try again.')));
+      .then((d) => {
+        setChoices(d?.choices || []);
+        setCurrency(d?.currency || '');
+        setInitial(d?.currency || '');
+      })
+      .catch((e) => toast.error(apiErrorMessage(e, t('unableLoadCurrencySettingsPlease'))));
   }, []);
 
   async function save() {
@@ -615,24 +627,24 @@ function CurrencyCard() {
       const d = await currencyApi.update(currency);
       setInitial(d.currency);
       await reloadCurrency();
-      toast.success('Default currency updated');
+      toast.success(t('defaultCurrencyUpdated'));
     } catch (e) {
-      toast.error(apiErrorMessage(e, 'Unable to update the default currency. Please try again.'));
+      toast.error(apiErrorMessage(e, t('unableUpdateDefaultCurrencyPlease')));
     } finally { setSaving(false); }
   }
 
-  const selected = choices.find((c) => c.code === currency);
+  const selected = (choices || []).find((c) => c.code === currency);
 
   return (
     <div className="card">
       <div className="card-header">
         <div>
-          <h3 className="card-title">Default currency</h3>
-          <p className="card-subtitle">Used for new bookings, payments, wallets, and invoices.</p>
+          <h3 className="card-title">{t('defaultCurrency')}</h3>
+          <p className="card-subtitle">{t('usedNewBookingsPaymentsWallets')}</p>
         </div>
       </div>
       <div className="card-body" style={{ maxWidth: 460 }}>
-        <FormField label="Currency" hint="Applies to records created from now on. Decimal places follow the currency (e.g. dinars use 3).">
+        <FormField label={t('common:labels.currency')} hint={t('appliesRecordsCreatedNowDecimal')}>
           <Select2
             options={choices.map((c) => ({
               value: c.code,
@@ -648,14 +660,14 @@ function CurrencyCard() {
           });
           return (
             <p className="muted" style={{ fontSize: 13 }}>
-              Sample: <strong><CurrencySymbol code={selected.code} /> {sample}</strong>
+              {t('sample')} <strong><CurrencySymbol code={selected.code} /> {sample}</strong>
               {' '}({selected.code} · {dp} decimal{dp === 1 ? '' : 's'})
             </p>
           );
         })()}
         <div style={{ marginTop: 14 }}>
           <button className="btn btn-primary" onClick={save} disabled={saving || currency === initial}>
-            {saving ? 'Saving…' : 'Save currency'}
+            {saving ? t('common:state.saving') : t('saveCurrency')}
           </button>
         </div>
       </div>

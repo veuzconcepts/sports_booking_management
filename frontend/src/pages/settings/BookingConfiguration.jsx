@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import { Save, Globe, ShieldCheck, Store, Plus, Trash2, Timer } from 'lucide-react';
+import { useTranslation } from 'react-i18next';
 import toast from 'react-hot-toast';
 
 import { PageHeader } from '../../components/PageHeader.jsx';
@@ -14,23 +15,24 @@ import { SpecialDates } from '../../components/SpecialDates.jsx';
 import { clubsApi } from '../../services/clubsService.js';
 import { apiErrorMessage } from '../../utils/apiError.js';
 
-const CHANNELS = [
-  { key: 'website', label: 'Website Booking', icon: Globe,
+const channels = (t) => [
+  { key: 'website', label: t('websiteBooking'), icon: Globe,
     desc: 'Public, self-service bookings placed on your website.' },
-  { key: 'admin', label: 'Admin Booking', icon: ShieldCheck,
+  { key: 'admin', label: t('adminBooking'), icon: ShieldCheck,
     desc: 'Customers and bookings created by staff in the admin panel.' },
-  { key: 'walkin', label: 'Walk-in Booking', icon: Store,
+  { key: 'walkin', label: t('walkBooking'), icon: Store,
     desc: 'Walk-in customers captured at the club (no account).' },
 ];
 
-const FIELDS = [
-  { key: 'email_required', label: 'Email required' },
-  { key: 'phone_required', label: 'Mobile number required' },
-  { key: 'email_unique', label: 'Email must be unique' },
-  { key: 'phone_unique', label: 'Mobile number must be unique' },
+const fields = (t) => [
+  { key: 'email_required', label: t('emailRequired') },
+  { key: 'phone_required', label: t('mobileNumberRequired') },
+  { key: 'email_unique', label: t('emailMustUnique') },
+  { key: 'phone_unique', label: t('mobileNumberMustUnique') },
 ];
 
 export default function BookingConfiguration() {
+  const { t } = useTranslation('settings');
   const { hasPerm } = useAuth();
   const canManage = hasPerm('settings.manage');
   const [form, setForm] = useState(null);
@@ -39,7 +41,7 @@ export default function BookingConfiguration() {
   useEffect(() => {
     bookingConfigApi.get()
       .then(setForm)
-      .catch((e) => toast.error(apiErrorMessage(e, 'Could not load the booking configuration')));
+      .catch((e) => toast.error(apiErrorMessage(e, t('couldNotLoadBookingConfiguration'))));
   }, []);
 
   const set = (key) => (e) => setForm((f) => ({ ...f, [key]: e.target.checked }));
@@ -49,9 +51,9 @@ export default function BookingConfiguration() {
     try {
       const saved = await bookingConfigApi.update(form);
       setForm(saved);
-      toast.success('Booking configuration saved');
+      toast.success(t('bookingConfigurationSaved'));
     } catch (e) {
-      toast.error(apiErrorMessage(e, 'Could not save the booking configuration'));
+      toast.error(apiErrorMessage(e, t('couldNotSaveBookingConfiguration')));
     } finally {
       setBusy(false);
     }
@@ -60,8 +62,8 @@ export default function BookingConfiguration() {
   return (
     <>
       <PageHeader
-        title="Booking Configuration"
-        subtitle="Contact requirements per booking channel, and the rules that govern when a booking can be made or cancelled."
+        title={t('bookingConfiguration')}
+        subtitle={t('contactRequirementsPerBookingChannel')}
       />
 
       {!form ? (
@@ -69,7 +71,7 @@ export default function BookingConfiguration() {
       ) : (
         <>
           <div style={{ display: 'grid', gap: 16, gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))' }}>
-            {CHANNELS.map((ch) => {
+            {channels(t).map((ch) => {
               const Icon = ch.icon;
               return (
                 <section key={ch.key} style={{
@@ -82,7 +84,7 @@ export default function BookingConfiguration() {
                   </div>
                   <p className="muted" style={{ fontSize: 12.5, margin: '0 0 14px' }}>{ch.desc}</p>
                   <div style={{ display: 'grid', gap: 4 }}>
-                    {FIELDS.map((fld) => {
+                    {fields(t).map((fld) => {
                       const key = `${ch.key}_${fld.key}`;
                       return (
                         <Toggle
@@ -104,7 +106,7 @@ export default function BookingConfiguration() {
             marginTop: 16, padding: '12px 14px', borderRadius: 10, fontSize: 12.5,
             background: 'var(--color-surface-2, #f7f8fa)', border: '1px solid var(--color-border)', color: 'var(--color-text-muted)',
           }}>
-            <strong>Unique</strong> means a contact can't be reused for a new record. On a duplicate, the
+            <strong>{t('unique')}</strong> means a contact can't be reused for a new record. On a duplicate, the
             booker is asked to verify and continue with the existing customer - on the website this is
             confirmed with a one-time code (OTP) and their details are prefilled.
           </div>
@@ -112,7 +114,7 @@ export default function BookingConfiguration() {
           {canManage && (
             <div style={{ marginTop: 16 }}>
               <button className="btn btn-primary" onClick={save} disabled={busy}>
-                <Save size={15} /> {busy ? 'Saving…' : 'Save configuration'}
+                <Save size={15} /> {busy ? t('common:state.saving') : t('saveConfiguration')}
               </button>
             </div>
           )}
@@ -126,21 +128,22 @@ export default function BookingConfiguration() {
   );
 }
 
-const RULE_FIELDS = [
-  { key: 'min_lead_minutes', label: 'Minimum notice (minutes)',
+const ruleFields = (t) => [
+  { key: 'min_lead_minutes', label: t('minimumNoticeMinutes'),
     hint: 'How soon before a slot starts a booking may still be made. 0 = up to the start.' },
-  { key: 'max_advance_days', label: 'Booking horizon (days)',
+  { key: 'max_advance_days', label: t('bookingHorizonDays'),
     hint: 'How far ahead a slot may be booked. 0 = no limit.' },
-  { key: 'max_active_bookings_per_customer', label: 'Max upcoming per customer',
+  { key: 'max_active_bookings_per_customer', label: t('maxUpcomingPerCustomer'),
     hint: 'Upcoming bookings one customer may hold at once. 0 = no limit.' },
-  { key: 'max_bookings_per_customer_per_day', label: 'Max per customer per day',
+  { key: 'max_bookings_per_customer_per_day', label: t('maxPerCustomerPerDay'),
     hint: 'Bookings one customer may hold on a single day. 0 = no limit.' },
-  { key: 'cancellation_cutoff_hours', label: 'Cancellation cutoff (hours)',
-    hint: 'A customer may cancel until this long before the slot. Staff are never blocked.' },
+  { key: 'cancellation_cutoff_hours', label: t('cancellationCutoffHours'),
+    hint: t('customerMayCancelUntilLong') },
 ];
 
 /** Booking rules: the organization default plus any per-club override. */
 function BookingRulesSection({ canManage }) {
+  const { t } = useTranslation('settings');
   const [rows, setRows] = useState([]);
   const [clubs, setClubs] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -176,13 +179,13 @@ function BookingRulesSection({ canManage }) {
     setSavingId(row.id);
     try {
       const payload = Object.fromEntries(
-        RULE_FIELDS.map((f) => [f.key, Number(row[f.key]) || 0]));
+        ruleFields(t).map((f) => [f.key, Number(row[f.key]) || 0]));
       payload.enforce_for_staff = !!row.enforce_for_staff;
       const saved = await bookingPoliciesApi.update(row.id, payload);
       setRows((prev) => prev.map((r) => (r.id === row.id ? saved : r)));
-      toast.success('Booking rules saved');
+      toast.success(t('bookingRulesSaved'));
     } catch (e) {
-      toast.error(apiErrorMessage(e, 'Could not save the booking rules'));
+      toast.error(apiErrorMessage(e, t('couldNotSaveBookingRules')));
     } finally { setSavingId(null); }
   }
 
@@ -191,10 +194,10 @@ function BookingRulesSection({ canManage }) {
     try {
       await bookingPoliciesApi.create({ club: Number(newClub) });
       setNewClub('');
-      toast.success('Club rules added');
+      toast.success(t('clubRulesAdded'));
       load();
     } catch (e) {
-      toast.error(apiErrorMessage(e, 'Could not add the club rules'));
+      toast.error(apiErrorMessage(e, t('couldNotAddClubRules')));
     }
   }
 
@@ -202,11 +205,11 @@ function BookingRulesSection({ canManage }) {
     try {
       await bookingPoliciesApi.remove(row.id);
       setConfirmDelete(null);
-      toast.success('Club rules removed - it now follows the organization default');
+      toast.success(t('clubRulesRemovedItNow'));
       load();
     } catch (e) {
       setConfirmDelete(null);
-      toast.error(apiErrorMessage(e, 'Could not remove the club rules'));
+      toast.error(apiErrorMessage(e, t('couldNotRemoveClubRules')));
     }
   }
 
@@ -215,11 +218,11 @@ function BookingRulesSection({ canManage }) {
     <div style={{ marginTop: 28 }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 4 }}>
         <Timer size={18} />
-        <h3 style={{ margin: 0, fontSize: 16 }}>Booking Rules</h3>
+        <h3 style={{ margin: 0, fontSize: 16 }}>{t('bookingRules')}</h3>
       </div>
       <p className="muted" style={{ fontSize: 12.5, margin: '0 0 14px' }}>
         These bind self-service bookings from your website. Staff bookings are
-        exempt unless you turn on <strong>Apply to staff bookings</strong> - so
+        exempt unless you turn on <strong>{t('applyStaffBookings')}</strong> - so
         reception can always take a walk-in for the next ten minutes. A club with
         its own rules ignores the organization default entirely.
       </p>
@@ -234,13 +237,13 @@ function BookingRulesSection({ canManage }) {
               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
                 <h4 style={{ margin: 0, fontSize: 14.5 }}>{row.scope}</h4>
                 {!row.is_default && canManage && (
-                  <button className="icon-btn" title="Remove these club rules"
+                  <button className="icon-btn" title={t('removeTheseClubRules')}
                     onClick={() => setConfirmDelete(row)}><Trash2 size={15} /></button>
                 )}
               </div>
               <div style={{ display: 'grid', gap: 12,
                             gridTemplateColumns: 'repeat(auto-fit, minmax(210px, 1fr))' }}>
-                {RULE_FIELDS.map((f) => (
+                {ruleFields(t).map((f) => (
                   <FormField key={f.key} label={f.label} hint={f.hint}>
                     <input className="form-input" type="number" min="0"
                       value={row[f.key] ?? 0} disabled={!canManage}
@@ -250,8 +253,8 @@ function BookingRulesSection({ canManage }) {
               </div>
               <div style={{ marginTop: 10 }}>
                 <Toggle
-                  label="Apply to staff bookings"
-                  description="Off = only website/customer bookings are limited."
+                  label={t('applyStaffBookings')}
+                  description={t('offOnlyWebsiteCustomerBookings')}
                   checked={!!row.enforce_for_staff}
                   disabled={!canManage}
                   onChange={(e) => setField(row.id, 'enforce_for_staff', e.target.checked)}
@@ -261,7 +264,7 @@ function BookingRulesSection({ canManage }) {
                 <div style={{ marginTop: 12 }}>
                   <button className="btn btn-primary" onClick={() => saveRow(row)}
                     disabled={savingId === row.id}>
-                    <Save size={15} /> {savingId === row.id ? 'Saving…' : 'Save rules'}
+                    <Save size={15} /> {savingId === row.id ? t('common:state.saving') : t('saveRules')}
                   </button>
                 </div>
               )}
@@ -272,14 +275,14 @@ function BookingRulesSection({ canManage }) {
             <div style={{ display: 'flex', gap: 8, alignItems: 'flex-end',
                           border: '1px dashed var(--color-border)', borderRadius: 12, padding: 14 }}>
               <div style={{ flex: 1, minWidth: 0 }}>
-                <FormField label="Give a club its own rules"
-                  hint="It then ignores the organization default entirely.">
+                <FormField label={t('giveClubItsOwnRules')}
+                  hint={t('itThenIgnoresOrganizationDefault')}>
                   <Select2 options={clubOptions} value={newClub} onChange={setNewClub}
-                    placeholder="Choose a club…" />
+                    placeholder={t('chooseClub')} />
                 </FormField>
               </div>
               <button className="btn btn-secondary" onClick={addOverride} disabled={!newClub}>
-                <Plus size={15} /> Add
+                <Plus size={15} /> {t('common:actions.add')}
               </button>
             </div>
           )}
@@ -290,8 +293,8 @@ function BookingRulesSection({ canManage }) {
     <ConfirmDialog
       open={Boolean(confirmDelete)}
       tone="danger"
-      title="Remove these club rules?"
-      confirmLabel="Remove"
+      title={t('removeTheseClubRules2')}
+      confirmLabel={t('common:actions.remove')}
       message={confirmDelete ? (
         <><strong>{confirmDelete.scope}</strong> will fall back to the organization default rules.</>
       ) : null}

@@ -1,6 +1,7 @@
 import { useEffect } from 'react';
 import { createPortal } from 'react-dom';
 import { X } from 'lucide-react';
+import { useTranslation } from 'react-i18next';
 
 /**
  * Right-side slide-over panel. Mirrors Modal (portal to <body>, scroll-lock,
@@ -8,6 +9,7 @@ import { X } from 'lucide-react';
  * Backdrop click closes (read-only - nothing to lose).
  */
 export function Drawer({ open, onClose, title, subtitle, children, width = 440 }) {
+  const { t } = useTranslation('common');
   useEffect(() => {
     if (!open) return undefined;
     const prev = document.body.style.overflow;
@@ -20,24 +22,17 @@ export function Drawer({ open, onClose, title, subtitle, children, width = 440 }
   if (!open) return null;
 
   return createPortal(
-    <div style={{ position: 'fixed', inset: 0, zIndex: 1000, display: 'flex', justifyContent: 'flex-end' }}>
-      <div
-        onClick={onClose}
-        style={{ position: 'absolute', inset: 0, background: 'rgba(15,23,42,0.45)', backdropFilter: 'blur(2px)' }}
-      />
-      <div
-        className="fade-in"
-        style={{
-          position: 'relative', width: '100%', maxWidth: width, height: '100%', background: '#fff',
-          boxShadow: '-20px 0 50px rgba(15,23,42,0.25)', display: 'flex', flexDirection: 'column',
-        }}
-      >
+    <div className="drawer-backdrop">
+      <div className="drawer-scrim" onClick={onClose} />
+      {/* Only the cap is set here; the panel goes full width on a phone through
+          responsive.css, which an inline max-width could not override. */}
+      <div className="drawer-panel fade-in" style={{ maxWidth: width }}>
         <div className="modal-head">
           <div>
             <h3 className="modal-title">{title}</h3>
             {subtitle && <p className="card-subtitle" style={{ margin: 0 }}>{subtitle}</p>}
           </div>
-          <button className="icon-btn modal-close" onClick={onClose} aria-label="Close" type="button">
+          <button className="icon-btn modal-close" onClick={onClose} aria-label={t('common:actions.close')} type="button">
             <X size={26} strokeWidth={2.25} />
           </button>
         </div>

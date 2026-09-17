@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { Check, ChevronDown, Search, X } from 'lucide-react';
+import { useTranslation } from 'react-i18next';
 
 /**
  * Reusable Select2-style dropdown - the single select control for the whole app.
@@ -24,7 +25,7 @@ export function Select2({
   value,
   onChange,
   multiple = false,
-  placeholder = 'Select…',
+  placeholder,
   disabled = false,
   searchable,            // undefined => auto (>10 options)
   searchThreshold = 10,
@@ -37,6 +38,7 @@ export function Select2({
   onSearch,              // optional: server-side search - called (debounced) with
                          // the typed term; the parent supplies the matching options.
 }) {
+  const { t } = useTranslation('common');
   const autoId = useId();
   const fieldId = id || autoId;
   const controlRef = useRef(null);
@@ -210,7 +212,7 @@ export function Select2({
                   <span className="s2-chip" key={String(o.value)}>
                     {o.label}
                     {!disabled && (
-                      <button type="button" className="s2-chip-x" onClick={(e) => removeChip(e, o.value)} aria-label={`Remove ${o.label}`}>
+                      <button type="button" className="s2-chip-x" onClick={(e) => removeChip(e, o.value)} aria-label={t('removeItem', { item: o.label })}>
                         <X size={12} />
                       </button>
                     )}
@@ -218,18 +220,18 @@ export function Select2({
                 ))}
               </span>
             ) : (
-              <span className="s2-placeholder">{placeholder}</span>
+              <span className="s2-placeholder">{placeholder || t('select.placeholder')}</span>
             )
           ) : (
             singleLabel
               ? <span className="s2-single">{singleLabel}</span>
-              : <span className="s2-placeholder">{placeholder}</span>
+              : <span className="s2-placeholder">{placeholder || t('select.placeholder')}</span>
           )}
         </div>
 
         <div className="s2-indicators">
           {clearable && !multiple && hasValue && !disabled && (
-            <button type="button" className="s2-clear" onClick={clearAll} aria-label="Clear">
+            <button type="button" className="s2-clear" onClick={clearAll} aria-label={t('common:actions.clear')}>
               <X size={15} />
             </button>
           )}
@@ -260,7 +262,7 @@ export function Select2({
               <input
                 ref={searchRef}
                 value={q}
-                placeholder="Search…"
+                placeholder={t('common:actions.search')}
                 onChange={(e) => { setQ(e.target.value); setActive(0); }}
                 onKeyDown={onKeyDown}
               />

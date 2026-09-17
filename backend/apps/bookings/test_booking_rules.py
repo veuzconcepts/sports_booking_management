@@ -24,6 +24,12 @@ from apps.bookings.services import (
 )
 from apps.facilities.models import Facility
 
+def today():
+    """The service works in the configured timezone, so the tests must too:
+    the machine's local date differs from it between the two midnights."""
+    return timezone.localdate()
+
+
 
 @pytest.fixture
 def court(db, club, facility_type):
@@ -40,7 +46,7 @@ def policy(db):
 
 def _at(days_ahead=2, hour=10):
     """A (date, time) that many days from today."""
-    return date.today() + timedelta(days=days_ahead), time(hour, 0)
+    return today() + timedelta(days=days_ahead), time(hour, 0)
 
 
 # --------------------------------------------------------------------------- #
@@ -180,8 +186,8 @@ def test_the_active_booking_cap_is_enforced(db, club, customer, court,
                                             facility_type, policy, booking_on):
     policy.max_active_bookings_per_customer = 2
     policy.save()
-    booking_on(on_date=date.today() + timedelta(days=1), at_time=time(9, 0))
-    booking_on(on_date=date.today() + timedelta(days=2), at_time=time(9, 0))
+    booking_on(on_date=today() + timedelta(days=1), at_time=time(9, 0))
+    booking_on(on_date=today() + timedelta(days=2), at_time=time(9, 0))
 
     on_date, at_time = _at(days_ahead=3)
     reasons = check_booking_rules(club=club, on_date=on_date, at_time=at_time,
@@ -193,7 +199,7 @@ def test_cancelled_bookings_do_not_count_towards_the_cap(db, club, customer, cou
                                                          facility_type, policy, booking_on):
     policy.max_active_bookings_per_customer = 1
     policy.save()
-    held = booking_on(on_date=date.today() + timedelta(days=1), at_time=time(9, 0))
+    held = booking_on(on_date=today() + timedelta(days=1), at_time=time(9, 0))
     held.status = BookingStatus.CANCELLED
     held.save()
 
@@ -206,7 +212,7 @@ def test_the_per_day_cap_is_enforced(db, club, customer, court, facility_type,
                                      policy, booking_on):
     policy.max_bookings_per_customer_per_day = 1
     policy.save()
-    on_date = date.today() + timedelta(days=2)
+    on_date = today() + timedelta(days=2)
     booking_on(on_date=on_date, at_time=time(9, 0))
 
     reasons = check_booking_rules(club=club, on_date=on_date, at_time=time(14, 0),
@@ -218,7 +224,7 @@ def test_the_per_day_cap_does_not_leak_to_other_days(db, club, customer, court,
                                                      facility_type, policy, booking_on):
     policy.max_bookings_per_customer_per_day = 1
     policy.save()
-    booking_on(on_date=date.today() + timedelta(days=2), at_time=time(9, 0))
+    booking_on(on_date=today() + timedelta(days=2), at_time=time(9, 0))
 
     other_day, at_time = _at(days_ahead=3)
     assert check_booking_rules(club=club, on_date=other_day, at_time=at_time,
@@ -229,7 +235,7 @@ def test_editing_a_booking_does_not_count_itself(db, club, customer, court,
                                                  facility_type, policy, booking_on):
     policy.max_active_bookings_per_customer = 1
     policy.save()
-    existing = booking_on(on_date=date.today() + timedelta(days=2), at_time=time(9, 0))
+    existing = booking_on(on_date=today() + timedelta(days=2), at_time=time(9, 0))
     assert check_booking_rules(
         club=club, on_date=existing.scheduled_date, at_time=time(11, 0),
         customer=customer, staff_booking=False,
@@ -280,7 +286,7 @@ def test_booking_window_reports_the_bounds(db, club, policy):
     assert w["min_lead_minutes"] == 60
     assert w["max_advance_days"] == 14
     assert w["cancellation_cutoff_hours"] == 12
-    assert w["latest_date"] == (date.today() + timedelta(days=14)).isoformat()
+    assert w["latest_date"] == (today() + timedelta(days=14)).isoformat()
 
 
 def test_booking_window_has_no_upper_bound_when_unlimited(db, club, policy):
@@ -296,7 +302,7 @@ def test_a_customer_may_cancel_well_before_the_cutoff(db, club, court, facility_
                                                       policy, booking_on):
     policy.cancellation_cutoff_hours = 24
     policy.save()
-    b = booking_on(on_date=date.today() + timedelta(days=5), at_time=time(10, 0))
+    b = booking_on(on_date=today() + timedelta(days=5), at_time=time(10, 0))
     state = cancellation_state(b)
     assert state["customer_can_cancel"] is True
     assert state["cutoff_hours"] == 24
@@ -336,7 +342,7 @@ def test_a_zero_cutoff_allows_cancelling_until_the_start(db, club, court,
 
 def test_a_terminal_booking_is_not_cancellable(db, club, court, facility_type,
                                                policy, booking_on):
-    b = booking_on(on_date=date.today() + timedelta(days=5), at_time=time(10, 0))
+    b = booking_on(on_date=today() + timedelta(days=5), at_time=time(10, 0))
     b.status = BookingStatus.CANCELLED
     b.save()
     assert cancellation_state(b)["customer_can_cancel"] is False

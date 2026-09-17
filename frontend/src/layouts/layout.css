@@ -7,15 +7,18 @@
 }
 /* Full-width header sits above the sidebar; content is offset by both. */
 .app-content {
-  margin-left: var(--sidebar-width);
+  /* Published as a variable so a full-width workspace can cancel it exactly
+     (see .lv-page in listview.css) instead of hard-coding the same number. */
+  --app-gutter: var(--space-7);
+  margin-inline-start: var(--sidebar-width);
   margin-top: var(--topbar-height);
   min-width: 0;
-  padding: var(--space-7);
-  transition: margin-left .26s ease;
+  padding: var(--app-gutter);
+  transition: margin-inline-start .26s ease;
 }
 
-@media (max-width: 900px) {
-  .app-content { margin-left: 0; padding: var(--space-5); }
+@media (max-width: 1024px) {
+  .app-content { --app-gutter: var(--space-5); margin-inline-start: 0; }
 }
 
 /* ------------------------------------------------------------------------- */
@@ -24,21 +27,22 @@
 /* Light side menu (under the dark header): a softly tinted rail + white panel,
    with brand-blue highlights - relaxing and clearly separated from the body. */
 .nav {
-  --nav-bg: #ffffff;
-  --nav-rail-bg: #eef1f8;
-  --nav-text: var(--color-text);
+  --nav-bg: var(--sidebar-bg);
+  --nav-rail-bg: var(--submenu-bg);
+  --nav-text: var(--sidebar-text);
   --nav-muted: var(--color-text-muted);
-  --nav-hover: var(--color-border-soft);
+  --nav-hover: var(--sidebar-hover-bg);
   --nav-border: var(--color-border);
-  --nav-active-bg: rgba(111, 74, 158, 0.12);
+  --nav-active-bg: var(--sidebar-active-bg);
+  --nav-active-text: var(--sidebar-active-text);
 
   position: fixed;
-  top: var(--topbar-height); left: 0; bottom: 0;
+  top: var(--topbar-height); inset-inline-start: 0; bottom: 0;
   width: var(--sidebar-width);
   display: flex;
   z-index: 50;
   background: var(--nav-bg);
-  border-right: 1px solid var(--color-border);
+  border-inline-end: 1px solid var(--color-border);
   transition: transform .25s ease, width .26s ease;
 }
 .nav-rail { overflow-y: auto; }
@@ -47,7 +51,7 @@
 .nav-collapse-toggle {
   position: absolute;
   top: 12px;
-  right: -12px;
+  inset-inline-end: -12px;
   width: 26px; height: 26px;
   border-radius: 50%;
   background: var(--color-surface);
@@ -65,7 +69,7 @@
   transform: scale(1.08);
 }
 
-@media (min-width: 901px) {
+@media (min-width: 1025px) {
   /* Collapsed: the panel slides shut and content reflows to the rail width. */
   .app-layout.nav-collapsed { --sidebar-width: var(--sidebar-rail-width); }
   .nav.collapsed .nav-panel {
@@ -76,7 +80,7 @@
     pointer-events: none;
   }
 }
-@media (max-width: 900px) {
+@media (max-width: 1024px) {
   .nav-collapse-toggle { display: none; }  /* mobile uses the drawer instead */
 }
 
@@ -85,7 +89,7 @@
   width: var(--sidebar-rail-width);
   flex-shrink: 0;
   background: var(--nav-rail-bg);
-  border-right: 1px solid var(--nav-border);
+  border-inline-end: 1px solid var(--nav-border);
   display: flex;
   flex-direction: column;
   align-items: stretch;
@@ -113,8 +117,8 @@
 .nav-rail-item:hover { background: var(--nav-hover); color: var(--color-text); }
 .nav-rail-item.active {
   background: var(--nav-active-bg);
-  color: var(--color-primary-700);
-  box-shadow: inset 0 0 0 1px rgba(111, 74, 158, 0.22);
+  color: var(--nav-active-text);
+  box-shadow: inset 0 0 0 1px rgba(var(--color-primary-600-rgb, 111, 74, 158), 0.22);
 }
 .nav-rail-item svg { width: 22px; height: 22px; }
 .nav-rail-spacer { flex: 1; }
@@ -155,12 +159,13 @@
 .nav-link:hover { background: var(--nav-hover); }
 .nav-link.active {
   background: var(--nav-active-bg);
-  color: var(--color-primary-700);
+  color: var(--nav-active-text);
   font-weight: 600;
-  box-shadow: inset 3px 0 0 var(--color-primary-600);
+  box-shadow: inset 3px 0 0 var(--sidebar-active-text);
+  /* The active bar hugs the reading edge. */
 }
 .nav-link svg { width: 18px; height: 18px; flex-shrink: 0; color: var(--nav-muted); }
-.nav-link.active svg { color: var(--color-primary-600); }
+.nav-link.active svg { color: var(--nav-active-text); }
 
 /* Collapsible group */
 .nav-group-header {
@@ -179,16 +184,17 @@
 .nav-group-header:hover { background: var(--nav-hover); }
 .nav-group-header svg.lead { width: 18px; height: 18px; color: var(--nav-muted); }
 .nav-group-chevron {
-  margin-left: auto;
+  margin-inline-start: auto;
   width: 16px; height: 16px;
   color: var(--nav-muted);
   transition: transform .18s ease;
 }
 .nav-group-chevron.open { transform: rotate(180deg); }
 .nav-group-children {
-  margin: 2px 0 6px 18px;
-  padding-left: 12px;
-  border-left: 1px solid var(--nav-border);
+  margin: 2px 0 6px;
+  margin-inline-start: 18px;
+  padding-inline-start: 12px;
+  border-inline-start: 1px solid var(--nav-border);
   display: flex;
   flex-direction: column;
   gap: 2px;
@@ -204,7 +210,7 @@
 .nav-sublink:hover { background: var(--nav-hover); color: var(--color-text); }
 .nav-sublink.active {
   background: var(--nav-active-bg);
-  color: var(--color-primary-700);
+  color: var(--nav-active-text);
   font-weight: 600;
 }
 
@@ -216,15 +222,18 @@
   z-index: 49;
 }
 
-@media (max-width: 900px) {
+@media (max-width: 1024px) {
   .nav {
     width: min(330px, 86vw);
     transform: translateX(-100%);
     box-shadow: 0 18px 40px rgba(8, 16, 38, 0.28);
   }
   .nav.open { transform: translateX(0); }
+  /* The drawer slides in from the reading edge in either direction. */
+  [dir="rtl"] .nav { transform: translateX(100%); }
+  [dir="rtl"] .nav.open { transform: translateX(0); }
 }
-@media (min-width: 901px) {
+@media (min-width: 1025px) {
   .nav-backdrop { display: none; }
 }
 
@@ -233,11 +242,11 @@
 /* ------------------------------------------------------------------------- */
 .topbar {
   position: fixed;
-  top: 0; left: 0; right: 0;
+  top: 0; inset-inline: 0;
   height: var(--topbar-height);
-  background: linear-gradient(100deg, #1b1746 0%, #2a2360 55%, #201b50 100%);
-  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
-  color: #fff;
+  background: var(--header-bg);
+  border-bottom: 1px solid rgba(0, 0, 0, 0.12);
+  color: var(--header-text);
   display: flex;
   align-items: center;
   padding: 0 var(--space-6);
@@ -265,15 +274,15 @@
   /* Align the brand over the nav rail/panel area. */
   min-width: calc(var(--sidebar-width) - var(--space-6));
 }
-@media (max-width: 900px) {
+@media (max-width: 1024px) {
   .topbar-menu-btn { display: inline-flex; }
   .topbar-brand { min-width: 0; }
 }
 .topbar-brand-mark {
   width: 38px; height: 38px;
   border-radius: 11px;
-  background: linear-gradient(135deg, #2a2360 0%, var(--color-primary-500) 100%);
-  box-shadow: inset 0 0 0 1.5px rgba(224, 180, 58, 0.55);
+  background: linear-gradient(135deg, var(--color-navy) 0%, var(--color-primary-500) 100%);
+  box-shadow: inset 0 0 0 1.5px var(--color-gold-500);
   display: flex; align-items: center; justify-content: center;
   color: #fff;
   font-weight: 800;
@@ -285,7 +294,7 @@
 .topbar-brand-name {
   font-size: 16px;
   font-weight: 800;
-  color: #fff;
+  color: var(--header-text);
   letter-spacing: 0.04em;
   text-transform: uppercase;
   white-space: nowrap;
@@ -293,13 +302,17 @@
 .topbar-brand-tag {
   font-size: 10.5px;
   font-weight: 500;
-  color: #e0b43a;
+  color: var(--color-gold-500);
   letter-spacing: 0.02em;
   white-space: nowrap;
 }
-@media (max-width: 600px) {
+@media (max-width: 640px) {
+  .topbar { padding: 0 var(--space-3); gap: var(--space-2); }
   .topbar-brand { min-width: 0; }
   .topbar-brand-text { display: none; }
+  .user-chip-name,
+  .user-chip-role { display: none; }
+  .user-chip { padding: 4px; }
 }
 .topbar-actions {
   display: flex;
@@ -328,7 +341,7 @@
   width: 30px; height: 30px;
   border-radius: 50%;
   background: linear-gradient(135deg, var(--color-primary-500), var(--color-primary-700));
-  color: #fff;
+  color: var(--btn-primary-text);
   font-weight: 600;
   font-size: 12px;
   display: flex; align-items: center; justify-content: center;
@@ -345,15 +358,15 @@
 }
 
 /* Header (dark) variants - scoped so table/modal icon buttons stay light. */
-.topbar .icon-btn { color: #c4d2ee; }
-.topbar .icon-btn:hover { background: rgba(255, 255, 255, 0.12); color: #fff; }
+.topbar .icon-btn { color: var(--header-text); opacity: .82; }
+.topbar .icon-btn:hover { background: rgba(255, 255, 255, 0.14); color: var(--header-text); opacity: 1; }
 .topbar .user-chip {
   background: rgba(255, 255, 255, 0.08);
   border-color: rgba(255, 255, 255, 0.16);
 }
 .topbar .user-chip:hover { background: rgba(255, 255, 255, 0.16); }
-.topbar .user-chip-name { color: #fff; }
-.topbar .user-chip-role { color: #9fb0c9; }
+.topbar .user-chip-name { color: var(--header-text); }
+.topbar .user-chip-role { color: var(--header-text); opacity: .68; }
 
 .user-menu {
   position: relative;
@@ -448,11 +461,11 @@
 /* Two-column chart row */
 .chart-row {
   display: grid;
-  grid-template-columns: 2fr 1fr;
+  grid-template-columns: minmax(0, 2fr) minmax(0, 1fr);
   gap: var(--space-5);
 }
-@media (max-width: 1000px) {
-  .chart-row { grid-template-columns: 1fr; }
+@media (max-width: 1024px) {
+  .chart-row { grid-template-columns: minmax(0, 1fr); }
 }
 
 /* ------------------------------------------------------------------------- */
@@ -465,7 +478,7 @@
   background: var(--color-bg);
 }
 .auth-hero {
-  background: linear-gradient(135deg, #1b1746 0%, #6f4a9e 100%);
+  background: linear-gradient(135deg, var(--color-navy) 0%, var(--color-primary-600) 100%);
   color: #fff;
   padding: 60px;
   display: flex;
@@ -479,8 +492,8 @@
   position: absolute;
   inset: 0;
   background:
-    radial-gradient(800px 400px at 80% 20%, rgba(224,180,58,.22), transparent),
-    radial-gradient(600px 300px at 10% 90%, rgba(132,96,180,.30), transparent);
+    radial-gradient(800px 400px at 80% 20%, rgba(var(--color-gold-500-rgb, 224, 180, 58), .22), transparent),
+    radial-gradient(600px 300px at 10% 90%, rgba(var(--color-primary-600-rgb, 132, 96, 180), .30), transparent);
 }
 .auth-hero > * { position: relative; z-index: 1; }
 .auth-hero-brand {
@@ -489,7 +502,7 @@
 }
 .auth-hero-mark {
   width: 40px; height: 40px;
-  background: linear-gradient(135deg, #2a2360, #8460b4);
+  background: linear-gradient(135deg, var(--color-navy), var(--color-primary-500));
   box-shadow: inset 0 0 0 1.5px rgba(224, 180, 58, 0.6);
   border-radius: 12px;
   display: flex; align-items: center; justify-content: center;
@@ -510,6 +523,7 @@
 .auth-hero-foot { color: #94a3b8; font-size: 12.5px; }
 
 .auth-form-pane {
+  position: relative;           /* anchors the language switcher corner */
   display: flex;
   align-items: center;
   justify-content: center;
@@ -533,9 +547,13 @@
   font-size: 13px;
   color: var(--color-text-muted);
 }
-@media (max-width: 900px) {
-  .auth-shell { grid-template-columns: 1fr; }
+@media (max-width: 1024px) {
+  .auth-shell { grid-template-columns: minmax(0, 1fr); }
   .auth-hero { display: none; }
+}
+@media (max-width: 640px) {
+  .auth-form-pane { padding: var(--space-5) var(--space-4); }
+  .auth-form-card h2 { font-size: 21px; }
 }
 
 /* ------------------------------------------------------------------------- */
@@ -547,3 +565,32 @@
   color: var(--color-text-muted);
 }
 .empty h3 { color: var(--color-text); }
+
+/* The active-item bar and the collapsed-panel shadow are the only pieces of
+   the shell that need an explicit mirror. */
+[dir="rtl"] .nav-link.active { box-shadow: inset -3px 0 0 var(--sidebar-active-text); }
+@media (max-width: 1024px) {
+  [dir="rtl"] .nav { box-shadow: 0 18px 40px rgba(8, 16, 38, 0.28); }
+}
+
+/* The organization's own logo, when one has been uploaded. Constrained so a
+   tall or very wide file cannot change the header height. */
+.topbar-brand-logo {
+  height: 34px;
+  max-width: 160px;
+  width: auto;
+  object-fit: contain;
+  flex-shrink: 0;
+}
+@media (max-width: 640px) {
+  .topbar-brand-logo { height: 28px; max-width: 120px; }
+}
+
+/* Logo on the sign-in hero. The hero is always dark, so the light variant is
+   preferred; the dark one is the fallback when only it exists. */
+.auth-hero-logo {
+  height: 40px;
+  max-width: 200px;
+  width: auto;
+  object-fit: contain;
+}

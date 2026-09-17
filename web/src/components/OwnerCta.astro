@@ -1,0 +1,48 @@
+---
+/**
+ * The band aimed at club owners rather than players.
+ *
+ * Copy is CMS-managed (Website -> Sections -> For Club Owners) with sensible
+ * defaults, so an organization can rewrite the pitch without a deployment.
+ */
+const { section = {}, site = {} } = Astro.props;
+
+const points = (section.description || '')
+  .split('\n')
+  .map((line) => line.trim())
+  .filter(Boolean);
+
+const fallbackPoints = [
+  'Live availability across every facility',
+  'Online payments and invoicing',
+  'Memberships, packages and promo codes',
+];
+
+const contactHref = site?.email
+  ? `mailto:${site.email}`
+  : (site?.phone ? `tel:${site.phone}` : '#footer');
+---
+<div class="owner">
+  <div>
+    {section.eyebrow && <span class="eyebrow">{section.eyebrow}</span>}
+    <h2>{section.title || 'Run a club? Fill your courts.'}</h2>
+    <p>
+      {section.subtitle
+        || 'List your facilities, publish your real opening hours and take bookings and payments online. Your schedule stays yours: closures, special dates and pricing are all under your control.'}
+    </p>
+    <ul class="owner__points">
+      {(points.length ? points : fallbackPoints).map((point) => <li>{point}</li>)}
+    </ul>
+  </div>
+
+  <div class="owner__actions">
+    <a class="btn btn-amber" href={section.primary_button_url || contactHref}>
+      {section.primary_button_label || 'Talk to us'}
+    </a>
+    {section.secondary_button_label && (
+      <a class="btn btn-ghost" href={section.secondary_button_url || '#faq'}>
+        {section.secondary_button_label}
+      </a>
+    )}
+  </div>
+</div>

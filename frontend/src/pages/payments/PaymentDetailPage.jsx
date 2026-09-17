@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { ArrowLeft, Download } from 'lucide-react';
+import { useTranslation } from 'react-i18next';
 import toast from 'react-hot-toast';
 
 import { PageHeader } from '../../components/PageHeader.jsx';
@@ -27,6 +28,7 @@ function Row({ label, children }) {
 // A payment's own page: amount, date, mode + gateway details (card/bank), the
 // invoice or refund it relates to, and the booking it belongs to.
 export default function PaymentDetailPage() {
+  const { t } = useTranslation('payments');
   const { id } = useParams();
   const navigate = useNavigate();
   const { hasPerm } = useAuth();
@@ -36,7 +38,7 @@ export default function PaymentDetailPage() {
   const load = useCallback(async () => {
     setLoading(true);
     try { setP(await paymentsApi.get(id)); }
-    catch (e) { toast.error(apiErrorMessage(e, 'Unable to load the payment. Please try again.')); }
+    catch (e) { toast.error(apiErrorMessage(e, t('unableLoadPaymentPleaseTry'))); }
     finally { setLoading(false); }
   }, [id]);
   useEffect(() => { load(); }, [load]);
@@ -48,7 +50,7 @@ export default function PaymentDetailPage() {
       const a = document.createElement('a');
       a.href = url; a.download = `${p.receipt_number || 'receipt'}.pdf`; a.click();
       URL.revokeObjectURL(url);
-    } catch (e) { toast.error(apiErrorMessage(e, 'Unable to download the receipt. Please try again.')); }
+    } catch (e) { toast.error(apiErrorMessage(e, t('unableDownloadReceiptPleaseTry'))); }
   }
 
   if (loading) {
@@ -61,13 +63,13 @@ export default function PaymentDetailPage() {
   return (
     <>
       <button className="btn btn-ghost" onClick={() => navigate('/payments')} style={{ marginBottom: 12 }}>
-        <ArrowLeft size={15} /> Back to payments
+        <ArrowLeft size={15} /> {t('backPayments')}
       </button>
 
-      <PageHeader title={p.reference} subtitle="Payment"
+      <PageHeader title={p.reference} subtitle={t('payment')}
         actions={p.receipt_id ? (
           <button className="btn btn-secondary" onClick={downloadReceipt}>
-            <Download size={15} /> Receipt PDF
+            <Download size={15} /> {t('receiptPdf')}
           </button>
         ) : null}
       />
@@ -76,34 +78,34 @@ export default function PaymentDetailPage() {
       <div className="row">
         <div className="col" style={{ flex: '1 1 320px' }}>
           <div className="card"><div className="card-body">
-            <h3 className="card-title" style={{ marginBottom: 8 }}>Payment</h3>
-            <Row label="Payment number">{p.reference}</Row>
-            <Row label="Amount"><Money amount={p.amount} code={p.currency} /></Row>
+            <h3 className="card-title" style={{ marginBottom: 8 }}>{t('payment')}</h3>
+            <Row label={t('paymentNumber')}>{p.reference}</Row>
+            <Row label={t('common:labels.amount')}><Money amount={p.amount} code={p.currency} /></Row>
             {Number(p.refunded_amount) > 0 && (
-              <Row label="Refunded"><Money amount={p.refunded_amount} code={p.currency} /></Row>
+              <Row label={t('refunded')}><Money amount={p.refunded_amount} code={p.currency} /></Row>
             )}
-            <Row label="Status"><StatusBadge tone={PAY_TONE[p.status] || 'muted'} label={p.status_display || p.status} /></Row>
-            <Row label="Mode">{p.method_display || p.method}</Row>
-            <Row label="Date">{dt(p.paid_at || p.created_at)}</Row>
-            <Row label="Taken by">{p.created_by_name || '-'}</Row>
+            <Row label={t('common:labels.status')}><StatusBadge tone={PAY_TONE[p.status] || 'muted'} label={p.status_display || p.status} /></Row>
+            <Row label={t('mode')}>{p.method_display || p.method}</Row>
+            <Row label={t('common:labels.date')}>{dt(p.paid_at || p.created_at)}</Row>
+            <Row label={t('taken')}>{p.created_by_name || '-'}</Row>
           </div></div>
         </div>
 
         <div className="col" style={{ flex: '1 1 320px' }}>
           <div className="card"><div className="card-body">
-            <h3 className="card-title" style={{ marginBottom: 8 }}>Related documents</h3>
-            <Row label="Booking">
+            <h3 className="card-title" style={{ marginBottom: 8 }}>{t('relatedDocuments')}</h3>
+            <Row label={t('booking')}>
               {p.booking ? (
                 <button className="link-btn" onClick={() => navigate(`/bookings/${p.booking}`)}>{p.booking_reference}</button>
               ) : '-'}
             </Row>
-            <Row label="Invoice">
+            <Row label={t('invoice')}>
               {p.invoice_id && hasPerm('invoicing.view') ? (
                 <button className="link-btn" onClick={() => navigate(`/invoices/${p.invoice_id}`)}>{p.invoice_number}</button>
               ) : (p.invoice_number || '-')}
             </Row>
             {refunds.map((r) => (
-              <Row key={r.id} label="Refund / credit note">
+              <Row key={r.id} label={t('refundCreditNote')}>
                 {r.credit_note_id && hasPerm('invoicing.view') ? (
                   <button className="link-btn" onClick={() => navigate(`/credit-notes/${r.credit_note_id}`)}>
                     {r.credit_note_number || r.reference}
@@ -118,11 +120,11 @@ export default function PaymentDetailPage() {
               <div style={{ height: 16 }} />
               <div className="card"><div className="card-body">
                 <h3 className="card-title" style={{ marginBottom: 8 }}>
-                  {p.method === 'card' ? 'Card / gateway details' : 'Bank transfer details'}
+                  {p.method === 'card' ? t('cardGatewayDetails') : t('bankTransferDetails')}
                 </h3>
-                <Row label="Gateway">{p.gateway || '-'}</Row>
-                <Row label="Gateway reference">{p.gateway_reference || '-'}</Row>
-                {p.failure_reason && <Row label="Failure reason">{p.failure_reason}</Row>}
+                <Row label={t('gateway')}>{p.gateway || '-'}</Row>
+                <Row label={t('gatewayReference')}>{p.gateway_reference || '-'}</Row>
+                {p.failure_reason && <Row label={t('failureReason')}>{p.failure_reason}</Row>}
               </div></div>
             </>
           )}
@@ -131,15 +133,15 @@ export default function PaymentDetailPage() {
 
       {refunds.length > 0 && (
         <div className="card" style={{ marginTop: 16 }}><div className="card-body">
-          <h3 className="card-title" style={{ marginBottom: 8 }}>Refunds on this payment</h3>
+          <h3 className="card-title" style={{ marginBottom: 8 }}>{t('refundsPayment')}</h3>
           <div style={{ overflowX: 'auto' }}>
             <table style={{ width: '100%', borderCollapse: 'collapse' }}>
               <thead><tr>
-                <th style={{ textAlign: 'left', padding: 6, fontSize: 12 }}>Date</th>
-                <th style={{ textAlign: 'left', padding: 6, fontSize: 12 }}>Credit note</th>
-                <th style={{ textAlign: 'right', padding: 6, fontSize: 12 }}>Amount</th>
-                <th style={{ textAlign: 'left', padding: 6, fontSize: 12 }}>Status</th>
-                <th style={{ textAlign: 'left', padding: 6, fontSize: 12 }}>Reason</th>
+                <th style={{ textAlign: 'left', padding: 6, fontSize: 12 }}>{t('common:labels.date')}</th>
+                <th style={{ textAlign: 'left', padding: 6, fontSize: 12 }}>{t('creditNote2')}</th>
+                <th style={{ textAlign: 'right', padding: 6, fontSize: 12 }}>{t('common:labels.amount')}</th>
+                <th style={{ textAlign: 'left', padding: 6, fontSize: 12 }}>{t('common:labels.status')}</th>
+                <th style={{ textAlign: 'left', padding: 6, fontSize: 12 }}>{t('common:labels.reason')}</th>
               </tr></thead>
               <tbody>
                 {refunds.map((r) => (

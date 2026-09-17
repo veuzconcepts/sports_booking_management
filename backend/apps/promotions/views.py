@@ -12,6 +12,7 @@ from apps.auditlogs.services import log_event
 from .models import PromoCode
 from .permissions import PromoPermission
 from .serializers import BulkPromoSerializer, PromoCodeSerializer, PromoRedemptionSerializer
+from config.listing import GroupedListMixin
 
 # Unambiguous alphabet (no O/0/I/1) for human-readable codes.
 _ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"
@@ -21,13 +22,19 @@ def _suffix(n):
     return "".join(secrets.choice(_ALPHABET) for _ in range(n))
 
 
-class PromoCodeViewSet(viewsets.ModelViewSet):
+class PromoCodeViewSet(GroupedListMixin, viewsets.ModelViewSet):
     queryset = PromoCode.objects.all()
     serializer_class = PromoCodeSerializer
     permission_classes = [permissions.IsAuthenticated, PromoPermission]
     filterset_fields = ["is_active", "discount_type", "batch"]
     search_fields = ["code", "description", "batch"]
     ordering_fields = ["created_at", "code", "valid_to", "used_count"]
+    group_by_fields = {
+        "discount_type": {"field": "discount_type"},
+        "is_active": {"field": "is_active", "true_label": "Active",
+                      "empty_label": "Inactive"},
+        "batch": {"field": "batch", "empty_label": "No batch"},
+    }
     filter_backends = [filters.SearchFilter, filters.OrderingFilter]
 
     def perform_create(self, serializer):

@@ -16,6 +16,7 @@ class _CannotDelete(APIException):
 from apps.accounts import access
 from apps.accounts.models import Role, STAFF_ROLES
 from apps.auditlogs.services import log_event
+from config.listing import GroupedListMixin
 
 from .models import Address, Customer, LoyaltyLedger, LoyaltyTxnType
 
@@ -29,7 +30,7 @@ from .serializers import (
 )
 
 
-class CustomerViewSet(viewsets.ModelViewSet):
+class CustomerViewSet(GroupedListMixin, viewsets.ModelViewSet):
     queryset = (
         Customer.objects
         .select_related("linked_user")
@@ -39,7 +40,16 @@ class CustomerViewSet(viewsets.ModelViewSet):
     permission_classes = [permissions.IsAuthenticated, CustomerObjectPermission]
     filterset_fields = ["loyalty_tier", "is_corporate", "source", "customer_type", "status"]
     search_fields = ["full_name", "email", "mobile_number", "customer_code"]
-    ordering_fields = ["created_at", "lifetime_value", "loyalty_points"]
+    ordering_fields = ["created_at", "lifetime_value", "loyalty_points",
+                       "full_name", "email", "loyalty_tier", "is_corporate"]
+    group_by_fields = {
+        "loyalty_tier": {"field": "loyalty_tier"},
+        "is_corporate": {"field": "is_corporate", "true_label": "Corporate",
+                         "empty_label": "Individual"},
+        "source": {"field": "source"},
+        "status": {"field": "status"},
+        "customer_type": {"field": "customer_type"},
+    }
 
     def get_queryset(self):
         qs = super().get_queryset()

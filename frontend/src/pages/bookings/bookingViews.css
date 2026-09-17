@@ -463,8 +463,529 @@
   font-size: 13px;
 }
 
-@media (max-width: 720px) {
-  .bk-cards { grid-template-columns: 1fr; }
+@media (max-width: 768px) {
+  .bk-cards { grid-template-columns: minmax(0, 1fr); }
   .bk-cal__grid { max-height: none; }
   .bk-cal__mcell { min-height: 84px; }
+}
+@media (max-width: 640px) {
+  /* The day/week grid keeps its own horizontal scroll rather than squeezing
+     every column into a strip too narrow to read. */
+  .bk-cal { overflow-x: auto; }
+  .bk-cal__head,
+  .bk-cal__body { min-width: 560px; }
+  .bk-cal__mcell { min-height: 64px; font-size: 11.5px; }
+}
+
+/* ============================================================ board view ==
+   Bookings as a stage board. Colour comes entirely from the status tokens
+   already defined at the top of this file (--bk-a / --bk-bg / --bk-fg) and from
+   the organization theme, so the board is branded like everything else and
+   introduces no palette of its own. */
+.bkb { display: grid; gap: 12px; }
+
+.bkb__hint {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  align-self: end;
+  justify-self: end;
+  font-size: 12.5px;
+  color: var(--color-text-muted);
+}
+
+.bkb__columns {
+  display: grid;
+  grid-auto-flow: column;
+  grid-auto-columns: minmax(268px, 1fr);
+  gap: 14px;
+  align-items: start;
+  overflow-x: auto;
+  padding-bottom: 6px;
+}
+
+.bkb-col {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  /* Without this the column sizes to its widest card - a long customer name
+     pushed every card 130px over the next column, which is what made a card's
+     menu unclickable and sent drops to the wrong stage. */
+  min-width: 0;
+  padding: 12px;
+  border-radius: var(--radius-lg);
+  background: var(--color-surface-2);
+  border: 1px solid transparent;
+  transition: border-color .15s ease, background .15s ease;
+}
+/* A column that can take the card being dragged invites the drop; one that
+   cannot stays quiet rather than implying an impossible move. */
+.bkb-col.is-open { border-color: var(--color-border); }
+.bkb-col.is-over {
+  border-color: var(--color-primary-500);
+  background: var(--color-primary-50);
+}
+
+.bkb-col__head { display: flex; align-items: center; gap: 8px; }
+.bkb-col__dot {
+  width: 9px; height: 9px; border-radius: 50%;
+  background: var(--bk-a, var(--color-text-muted));
+  flex-shrink: 0;
+}
+.bkb-col__name { margin: 0; font-size: 13.5px; font-weight: 700; }
+.bkb-col__count {
+  min-width: 20px;
+  padding: 1px 6px;
+  border-radius: 999px;
+  background: var(--color-surface);
+  color: var(--color-text-muted);
+  font-size: 11.5px;
+  font-weight: 700;
+  text-align: center;
+}
+.bkb-col__add {
+  margin-inline-start: auto;
+  display: grid; place-items: center;
+  width: 26px; height: 26px;
+  border: 0; border-radius: 8px;
+  background: var(--color-surface);
+  color: var(--color-text-muted);
+  cursor: pointer;
+}
+.bkb-col__add:hover { color: var(--color-text); }
+
+.bkb-col__body { display: grid; grid-template-columns: minmax(0, 1fr); gap: 10px; }
+.bkb-col__group { display: grid; grid-template-columns: minmax(0, 1fr); gap: 10px; }
+.bkb-col__group-head {
+  display: flex; align-items: center; gap: 7px;
+  font-size: 12px; font-weight: 650; color: var(--color-text-muted);
+}
+
+.bkb-col__drop {
+  padding: 22px 12px;
+  border: 1px dashed var(--color-border);
+  border-radius: var(--radius-md);
+  color: var(--color-text-muted);
+  font-size: 12.5px;
+  text-align: center;
+}
+.bkb-col__drop.is-open {
+  border-color: var(--color-primary-500);
+  background: var(--color-primary-50);
+  color: var(--color-primary-700);
+}
+
+.bkb-col__foot {
+  display: flex; align-items: center; justify-content: center; gap: 6px;
+  padding: 9px;
+  border: 0; border-radius: var(--radius-md);
+  background: none;
+  color: var(--color-text-muted);
+  font: inherit; font-size: 12.5px; font-weight: 600;
+  cursor: pointer;
+}
+.bkb-col__foot:hover { background: var(--color-surface); color: var(--color-text); }
+
+/* ------------------------------------------------------------- the card -- */
+.bkb-card {
+  position: relative;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  min-width: 0;
+  gap: 10px;
+  padding: 12px 12px 10px;
+  border-radius: var(--radius-md);
+  background: var(--color-surface);
+  border: 1px solid var(--color-border-soft);
+  box-shadow: var(--shadow-xs);
+  /* A press-and-move on a card used to start a text selection instead of a
+     drag, and nothing said the card could be moved at all. The grab cursor is
+     the affordance; disabling selection is what makes the gesture reliable. */
+  cursor: grab;
+  user-select: none;
+  -webkit-user-select: none;
+  /* The status spine, the one place a card shows its colour. */
+  border-top: 3px solid var(--bk-a, var(--color-border));
+  transition: box-shadow .15s ease, border-color .15s ease, transform .15s ease;
+}
+.bkb-card:hover { box-shadow: var(--shadow-sm); transform: translateY(-1px); }
+.bkb-card:focus-visible { outline: 2px solid var(--color-primary-600); outline-offset: 2px; }
+.bkb-card:active { cursor: grabbing; }
+.bkb-card.is-dragging { opacity: .45; cursor: grabbing; }
+/* A card that cannot be dragged should not pretend otherwise. */
+.bkb-card[draggable="false"] { cursor: pointer; }
+.bkb-card--live { border-color: var(--bk-a); box-shadow: 0 0 0 1px var(--bk-a) inset; }
+/* Cancelled and no-show: struck through, so a dead booking never reads as live. */
+.bkb-card--void .bkb-card__title { text-decoration: line-through; }
+.bkb-card--void { opacity: .82; }
+
+.bkb-card__head { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.bkb-card__ref {
+  font-size: 11.5px; font-weight: 700; letter-spacing: .02em;
+  color: var(--color-primary-600);
+}
+.bkb-card__live {
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: var(--bk-bg);
+  color: var(--bk-fg);
+  font-size: 10.5px;
+  font-weight: 700;
+  white-space: nowrap;
+}
+.bkb-card__menu { margin-inline-start: auto; }
+
+.bkb-card__facility { display: flex; align-items: center; gap: 9px; min-width: 0; }
+.bkb-card__mark {
+  display: grid; place-items: center;
+  flex-shrink: 0;
+  width: 30px; height: 30px;
+  border-radius: 9px;
+  background: var(--bk-bg);
+  color: var(--bk-fg);
+  font-size: 11px; font-weight: 800;
+}
+.bkb-card__names { display: grid; gap: 1px; min-width: 0; }
+.bkb-card__title {
+  font-size: 13.5px;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.bkb-card__club { font-size: 11.5px; color: var(--color-text-muted); }
+
+.bkb-card__meta {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 5px;
+  font-size: 11.5px; color: var(--color-text-muted);
+}
+.bkb-card__dot { opacity: .6; }
+.bkb-card__pay {
+  margin-inline-start: auto;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: var(--color-warning-50);
+  color: var(--color-warning-600);
+  font-size: 10.5px; font-weight: 700;
+  white-space: nowrap;
+}
+
+.bkb-card__foot {
+  display: flex; align-items: center; gap: 8px;
+  padding-top: 9px;
+  border-top: 1px solid var(--color-border-soft);
+}
+.bkb-card__who { display: flex; align-items: center; gap: 8px; min-width: 0; flex: 1; }
+.bkb-card__avatar {
+  display: grid; place-items: center;
+  flex-shrink: 0;
+  width: 24px; height: 24px;
+  border-radius: 50%;
+  background: var(--color-surface-2);
+  color: var(--color-text);
+  font-size: 10px; font-weight: 700;
+}
+.bkb-card__person {
+  font-size: 12.5px;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.bkb-card__add {
+  margin-inline-start: auto;
+  display: grid; place-items: center;
+  flex-shrink: 0;
+  width: 24px; height: 24px;
+  border: 1px solid var(--color-border);
+  border-radius: 50%;
+  background: var(--color-surface);
+  color: var(--color-text-muted);
+  cursor: pointer;
+}
+.bkb-card__add:hover { color: var(--color-primary-600); border-color: var(--color-primary-500); }
+
+/* The board scrolls sideways by design; below a tablet the columns stack so a
+   phone reads one stage at a time instead of a squeezed row of five. */
+@media (max-width: 768px) {
+  .bkb__columns {
+    grid-auto-flow: row;
+    grid-auto-columns: auto;
+    overflow-x: visible;
+  }
+  .bkb__hint { justify-self: start; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .bkb-card, .bkb-col { transition: none; }
+  .bkb-card:hover { transform: none; }
+}
+
+/* ======================================================= calendar rail ====
+   The month jumper, what is on the grid, and what needs attention. Derived
+   entirely from the rows already loaded, so it adds no request and its counts
+   cannot disagree with the grid beside it. */
+.bk-cal__split {
+  display: grid;
+  grid-template-columns: minmax(0, 260px) minmax(0, 1fr);
+  gap: 16px;
+  align-items: start;
+}
+.bk-cal__main { min-width: 0; display: grid; gap: 10px; }
+
+/* An explicit, shrinkable column. Left implicit, the track sized itself to the
+   widest card and spilled 48px past the rail, clipping the month and the
+   panels. A grid item's default `min-width: auto` will not shrink below its
+   content unless the track says it may. */
+.bk-rail {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 12px;
+  align-content: start;
+  min-width: 0;
+}
+.bk-rail__card { min-width: 0; }
+.bk-rail__card {
+  padding: 14px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  background: var(--color-surface);
+}
+.bk-rail__title {
+  margin: 0 0 10px;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: .06em;
+  text-transform: uppercase;
+  color: var(--color-text-muted);
+}
+
+.bk-rail__month { display: flex; align-items: center; gap: 8px; margin-bottom: 10px; }
+.bk-rail__month-name { font-size: 13.5px; font-weight: 700; }
+.bk-rail__month-nav { margin-inline-start: auto; display: flex; gap: 2px; }
+
+.bk-rail__dow,
+.bk-rail__grid {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 2px;
+}
+.bk-rail__dow {
+  margin-bottom: 4px;
+  font-size: 10.5px;
+  color: var(--color-text-muted);
+  text-align: center;
+}
+.bk-rail__pad { aspect-ratio: 1; }
+.bk-rail__day {
+  position: relative;
+  aspect-ratio: 1;
+  display: grid;
+  place-items: center;
+  border: 0;
+  border-radius: 8px;
+  background: none;
+  color: var(--color-text);
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+.bk-rail__day:hover { background: var(--color-surface-2); }
+/* The days currently on the grid, so the mini month says where you are. */
+.bk-rail__day.is-in-view { background: var(--color-primary-50); color: var(--color-primary-700); }
+.bk-rail__day.is-today {
+  background: var(--color-primary-600);
+  color: var(--btn-primary-text);
+  font-weight: 700;
+}
+.bk-rail__pip {
+  position: absolute;
+  inset-block-end: 3px;
+  width: 4px; height: 4px;
+  border-radius: 50%;
+  background: currentColor;
+  opacity: .65;
+}
+
+.bk-rail__list { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
+.bk-rail__check {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12.5px;
+  cursor: pointer;
+}
+.bk-rail__swatch {
+  width: 12px; height: 12px;
+  border-radius: 4px;
+  flex-shrink: 0;
+  background: var(--bk-bg);
+  border: 1.5px solid var(--bk-a);
+}
+.bk-rail__label {
+  flex: 1;
+  min-width: 0;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.bk-rail__count {
+  min-width: 20px;
+  padding: 1px 6px;
+  border-radius: 999px;
+  background: var(--color-surface-2);
+  color: var(--color-text-muted);
+  font-size: 11px;
+  font-weight: 700;
+  text-align: center;
+}
+
+/* The attention panel is deliberately the one dark block in the rail: it is a
+   to-do list, not another legend. */
+.bk-rail__card--attention {
+  background: var(--color-text);
+  border-color: var(--color-text);
+  color: var(--color-surface);
+}
+.bk-rail__card--attention .bk-rail__title { color: var(--color-warning-50); }
+.bk-rail__attn {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 12.5px;
+}
+.bk-rail__attn span:first-child { flex: 1; }
+.bk-rail__card--attention .bk-rail__count {
+  background: rgba(255, 255, 255, .16);
+  color: var(--color-surface);
+}
+.bk-rail__review {
+  width: 100%;
+  margin-top: 12px;
+  padding: 9px;
+  border: 0;
+  border-radius: var(--radius-md);
+  background: var(--color-surface);
+  color: var(--color-text);
+  font: inherit;
+  font-size: 12.5px;
+  font-weight: 650;
+  cursor: pointer;
+}
+
+/* ============================================================ event peek ==*/
+.bk-peek__scrim {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  display: grid;
+  place-items: center;
+  background: rgba(15, 23, 42, .28);
+  padding: 16px;
+}
+.bk-peek {
+  width: min(340px, 100%);
+  display: grid;
+  gap: 6px;
+  padding: 16px;
+  border-radius: var(--radius-lg);
+  background: var(--color-surface);
+  box-shadow: 0 24px 60px rgba(15, 23, 42, .22);
+}
+.bk-peek:focus-visible { outline: 2px solid var(--color-primary-600); outline-offset: 2px; }
+.bk-peek__head { display: flex; align-items: center; gap: 8px; }
+.bk-peek__status {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 3px 10px;
+  border-radius: 999px;
+  background: var(--bk-bg);
+  color: var(--bk-fg);
+  font-size: 11.5px;
+  font-weight: 700;
+}
+.bk-peek__head .icon-btn { margin-inline-start: auto; }
+.bk-peek__ref { font-size: 11.5px; font-weight: 700; color: var(--color-primary-600); }
+.bk-peek__who { margin: 2px 0 0; font-size: 16px; }
+.bk-peek__where { margin: 0; font-size: 12.5px; color: var(--color-text-muted); }
+
+.bk-peek__facts {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+  margin: 12px 0 4px;
+}
+.bk-peek__facts > div {
+  padding: 9px 11px;
+  border-radius: var(--radius-md);
+  background: var(--color-surface-2);
+}
+.bk-peek__facts dt {
+  margin: 0 0 2px;
+  font-size: 10.5px;
+  letter-spacing: .05em;
+  text-transform: uppercase;
+  color: var(--color-text-muted);
+}
+.bk-peek__facts dd { margin: 0; font-size: 12.5px; font-weight: 650; }
+.bk-peek__unpaid { color: var(--color-warning-600); }
+.bk-peek__actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 8px; }
+
+/* ================================================ calendar additions ======*/
+.bk-cal__summary {
+  padding: 3px 10px;
+  border-radius: 999px;
+  background: var(--color-surface-2);
+  color: var(--color-text-muted);
+  font-size: 12px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+.bk-cal__day-line { display: flex; align-items: baseline; gap: 7px; justify-content: center; }
+.bk-cal__day-load { font-size: 11px; color: var(--color-text-muted); }
+.bk-cal__now-time {
+  position: absolute;
+  inset-inline-start: 4px;
+  inset-block-start: -9px;
+  padding: 1px 6px;
+  border-radius: 6px;
+  background: var(--color-danger-600);
+  color: #fff;
+  font-size: 10.5px;
+  font-weight: 700;
+}
+.bk-cal__event-when {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 11px;
+  font-weight: 600;
+}
+.bk-cal__event-pip {
+  width: 6px; height: 6px;
+  border-radius: 50%;
+  background: var(--bk-a);
+  flex-shrink: 0;
+}
+.bk-cal__event-chip {
+  align-self: start;
+  margin-top: 2px;
+  padding: 1px 7px;
+  border-radius: 999px;
+  background: var(--color-surface);
+  color: var(--bk-fg);
+  font-size: 10px;
+  font-weight: 700;
+}
+/* A tiny block has room for the time only; the rest would be unreadable. */
+.bk-cal__event--tiny .bk-cal__event-title,
+.bk-cal__event--tiny .bk-cal__event-sub,
+.bk-cal__event--tiny .bk-cal__event-chip { display: none; }
+
+/* Below a laptop the rail would squeeze the grid, so it moves above it. */
+@media (max-width: 1024px) {
+  .bk-cal__split { grid-template-columns: minmax(0, 1fr); }
+  .bk-rail {
+    grid-template-columns: none;
+    grid-auto-flow: column;
+    grid-auto-columns: minmax(230px, 1fr);
+    overflow-x: auto;
+  }
+}
+@media (max-width: 768px) {
+  .bk-rail { grid-auto-flow: row; grid-auto-columns: auto; overflow-x: visible; }
+  .bk-cal__now-time { inset-inline-start: 2px; }
 }

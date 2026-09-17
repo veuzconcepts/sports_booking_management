@@ -97,7 +97,8 @@ describe('BookingCalendar', () => {
     await waitFor(() => expect(bookingCalls().length).toBeGreaterThan(0));
     const first = params().date_from;
 
-    fireEvent.click(screen.getByLabelText('Next'));
+    const bar = document.querySelector('.bk-cal__bar');
+    fireEvent.click(within(bar).getByLabelText('Next'));
     await waitFor(() => expect(params().date_from).not.toBe(first));
     expect(new Date(params().date_from) > new Date(first)).toBe(true);
   });
@@ -128,17 +129,14 @@ describe('BookingCalendar', () => {
     await waitFor(() => expect(bookingCalls().length).toBe(2));
   });
 
-  it('colours an event by its status and opens it when clicked', async () => {
-    const onOpen = vi.fn();
+  it('colours an event by its status', async () => {
+    // Opening is covered separately: a click now shows the quick look first.
     const row = booking({ scheduled_date: new Date().toISOString().slice(0, 10) });
     mockRows([row]);
 
-    render(<BookingCalendar filters={{}} onOpen={onOpen} />);
-    const event = await screen.findByRole('button', { name: /Tennis Court/ });
+    render(<BookingCalendar filters={{}} onOpen={() => {}} />);
+    const event = await screen.findByRole('button', { name: /Layla Ahmed/ });
     expect(event.className).toContain('bk-st--confirmed');   // green = confirmed
-
-    fireEvent.click(event);
-    expect(onOpen).toHaveBeenCalledWith(row);
   });
 
   it('marks a cancelled booking as no longer occupying its slot', async () => {
@@ -149,21 +147,49 @@ describe('BookingCalendar', () => {
     mockRows([row]);
 
     render(<BookingCalendar filters={{}} onOpen={() => {}} />);
-    const event = await screen.findByRole('button', { name: /Tennis Court/ });
+    const event = await screen.findByRole('button', { name: /Layla Ahmed/ });
     expect(event.className).toContain('bk-st--cancelled');
     expect(event.className).toContain('bk-cal__event--inactive');
   });
 
-  it('shows a legend of only the statuses in view', async () => {
+  it('lists only the statuses in view, with their counts, in the rail', async () => {
     const today = new Date().toISOString().slice(0, 10);
     mockRows([
       booking({ id: 1, status: 'confirmed', scheduled_date: today }),
       booking({ id: 2, status: 'booked', scheduled_date: today, scheduled_time: '12:00:00', end_time: '13:00:00' }),
     ]);
     render(<BookingCalendar filters={{}} onOpen={() => {}} />);
-    await waitFor(() => expect(screen.getByText('Pending')).toBeTruthy());
-    expect(screen.getByText('Confirmed')).toBeTruthy();
-    expect(screen.queryByText('Cancelled')).toBeNull();
+    const rail = await screen.findByRole('complementary');
+    await waitFor(() => expect(within(rail).getByText('Pending')).toBeTruthy());
+    expect(within(rail).getByText('Confirmed')).toBeTruthy();
+    expect(within(rail).queryByText('Cancelled')).toBeNull();
+  });
+
+  it('hides a status from the grid when it is unticked in the rail', async () => {
+    const today = new Date().toISOString().slice(0, 10);
+    mockRows([booking({ id: 1, status: 'confirmed', scheduled_date: today })]);
+    render(<BookingCalendar filters={{}} onOpen={() => {}} />);
+    const rail = await screen.findByRole('complementary');
+    await screen.findByRole('button', { name: /Layla Ahmed/ });
+
+    fireEvent.click(within(rail).getByRole('checkbox'));
+    await waitFor(() =>
+      expect(screen.queryByRole('button', { name: /Layla Ahmed/ })).toBeNull());
+  });
+
+  it('a clicked event offers a quick look before the full record', async () => {
+    const today = new Date().toISOString().slice(0, 10);
+    const onOpen = vi.fn();
+    mockRows([booking({ id: 1, status: 'confirmed', scheduled_date: today })]);
+    render(<BookingCalendar filters={{}} onOpen={onOpen} />);
+
+    fireEvent.click(await screen.findByRole('button', { name: /Layla Ahmed/ }));
+    const peek = await screen.findByRole('dialog');
+    expect(within(peek).getByText('BK-000001')).toBeTruthy();
+    expect(onOpen).not.toHaveBeenCalled();
+
+    fireEvent.click(within(peek).getByRole('button', { name: /open booking/i }));
+    expect(onOpen).toHaveBeenCalledTimes(1);
   });
 
   it('says so plainly when the range is empty', async () => {
@@ -179,88 +205,126 @@ describe('BookingCalendar', () => {
 });
 
 // --------------------------------------------------------------------------- //
-describe('BookingCards', () => {
-  const base = {
-    rows: [booking()],
-    loading: false,
-    count: 1,
-    page: 1,
-    pageSize: 20,
-    onPageChange: () => {},
-    onOpen: () => {},
-    onEdit: () => {},
-    onDuplicate: () => {},
-    onDelete: () => {},
-    canEdit: true,
-    canDuplicate: true,
-    canDelete: true,
-  };
+describe('BookingCards board', () => {
+  const board = (rows, props = {}) => render(
+    <BookingCards
+      rows={rows}
+      loading={false}
+      onOpen={props.onOpen || (() => {})}
+      onEdit={props.onEdit || (() => {})}
+      onDuplicate={props.onDuplicate || (() => {})}
+      onDelete={props.onDelete || (() => {})}
+      canEdit={props.canEdit ?? true}
+      canDuplicate={props.canDuplicate ?? true}
+      canDelete={props.canDelete ?? true}
+      {...props}
+    />,
+  );
 
-  it('shows what you need to avoid opening the booking', () => {
-    render(<BookingCards {...base} />);
-    expect(screen.getByText('BK-000001')).toBeTruthy();
-    expect(screen.getByText('Tennis Court')).toBeTruthy();
-    expect(screen.getByText('Layla Ahmed')).toBeTruthy();
-    expect(screen.getByText(/Riverside Club/)).toBeTruthy();
-    expect(screen.getByText('Sam Okafor')).toBeTruthy();
+  const column = (name) => screen.getByRole('region', { name })
+    || document.querySelector(`[aria-label="${name}"]`);
+
+  it('sorts each booking into the column for its stage', () => {
+    board([
+      booking({ id: 1, status: 'booked' }),
+      booking({ id: 2, status: 'confirmed' }),
+      booking({ id: 3, status: 'in_progress' }),
+    ]);
+    const columns = document.querySelectorAll('.bkb-col');
+    expect(columns).toHaveLength(5);
+    expect(within(columns[0]).getAllByRole('button', { name: /BK-000001/ })).toHaveLength(1);
   });
 
-  it('carries the status colour and label', () => {
-    render(<BookingCards {...base} />);
-    const card = screen.getByRole('button', { name: /Booking BK-000001/ });
-    expect(card.className).toContain('bk-st--confirmed');
-    expect(within(card).getByText('Confirmed')).toBeTruthy();
+  it('counts the cards in each column', () => {
+    board([booking({ id: 1, status: 'booked' }), booking({ id: 2, status: 'booked' })]);
+    const pending = document.querySelectorAll('.bkb-col')[0];
+    expect(within(pending).getByText('2')).toBeInTheDocument();
   });
 
-  it('labels a pending booking as Pending, matching the list view', () => {
-    render(<BookingCards {...base} rows={[booking({ status: 'booked' })]} />);
-    const card = screen.getByRole('button', { name: /Booking BK-000001/ });
-    expect(card.className).toContain('bk-st--booked');
-    expect(within(card).getByText('Pending')).toBeTruthy();
+  it('groups finished bookings under Closed with their own breakdown', () => {
+    board([
+      booking({ id: 1, status: 'completed' }),
+      booking({ id: 2, status: 'cancelled' }),
+    ]);
+    const closed = document.querySelectorAll('.bkb-col')[4];
+    expect(within(closed).getByText('Completed')).toBeInTheDocument();
+    expect(within(closed).getByText('Cancelled')).toBeInTheDocument();
   });
 
-  it('opens the booking on click and on Enter', async () => {
+  it('shows the facility, club and customer without opening the booking', () => {
+    board([booking()]);
+    expect(screen.getByText('Court 1')).toBeInTheDocument();
+    expect(screen.getByText('Riverside Club')).toBeInTheDocument();
+    expect(screen.getByText('Layla Ahmed')).toBeInTheDocument();
+    expect(screen.getByText('BK-000001')).toBeInTheDocument();
+  });
+
+  it('marks a booking that is still unpaid', () => {
+    board([booking({ payment_status: 'pending' })]);
+    expect(screen.getByText('Pay pending')).toBeInTheDocument();
+  });
+
+  it('does not mark a paid booking', () => {
+    board([booking({ payment_status: 'paid' })]);
+    expect(screen.queryByText('Pay pending')).not.toBeInTheDocument();
+  });
+
+  it('flags the booking happening right now', () => {
+    board([booking({ status: 'in_progress' })]);
+    expect(screen.getByText('Live now')).toBeInTheDocument();
+  });
+
+  it('strikes through a cancelled booking so it never reads as live', () => {
+    board([booking({ status: 'cancelled' })]);
+    expect(document.querySelector('.bkb-card--void')).toBeTruthy();
+  });
+
+  it('opens the booking when a card is clicked', () => {
     const onOpen = vi.fn();
-    render(<BookingCards {...base} onOpen={onOpen} />);
-    const card = screen.getByRole('button', { name: /Booking BK-000001/ });
-
-    fireEvent.click(card);
+    board([booking()], { onOpen });
+    fireEvent.click(screen.getByRole('button', { name: /BK-000001/ }));
     expect(onOpen).toHaveBeenCalledTimes(1);
-
-    fireEvent.keyDown(card, { key: 'Enter' });
-    expect(onOpen).toHaveBeenCalledTimes(2);
   });
 
-  it('row actions do not also open the booking', async () => {
-    const onOpen = vi.fn();
-    const onDelete = vi.fn();
-    render(<BookingCards {...base} onOpen={onOpen} onDelete={onDelete} />);
+  it('only allows a move the booking engine actually permits', () => {
+    const onStatusChange = vi.fn();
+    // `booked` may only go to `confirmed`, so the Assigned column must refuse.
+    board([booking({ status: 'booked' })], { onStatusChange });
+    const card = screen.getByRole('button', { name: /BK-000001/ });
+    const columns = document.querySelectorAll('.bkb-col');
 
-    fireEvent.click(screen.getByTitle('Delete booking'));
-    expect(onDelete).toHaveBeenCalledTimes(1);
-    expect(onOpen).not.toHaveBeenCalled();
+    fireEvent.dragStart(card);
+    fireEvent.drop(columns[1]);            // Assigned
+    expect(onStatusChange).not.toHaveBeenCalled();
+
+    fireEvent.dragStart(card);
+    fireEvent.drop(columns[2]);            // Confirmed
+    expect(onStatusChange).toHaveBeenCalledWith(
+      expect.objectContaining({ id: 1 }), 'confirmed',
+    );
   });
 
-  it('hides actions the user has no permission for', () => {
-    render(<BookingCards {...base} canDelete={false} canEdit={false} />);
-    expect(screen.queryByTitle('Delete booking')).toBeNull();
-    expect(screen.queryByTitle('Edit booking')).toBeNull();
-    expect(screen.getByTitle('Duplicate booking')).toBeTruthy();
+  it('never offers the terminal column as a drop target', () => {
+    const onStatusChange = vi.fn();
+    board([booking({ status: 'in_progress' })], { onStatusChange });
+    fireEvent.dragStart(screen.getByRole('button', { name: /BK-000001/ }));
+    fireEvent.drop(document.querySelectorAll('.bkb-col')[4]);   // Closed
+    expect(onStatusChange).not.toHaveBeenCalled();
   });
 
-  it('hides edit and delete on a booking that is locked server-side', () => {
-    render(<BookingCards {...base} rows={[booking({ can_modify: false, can_delete: false })]} />);
-    expect(screen.queryByTitle('Edit booking')).toBeNull();
-    expect(screen.queryByTitle('Delete booking')).toBeNull();
+  it('does not allow dragging at all without the edit permission', () => {
+    board([booking()], { canEdit: false, onStatusChange: undefined });
+    const card = screen.getByRole('button', { name: /BK-000001/ });
+    expect(card).not.toHaveAttribute('draggable', 'true');
   });
 
-  it('marks an unassigned booking rather than leaving a blank', () => {
-    render(<BookingCards {...base} rows={[booking({ assigned_to_name: null })]} />);
-    expect(screen.getByText('Unassigned')).toBeTruthy();
+  it('says a column is empty rather than leaving a blank', () => {
+    board([]);
+    expect(screen.getAllByText('Nothing here.').length).toBe(5);
   });
 
-  it('shows the empty state when there is nothing to show', () => {
-    render(<BookingCards {...base} rows={[]} count={0} />);
-    expect(screen.getByText('No bookings yet')).toBeTruthy();
+  it('tells the reader how to move a booking', () => {
+    board([booking()]);
+    expect(screen.getByText(/drag a card to change its status/i)).toBeInTheDocument();
   });
 });

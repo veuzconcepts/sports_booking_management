@@ -1,5 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
+import { t } from '../i18n/index.js';
+
 import {
   assignableBaseRoles,
   assignableRoleOptions,
@@ -29,35 +31,35 @@ describe('assignableRoleOptions', () => {
   ];
 
   it('never offers the super_admin role', () => {
-    const values = assignableRoleOptions(roles, superAdmin).map((o) => o.value);
+    const values = assignableRoleOptions(t, roles, superAdmin).map((o) => o.value);
     expect(values).not.toContain('super_admin');
   });
 
   it('offers admin-based roles only to a super admin', () => {
-    expect(assignableRoleOptions(roles, superAdmin).map((o) => o.value)).toContain('admin');
-    expect(assignableRoleOptions(roles, admin).map((o) => o.value)).not.toContain('admin');
+    expect(assignableRoleOptions(t, roles, superAdmin).map((o) => o.value)).toContain('admin');
+    expect(assignableRoleOptions(t, roles, admin).map((o) => o.value)).not.toContain('admin');
   });
 
   it('keeps the club-scoped roles for a non-super admin', () => {
-    const values = assignableRoleOptions(roles, admin).map((o) => o.value);
+    const values = assignableRoleOptions(t, roles, admin).map((o) => o.value);
     expect(values).toEqual(expect.arrayContaining(['club_admin', 'facility_staff']));
   });
 
   it('falls back to the static role list when none are supplied', () => {
-    expect(assignableRoleOptions([], admin).length).toBeGreaterThan(0);
+    expect(assignableRoleOptions(t, [], admin).length).toBeGreaterThan(0);
   });
 });
 
 describe('assignableBaseRoles', () => {
   it('hides super-admin-only bases from an ordinary admin', () => {
-    const forAdmin = assignableBaseRoles(admin).map((b) => b.value);
-    const forSuper = assignableBaseRoles(superAdmin).map((b) => b.value);
+    const forAdmin = assignableBaseRoles(t, admin).map((b) => b.value);
+    const forSuper = assignableBaseRoles(t, superAdmin).map((b) => b.value);
     expect(forAdmin).not.toContain('admin');
     expect(forSuper).toContain('admin');
   });
 
   it('offers the club-scoped staff tiers', () => {
-    expect(assignableBaseRoles(admin).map((b) => b.value))
+    expect(assignableBaseRoles(t, admin).map((b) => b.value))
       .toEqual(expect.arrayContaining(['manager', 'facility_operator', 'facility_staff']));
   });
 });

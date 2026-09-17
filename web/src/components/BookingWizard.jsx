@@ -20,7 +20,11 @@ function isValidMobile(value) {
  * Data (categories, facility types, clubs) is passed from the SSR page;
  * everything else is client-side with full back/forth navigation.
  */
-const STEPS = ['Category', 'Facility', 'Club', 'Schedule', 'Confirm'];
+// Club first: where you play narrows everything after it, and it is the
+// question a customer can always answer. Add-ons are their own step rather than
+// a modal, so they can be revisited from the timeline like any other choice.
+const STEPS = ['Club', 'Facility', 'Add-ons', 'Date & Time', 'Payment'];
+const STEP_CLUB = 0, STEP_FACILITY = 1, STEP_ADDONS = 2, STEP_WHEN = 3, STEP_PAY = 4;
 const BLANK_DETAILS = { name: '', phone: '', email: '', notes: '' };
 
 function fmt(amount) {
@@ -146,9 +150,11 @@ export default function BookingWizard({ categories = [], facilityTypes = [], clu
   const [club, setClub] = useState(null);
   const [slot, setSlot] = useState(null);      // { date, time, end }
   const [addons, setAddons] = useState([]);    // selected add-on ids
-  const [addonModal, setAddonModal] = useState(null);  // facility type whose add-ons modal is open
   const [query, setQuery] = useState('');
   const [restored, setRestored] = useState(false);
+  // A date carried in from the homepage quick search. It only decides which day
+  // the calendar opens on; the Date & Time step itself is unchanged.
+  const [startDate, setStartDate] = useState(null);
   // Confirm & Pay state lives here so it survives stepping back and forth.
   const [details, setDetails] = useState({ ...BLANK_DETAILS });
   const [pay, setPay] = useState({ method: 'card', coupon: '', applied: null });
@@ -188,8 +194,14 @@ export default function BookingWizard({ categories = [], facilityTypes = [], clu
     const sd = sp.get('d'), st = sp.get('t'), se = sp.get('e');
     let restoredSlot = null;
     if (sd && st && se) { restoredSlot = { date: sd, time: st, end: se }; setSlot(restoredSlot); }
-    // Clamp the requested step to what the restored selections actually unlock.
-    const maxReach = cat ? (svc ? (br ? (restoredSlot ? 4 : 3) : 2) : 1) : 0;
+    // A bare `d` is a requested day, not a booked slot: open the calendar there.
+    else if (/^\d{4}-\d{2}-\d{2}$/.test(sd || '')) setStartDate(sd);
+    // Clamp the requested step to what the restored selections actually unlock,
+    // in the order the wizard now runs: club, facility, add-ons, time, payment.
+    let maxReach = 0;
+    if (br) maxReach = 1;
+    if (br && svc) maxReach = 3;
+    if (br && svc && restoredSlot) maxReach = 4;
     setStep(Math.min(Number(sp.get('step')) || 0, maxReach));
     setRestored(true);
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -205,11 +217,11 @@ export default function BookingWizard({ categories = [], facilityTypes = [], clu
   useEffect(() => {
     if (!restored || bookingDone) return;       // terminal once confirmed
     const params = new URLSearchParams();
-    if (category && step >= 1) params.set('category', String(category.id));
-    if (facilityType && step >= 2) params.set('facilityType', String(facilityType.id));
-    if (addons.length && step >= 2) params.set('a', addons.join(','));
-    if (club && step >= 3) params.set('club', String(club.id));
-    if (slot && step >= 4) {
+    if (club && step >= STEP_FACILITY) params.set('club', String(club.id));
+    if (category && step >= STEP_FACILITY) params.set('category', String(category.id));
+    if (facilityType && step >= STEP_ADDONS) params.set('facilityType', String(facilityType.id));
+    if (addons.length && step >= STEP_WHEN) params.set('a', addons.join(','));
+    if (slot && step >= STEP_PAY) {
       params.set('d', slot.date); params.set('t', slot.time); params.set('e', slot.end);
     }
     if (step > 0) params.set('step', String(step));
@@ -218,33 +230,45 @@ export default function BookingWizard({ categories = [], facilityTypes = [], clu
   }, [step, category, facilityType, addons, club, slot, restored, bookingDone]);
 
   const go = (n) => setStep(Math.max(0, Math.min(STEPS.length - 1, n)));
-  const pickCategory = (c) => { setCategory(c); setFacilityType(null); setSlot(null); setAddons([]); go(1); };
-  // Picking a facility type opens the add-ons modal (if any), else goes to the club step.
+
+  // A facility with no optional extras has nothing to show on the add-ons step,
+  // so that step is passed over in both directions rather than shown empty.
+  const hasAddons = Boolean(facilityType?.add_ons?.length);
+
+  // Category is a filter on the facility step now, not a step of its own.
+  const pickCategory = (c) => {
+    setCategory(c); setFacilityType(null); setSlot(null); setAddons([]);
+  };
   const pickFacilityType = (s) => {
     setFacilityType(s); setSlot(null); setAddons([]); setBookingDone(null);
-    if (s.add_ons?.length) setAddonModal(s); else go(2);
+    go(s.add_ons?.length ? STEP_ADDONS : STEP_WHEN);
   };
-  const confirmAddons = (ids) => { setAddons(ids); setAddonModal(null); go(2); };
-  // Selecting a club auto-advances to scheduling.
-  const pickClub = (b) => { setClub(b); setSlot(null); go(3); };
+  const confirmAddons = (ids) => { setAddons(ids); go(STEP_WHEN); };
+  // Choosing a club auto-advances to the facility list.
+  const pickClub = (b) => { setClub(b); setSlot(null); go(STEP_FACILITY); };
+
+  const back = () => go(step === STEP_WHEN && !hasAddons ? STEP_FACILITY : step - 1);
 
   // Which timeline steps the user may jump to (only ones already unlocked).
-  const reachable = (i) => i === 0 || (i === 1 && !!category) || (i === 2 && !!facilityType)
-    || (i === 3 && !!club) || (i === 4 && !!slot);
+  const reachable = (i) => i === STEP_CLUB
+    || (i === STEP_FACILITY && !!club)
+    || (i === STEP_ADDONS && !!facilityType && hasAddons)
+    || (i === STEP_WHEN && !!facilityType)
+    || (i === STEP_PAY && !!slot);
   const jump = (i) => { if (reachable(i)) go(i); };
 
   const TITLES = {
-    1: ['Select Facility', `Pick the ${category?.name?.toLowerCase() || 'facility'} you want to book`],
-    2: ['Choose a Club', 'Where would you like to play?'],
-    3: ['Pick a Date & Time', "Choose a slot that suits you - we'll be there."],
-    4: ['Confirm & Pay', 'Add your details, review the price and choose how to pay.'],
+    [STEP_FACILITY]: ['Select Facility', `Pick the ${category?.name?.toLowerCase() || 'facility'} you want to book`],
+    [STEP_ADDONS]: ['Add Extras', 'Optional extras. Pick any you would like, or continue without.'],
+    [STEP_WHEN]: ['Pick a Date & Time', "Choose a slot that suits you - we'll be there."],
+    [STEP_PAY]: ['Confirm & Pay', 'Add your details, review the price and choose how to pay.'],
   };
 
   return (
     <div className="bw">
       {step > 0 && !bookingDone && (
         <div className="bw__head">
-          <button className="bw__back" type="button" onClick={() => go(step - 1)} aria-label="Back">
+          <button className="bw__back" type="button" onClick={back} aria-label="Back">
             <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round"><path d="M15 18l-6-6 6-6"/></svg>
           </button>
           <div className="bw__titles">
@@ -256,25 +280,31 @@ export default function BookingWizard({ categories = [], facilityTypes = [], clu
       )}
 
       <div className="bw__stage" key={step}>
-        {step === 0 && (
-          <Categories categories={categories} onPick={pickCategory} />
-        )}
-        {step === 1 && (
-          <FacilityTypes list={catFacilityTypes} currency={currency} onPick={pickFacilityType} />
-        )}
-        {step === 2 && (
+        {step === STEP_CLUB && (
           <Location
             clubs={filteredClubes} query={query} setQuery={setQuery}
             club={club} onChoose={pickClub} city={country || city}
           />
         )}
-        {step === 3 && (
-          <Schedule
-            facilityType={facilityType} category={category} club={club} currency={currency}
-            value={slot} onChange={setSlot} onContinue={() => go(4)}
+        {step === STEP_FACILITY && (
+          <FacilityBrowser
+            categories={categories} category={category} onCategory={pickCategory}
+            list={category ? catFacilityTypes : facilityTypes}
+            currency={currency} onPick={pickFacilityType}
           />
         )}
-        {step === 4 && (
+        {step === STEP_ADDONS && (
+          <AddOns facilityType={facilityType} currency={currency}
+            selected={addons} onConfirm={confirmAddons} />
+        )}
+        {step === STEP_WHEN && (
+          <Schedule
+            facilityType={facilityType} category={category} club={club} currency={currency}
+            initialDate={startDate}
+            value={slot} onChange={setSlot} onContinue={() => go(STEP_PAY)}
+          />
+        )}
+        {step === STEP_PAY && (
           <Details
             facilityType={facilityType} category={category} club={club} slot={slot} currency={currency}
             addons={addons}
@@ -283,11 +313,6 @@ export default function BookingWizard({ categories = [], facilityTypes = [], clu
           />
         )}
       </div>
-
-      {addonModal && (
-        <AddOnsModal facilityType={addonModal} currency={currency}
-          onClose={() => setAddonModal(null)} onConfirm={confirmAddons} />
-      )}
     </div>
   );
 }
@@ -309,35 +334,6 @@ function Progress({ step, reachable, onJump }) {
         );
       })}
     </ol>
-  );
-}
-
-function Categories({ categories, onPick }) {
-  return (
-    <div className="bw__cats-wrap">
-      <h1 className="bw__cats-title">What would you like to book?</h1>
-      <div className="bw__cats">
-        {categories.map((c) => (
-          <button key={c.id} type="button" className="bw__cat" onClick={() => onPick(c)}>
-            {c.banner || c.icon
-              ? <img src={c.banner || c.icon} alt={c.name} loading="lazy" />
-              : <span className="bw__cat-ph"><img src={PLACEHOLDER_LOGO} alt={c.name} /></span>}
-            <span className="bw__cat-overlay" />
-            {c.badge && <span className="bw__cat-badge">{c.badge}</span>}
-            <span className="bw__cat-name">{c.name}</span>
-            <span className="bw__cat-hover">
-              <span className="bw__cat-htitle">{c.name}</span>
-              {c.description && <span className="bw__cat-desc bw__rte" dangerouslySetInnerHTML={{ __html: c.description }} />}
-              {c.kind_display && (
-                <span className="bw__cat-meta"><Droplet /> {c.kind_display}</span>
-              )}
-              <span className="bw__cat-action">Explore facilities <Arrow /></span>
-            </span>
-          </button>
-        ))}
-      </div>
-      <p className="bw__hint">Tap a category to explore our facilities</p>
-    </div>
   );
 }
 
@@ -498,56 +494,99 @@ function VatNote({ inclusive }) {
   return <span className="bw__vat">{inclusive ? 'incl. VAT' : '+ VAT'}</span>;
 }
 
-function AddOnsModal({ facilityType, currency, onClose, onConfirm }) {
+/**
+ * Optional extras for the chosen facility, as a step rather than a modal.
+ *
+ * A modal made this a one-shot decision: dismissing it lost the choice and
+ * there was no way back to it. As a step it behaves like every other choice in
+ * the wizard - revisitable from the timeline, and restored from the URL. The
+ * markup keeps the existing add-on classes, so the styling is unchanged.
+ */
+function AddOns({ facilityType, currency, selected = [], onConfirm }) {
   const list = facilityType?.add_ons || [];
-  const [selected, setSelected] = useState([]);
-  useEffect(() => {
-    const onKey = (e) => { if (e.key === 'Escape') onClose(); };
-    document.addEventListener('keydown', onKey);
-    document.body.style.overflow = 'hidden';
-    return () => { document.removeEventListener('keydown', onKey); document.body.style.overflow = ''; };
-  }, [onClose]);
-  const toggle = (id) => setSelected(
-    selected.includes(id) ? selected.filter((x) => x !== id) : [...selected, id],
+  const [picked, setPicked] = useState(selected);
+
+  // Coming back to the step shows what was chosen last time, not a blank slate.
+  useEffect(() => { setPicked(selected); }, [facilityType?.id]);   // eslint-disable-line
+
+  const toggle = (id) => setPicked(
+    picked.includes(id) ? picked.filter((x) => x !== id) : [...picked, id],
   );
-  const count = selected.length;
-  return (
-    <div className="bw__modal" role="dialog" aria-modal="true" aria-label="Add-ons" onClick={onClose}>
-      <div className="bw__modal-card bw__addon-modal" onClick={(e) => e.stopPropagation()}>
-        <button className="bw__modal-close" type="button" onClick={onClose} aria-label="Close"><Close /></button>
-        <div className="bw__addon-head">
-          <span className="bw__cal-eyebrow"><Sparkle /> Recommended add-ons</span>
-          <h3>Boost your {facilityType?.name}</h3>
-          <p>Optional extras - pick any you'd like, or continue without.</p>
-        </div>
-        <div className="bw__addon-scroll">
-          <div className="bw__addon-grid">
-            {list.map((a) => {
-              const on = selected.includes(a.id);
-              return (
-                <button key={a.id} type="button" className={`bw__addon${on ? ' is-on' : ''}`}
-                  onClick={() => toggle(a.id)} aria-pressed={on}>
-                  <span className="bw__addon-check">{on ? <Check /> : null}</span>
-                  {a.image && <span className="bw__addon-img"><img src={a.image} alt="" loading="lazy" /></span>}
-                  <span className="bw__addon-body">
-                    <strong>{a.name}</strong>
-                    {a.description && <span className="bw__addon-desc">{a.description}</span>}
-                  </span>
-                  <span className="bw__addon-price">
-                    + <Price amount={a.price} currency={currency} /> <VatNote inclusive={a.tax_inclusive} />
-                  </span>
-                </button>
-              );
-            })}
-          </div>
-        </div>
-        <div className="bw__modal-foot">
-          <button type="button" className="bw__modal-close-btn" onClick={() => onConfirm([])}>Skip</button>
-          <button type="button" className="bw__modal-select" onClick={() => onConfirm(selected)}>
-            Continue{count ? ` · ${count} add-on${count > 1 ? 's' : ''}` : ''} <ArrowRight />
-          </button>
-        </div>
+  const count = picked.length;
+
+  if (list.length === 0) {
+    return (
+      <div className="bw__addon-step">
+        <p className="bw__empty">This facility has no optional extras.</p>
+        <button type="button" className="bw__modal-select" onClick={() => onConfirm([])}>
+          Continue <ArrowRight />
+        </button>
       </div>
+    );
+  }
+
+  return (
+    <div className="bw__addon-step">
+      <div className="bw__addon-head">
+        <span className="bw__cal-eyebrow"><Sparkle /> Recommended add-ons</span>
+        <h3>Boost your {facilityType?.name}</h3>
+        <p>Optional extras - pick any you&rsquo;d like, or continue without.</p>
+      </div>
+
+      <div className="bw__addon-grid">
+        {list.map((a) => {
+          const on = picked.includes(a.id);
+          return (
+            <button key={a.id} type="button" className={`bw__addon${on ? ' is-on' : ''}`}
+              onClick={() => toggle(a.id)} aria-pressed={on}>
+              <span className="bw__addon-check">{on ? <Check /> : null}</span>
+              {a.image && <span className="bw__addon-img"><img src={a.image} alt="" loading="lazy" /></span>}
+              <span className="bw__addon-body">
+                <strong>{a.name}</strong>
+                {a.description && <span className="bw__addon-desc">{a.description}</span>}
+              </span>
+              <span className="bw__addon-price">
+                + <Price amount={a.price} currency={currency} /> <VatNote inclusive={a.tax_inclusive} />
+              </span>
+            </button>
+          );
+        })}
+      </div>
+
+      <div className="bw__addon-foot">
+        <button type="button" className="bw__modal-close-btn" onClick={() => onConfirm([])}>
+          Skip extras
+        </button>
+        <button type="button" className="bw__modal-select" onClick={() => onConfirm(picked)}>
+          Continue{count ? ` · ${count} add-on${count > 1 ? 's' : ''}` : ''} <ArrowRight />
+        </button>
+      </div>
+    </div>
+  );
+}
+
+/**
+ * The facility step: category filter plus the facility cards beneath it.
+ *
+ * Category used to be a whole step of its own. It is a filter, not a decision a
+ * customer has to make, so it sits above the list and "All" is a valid answer.
+ */
+function FacilityBrowser({ categories, category, onCategory, list, currency, onPick }) {
+  return (
+    <div className="bw__browse">
+      {categories.length > 1 && (
+        <div className="bw__filters" role="group" aria-label="Filter by sport">
+          <button type="button" aria-pressed={!category}
+            className={`bw__filter${!category ? ' is-on' : ''}`}
+            onClick={() => onCategory(null)}>All</button>
+          {categories.map((c) => (
+            <button key={c.id} type="button" aria-pressed={category?.id === c.id}
+              className={`bw__filter${category?.id === c.id ? ' is-on' : ''}`}
+              onClick={() => onCategory(c)}>{c.name}</button>
+          ))}
+        </div>
+      )}
+      <FacilityTypes list={list} currency={currency} onPick={onPick} />
     </div>
   );
 }
@@ -684,12 +723,19 @@ const _availKey = (club, facilityType, date) => `${club?.id}|${facilityType?.id}
 const availInvalidate = (club, facilityType, date) =>
   _availCache.delete(_availKey(club, facilityType, date));
 
-function Schedule({ facilityType, category, club, currency, value, onChange, onContinue }) {
+function Schedule({ facilityType, category, club, currency, initialDate = null,
+                   value, onChange, onContinue }) {
   const today = startOfToday();
-  const [view, setView] = useState(() => new Date(today.getFullYear(), today.getMonth(), 1));
-  const [date, setDate] = useState(() => isoDate(today));
+  // Open on the day the customer asked for, never on one already past.
+  const opening = (() => {
+    if (!initialDate) return today;
+    const asked = new Date(`${initialDate}T00:00:00`);
+    return Number.isNaN(asked.getTime()) || asked < today ? today : asked;
+  })();
+  const [view, setView] = useState(() => new Date(opening.getFullYear(), opening.getMonth(), 1));
+  const [date, setDate] = useState(() => isoDate(opening));
   const [data, setData] = useState(
-    () => _availCache.get(_availKey(club, facilityType, isoDate(today))) || null);
+    () => _availCache.get(_availKey(club, facilityType, isoDate(opening))) || null);
   const [loading, setLoading] = useState(true);
 
   // Show cached availability immediately, then always revalidate in the

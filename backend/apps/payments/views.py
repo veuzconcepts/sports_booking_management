@@ -6,6 +6,7 @@ from rest_framework.decorators import action
 from rest_framework.response import Response
 
 from apps.auditlogs.services import log_event
+from config.listing import GroupedListMixin
 
 from apps.accounts import access
 from apps.accounts.models import Role, STAFF_ROLES
@@ -105,7 +106,8 @@ def _booking_in_scope(booking, user) -> bool:
     return booking.club_id is None or booking.club_id in club_ids
 
 
-class PaymentViewSet(mixins.DestroyModelMixin, viewsets.ReadOnlyModelViewSet):
+class PaymentViewSet(GroupedListMixin, mixins.DestroyModelMixin,
+                     viewsets.ReadOnlyModelViewSet):
     """Payments are created via `charge`, not direct POST. Deletion is allowed only
     with the opt-in `payments.delete` capability and never for settled/refunded rows."""
 
@@ -118,8 +120,15 @@ class PaymentViewSet(mixins.DestroyModelMixin, viewsets.ReadOnlyModelViewSet):
     serializer_class = PaymentSerializer
     permission_classes = [permissions.IsAuthenticated, PaymentPermission]
     filterset_class = PaymentFilter
-    search_fields = ["reference", "customer__email", "booking__reference"]
-    ordering_fields = ["created_at", "amount", "status"]
+    search_fields = ["reference", "customer__email", "customer__full_name",
+                     "booking__reference"]
+    ordering_fields = ["created_at", "amount", "status", "method", "reference"]
+    group_by_fields = {
+        "status": {"field": "status"},
+        "method": {"field": "method"},
+        "customer": {"field": "customer_id", "label": "customer__full_name",
+                     "filter_param": "customer", "empty_label": "No customer"},
+    }
 
     def get_queryset(self):
         qs = _club_scope(_customer_scope(super().get_queryset(), self.request.user), self.request.user)
@@ -513,7 +522,7 @@ class MembershipViewSet(viewsets.ReadOnlyModelViewSet):
         return _subject_activity(self, "membership", membership.id)
 
 
-class InvoiceViewSet(viewsets.ReadOnlyModelViewSet):
+class InvoiceViewSet(GroupedListMixin, viewsets.ReadOnlyModelViewSet):
     queryset = (
         Invoice.objects
         .select_related("customer", "customer__linked_user", "payment", "booking")
@@ -522,7 +531,13 @@ class InvoiceViewSet(viewsets.ReadOnlyModelViewSet):
     serializer_class = InvoiceSerializer
     permission_classes = [permissions.IsAuthenticated, InvoicePermission]
     filterset_fields = ["customer", "booking", "status"]
-    search_fields = ["number", "customer__email", "booking__reference"]
+    search_fields = ["number", "customer__email", "customer__full_name",
+                     "booking__reference", "bill_to"]
+    group_by_fields = {
+        "status": {"field": "status"},
+        "customer": {"field": "customer_id", "label": "customer__full_name",
+                     "filter_param": "customer", "empty_label": "No customer"},
+    }
     ordering_fields = ["issued_at", "total"]
 
     def get_queryset(self):
@@ -661,15 +676,21 @@ class ReceiptViewSet(viewsets.ReadOnlyModelViewSet):
         )
 
 
-class CreditNoteViewSet(viewsets.ReadOnlyModelViewSet):
+class CreditNoteViewSet(GroupedListMixin, viewsets.ReadOnlyModelViewSet):
     queryset = (CreditNote.objects
                 .select_related("customer", "customer__linked_user", "invoice", "refund")
                 .all())
     serializer_class = CreditNoteSerializer
     permission_classes = [permissions.IsAuthenticated, InvoicePermission]
     filterset_fields = ["customer", "invoice", "status"]
-    search_fields = ["number", "invoice__number", "customer__email"]
-    ordering_fields = ["requested_at", "issued_at", "total"]
+    search_fields = ["number", "invoice__number", "customer__email",
+                     "customer__full_name"]
+    ordering_fields = ["requested_at", "issued_at", "total", "status"]
+    group_by_fields = {
+        "status": {"field": "status"},
+        "customer": {"field": "customer_id", "label": "customer__full_name",
+                     "filter_param": "customer", "empty_label": "No customer"},
+    }
 
     def get_queryset(self):
         return _doc_club_scope(_customer_scope(super().get_queryset(), self.request.user),

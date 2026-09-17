@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { Plus, X } from 'lucide-react';
+import { useTranslation } from 'react-i18next';
 import toast from 'react-hot-toast';
 
 import { Modal } from '../../components/Modal.jsx';
@@ -19,6 +20,7 @@ function defaultFor(f) {
 }
 
 function BulletsEditor({ value, onChange }) {
+  const { t } = useTranslation('website');
   const list = Array.isArray(value) ? value : [];
   const setAt = (i, v) => onChange(list.map((x, idx) => (idx === i ? v : x)));
   return (
@@ -26,17 +28,18 @@ function BulletsEditor({ value, onChange }) {
       {list.map((b, i) => (
         <div key={i} style={{ display: 'flex', gap: 6 }}>
           <input className="form-input" value={b} onChange={(e) => setAt(i, e.target.value)} />
-          <button type="button" className="icon-btn" title="Remove"
+          <button type="button" className="icon-btn" title={t('common:actions.remove')}
             onClick={() => onChange(list.filter((_, idx) => idx !== i))}><X size={15} /></button>
         </div>
       ))}
       <button type="button" className="btn btn-secondary btn-sm" style={{ alignSelf: 'flex-start' }}
-        onClick={() => onChange([...list, ''])}><Plus size={14} /> Add</button>
+        onClick={() => onChange([...list, ''])}><Plus size={14} /> {t('common:actions.add')}</button>
     </div>
   );
 }
 
 function Field({ f, value, detail, fkOptions, onChange }) {
+  const { t } = useTranslation('website');
   if (f.type === 'toggle') {
     return (
       <div style={{ margin: '10px 0' }}>
@@ -66,7 +69,7 @@ function Field({ f, value, detail, fkOptions, onChange }) {
     return (
       <FormField label={f.label} hint={f.hint}>
         <Select2 options={fkOptions || []} value={value ?? ''} onChange={(v) => onChange(v || null)}
-          clearable placeholder="None" />
+          clearable placeholder={t('common:state.none')} />
       </FormField>
     );
   }
@@ -94,6 +97,7 @@ function Field({ f, value, detail, fkOptions, onChange }) {
 }
 
 export function CmsFormModal({ open, resource, record, onClose, onSaved }) {
+  const { t } = useTranslation('website');
   const fields = resource.fields;
   const isEdit = Boolean(record);
   const [form, setForm] = useState({});
@@ -140,10 +144,12 @@ export function CmsFormModal({ open, resource, record, onClose, onSaved }) {
       const saved = isEdit
         ? await resource.api.update(record.id, payload)
         : await resource.api.create(payload);
-      toast.success(isEdit ? `${resource.singular} saved` : `${resource.singular} created`);
+      toast.success(isEdit
+        ? t('cms.saved', { item: resource.singular })
+        : t('cms.created', { item: resource.singular }));
       onSaved(saved);
     } catch (e) {
-      toast.error(apiErrorMessage(e, 'Unable to save. Please try again.'));
+      toast.error(apiErrorMessage(e, t('unableSavePleaseTryAgain')));
     } finally {
       setBusy(false);
     }
@@ -151,11 +157,13 @@ export function CmsFormModal({ open, resource, record, onClose, onSaved }) {
 
   return (
     <Modal open={open} onClose={onClose} size={resource.modalSize || 'md'}
-      title={`${isEdit ? 'Edit' : 'New'} ${resource.singular}`}
+      title={isEdit
+        ? t('cms.editItem', { item: resource.singular })
+        : t('cms.newItem', { item: resource.singular })}
       footer={<>
-        <button className="btn btn-secondary" type="button" onClick={onClose}>Cancel</button>
+        <button className="btn btn-secondary" type="button" onClick={onClose}>{t('common:actions.cancel')}</button>
         <button className="btn btn-primary" type="button" onClick={submit} disabled={busy}>
-          {busy ? 'Saving…' : 'Save'}
+          {busy ? t('common:state.saving') : t('common:actions.save')}
         </button>
       </>}>
       {fields.map((f) => (

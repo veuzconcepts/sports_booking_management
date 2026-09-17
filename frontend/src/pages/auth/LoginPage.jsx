@@ -1,13 +1,18 @@
 import { useState } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { useForm } from 'react-hook-form';
+import { Trans, useTranslation } from 'react-i18next';
 import toast from 'react-hot-toast';
 import { Loader2, ShieldCheck, ArrowLeft } from 'lucide-react';
 
+import { LanguageSelector } from '../../components/LanguageSelector.jsx';
 import { FormField } from '../../components/FormField.jsx';
 import { useAuth } from '../../hooks/useAuth.jsx';
+import { useTheme } from '../../theme/ThemeProvider.jsx';
 
 export default function LoginPage() {
+  const { t } = useTranslation('auth');
+  const { branding } = useTheme();
   const { register, handleSubmit, getValues, setValue, formState: { errors } } = useForm();
   const [submitting, setSubmitting] = useState(false);
   const [step, setStep] = useState('credentials');   // 'credentials' | 'otp'
@@ -28,7 +33,7 @@ export default function LoginPage() {
       if (data.otp) {
         // MFA enrolled: move to (or stay on) the dedicated code screen.
         if (step !== 'otp') setStep('otp');
-        else toast.error('Invalid authenticator code. Try again.');
+        else toast.error(t('invalidAuthenticatorCodeTryAgain'));
       } else {
         toast.error(data.detail || 'Invalid email or password. Please try again.');
       }
@@ -48,16 +53,20 @@ export default function LoginPage() {
     <div className="auth-shell">
       <div className="auth-hero">
         <div className="auth-hero-brand">
-          <div className="auth-hero-mark">CB</div>
-          Club & Facility Booking Management
+          {branding.logoLight || branding.logoDark ? (
+            <img
+              className="auth-hero-logo"
+              src={branding.logoLight || branding.logoDark}
+              alt={branding.name || t('clubFacilityBookingManagement')}
+            />
+          ) : (
+            <div className="auth-hero-mark">CB</div>
+          )}
+          {branding.name || t('clubFacilityBookingManagement')}
         </div>
         <div>
-          <h1>Run every booking like clockwork.</h1>
-          <p>
-            One platform for clubs, courts, pitches, lanes and halls.
-            Live availability, member pricing, staff rosters and
-            VAT-compliant invoicing - all in one dashboard.
-          </p>
+          <h1>{t('hero.headline')}</h1>
+          <p>{t('hero.body')}</p>
         </div>
         <div className="auth-hero-foot">
           Built by Veuz Concepts · India · KSA · Bahrain
@@ -65,17 +74,24 @@ export default function LoginPage() {
       </div>
 
       <div className="auth-form-pane">
+        {/* Available before sign in: a visitor must be able to read the form
+            they are about to fill in. */}
+        <div className="auth-lang">
+          <LanguageSelector variant="outline" />
+        </div>
         <div className="auth-form-card fade-in">
           {!onOtp ? (
             <>
-              <h2>Sign in to your account</h2>
-              <p className="muted">Use your work email and password to continue.</p>
+              <h2>{t('signInTitle')}</h2>
+              <p className="muted">{t('signInSubtitle')}</p>
             </>
           ) : (
             <>
-              <h2><ShieldCheck size={20} style={{ marginRight: 8, verticalAlign: 'text-bottom' }} />Two-step verification</h2>
+              <h2><ShieldCheck size={20} style={{ marginRight: 8, verticalAlign: 'text-bottom' }} />{t('twoStepTitle')}</h2>
               <p className="muted">
-                Enter the 6-digit code from your authenticator app for <strong>{getValues('email')}</strong>.
+                <Trans i18nKey="twoStepBody" ns="auth"
+                  values={{ email: getValues('email') }}
+                  components={{ 1: <strong /> }} />
               </p>
             </>
           )}
@@ -84,37 +100,37 @@ export default function LoginPage() {
             {/* Email + password stay registered across steps (RHF keeps values),
                 but are only shown on the first step. */}
             <div style={{ display: onOtp ? 'none' : 'block' }}>
-              <FormField label="Email address" error={errors.email?.message}>
+              <FormField label={t('emailAddress')} error={errors.email?.message}>
                 <input
                   className="form-input"
                   type="email"
                   autoComplete="email"
-                  placeholder="you@company.com"
-                  {...register('email', { required: 'Email is required' })}
+                  placeholder={t('emailPlaceholder')}
+                  {...register('email', { required: t('emailRequired') })}
                 />
               </FormField>
 
-              <FormField label="Password" error={errors.password?.message}>
+              <FormField label={t('password')} error={errors.password?.message}>
                 <input
                   className="form-input"
                   type="password"
                   autoComplete="current-password"
                   placeholder="••••••••"
-                  {...register('password', { required: 'Password is required' })}
+                  {...register('password', { required: t('passwordRequired') })}
                 />
               </FormField>
             </div>
 
             {onOtp && (
-              <FormField label="Authenticator code" error={errors.otp?.message}
-                         hint="6-digit code from your authenticator app.">
+              <FormField label={t('authenticatorCode')} error={errors.otp?.message}
+                         hint={t('authenticatorHint')}>
                 <input
                   className="form-input"
                   inputMode="numeric"
                   autoComplete="one-time-code"
                   placeholder="123456"
                   autoFocus
-                  {...register('otp', onOtp ? { required: 'Code is required' } : {})}
+                  {...register('otp', onOtp ? { required: t('codeRequired') } : {})}
                 />
               </FormField>
             )}
@@ -125,7 +141,7 @@ export default function LoginPage() {
               disabled={submitting}
             >
               {submitting && <Loader2 size={16} className="spin" />}
-              {submitting ? 'Signing in…' : onOtp ? 'Verify & sign in' : 'Continue'}
+              {submitting ? t('signingIn') : onOtp ? t('verifyAndSignIn') : t('continue')}
             </button>
 
             {onOtp && (
@@ -136,7 +152,7 @@ export default function LoginPage() {
                 disabled={submitting}
                 style={{ marginTop: 8 }}
               >
-                <ArrowLeft size={15} /> Use a different account
+                <ArrowLeft size={15} /> {t('useDifferentAccount')}
               </button>
             )}
           </form>
@@ -144,12 +160,12 @@ export default function LoginPage() {
           {!onOtp && (
             <>
               <div className="auth-form-foot">
-                Forgot password? Contact your administrator.
+                {t('forgotContactAdmin')}
               </div>
 
               <div className="card" style={{ marginTop: 28, background: '#fafbfd' }}>
                 <div className="card-body" style={{ fontSize: 12.5 }}>
-                  <strong>Demo accounts</strong>
+                  <strong>{t('demoAccounts')}</strong>
                   <div className="muted" style={{ marginTop: 6 }}>
                     superadmin@example.com / DemoPass!2024<br />
                     admin@example.com / DemoPass!2024<br />

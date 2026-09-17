@@ -1,0 +1,229 @@
+---
+/**
+ * The homepage hero and its quick booking search.
+ *
+ * Copy comes from the CMS (Website -> Sections -> Hero, and the Hero Banners
+ * collection); the sports and clubs in the search come from Operations through
+ * the public catalogue. Nothing here is re-authored, so a club added in the
+ * admin appears in the search without a deployment.
+ *
+ * The search only builds a URL. It deep-links into the existing booking wizard
+ * with the selections already made, which is why it can be plain HTML plus a
+ * few lines of script rather than a second booking UI.
+ */
+const {
+  section = {},
+  banners = [],
+  categories = [],
+  facilityTypes = [],
+  clubs = [],
+  stats = [],
+} = Astro.props;
+
+// The CMS supports several hero banners and they rotate. The section row
+// supplies the fallback when none has been authored.
+const slides = banners.length ? banners : [{
+  heading: section.title || 'Book your court in seconds',
+  subheading: section.subtitle || section.description
+    || 'Live availability across every club and facility, confirmed instantly.',
+  image_detail: section.image || null,
+  cta_label: section.primary_button_label || 'Book now',
+  cta_url: section.primary_button_url || '/book',
+}];
+const banner = slides[0];
+
+const heading = banner?.heading || 'Book your court in seconds';
+const sub = banner?.subheading
+  || 'Live availability across every club and facility, confirmed instantly.';
+const image = banner?.image_detail?.url || null;
+const primaryLabel = banner?.cta_label || 'Book now';
+const primaryUrl = banner?.cta_url || '/book';
+const secondaryLabel = section.secondary_button_label || 'Browse clubs';
+const secondaryUrl = section.secondary_button_url || '#clubs';
+
+// The last word of the heading carries the accent underline. Splitting here
+// keeps the CMS copy plain text: an editor never has to write markup.
+const words = heading.trim().split(/\s+/);
+const lead = words.slice(0, -1).join(' ');
+const last = words[words.length - 1] || '';
+
+// Only sports that actually have a bookable facility type behind them, so the
+// search can never offer a choice the booking engine cannot serve.
+const bookableCategoryIds = new Set(
+  facilityTypes.flatMap((type) => type.category_ids || []),
+);
+const sports = categories.filter((c) => bookableCategoryIds.has(c.id));
+const proof = stats.slice(0, 3);
+---
+<section class="hero2" aria-label="Book a facility">
+  <div class="container">
+    <div class="hero2__grid">
+      <div>
+        {section.eyebrow && (
+          <span class="hero2__eyebrow"><b>New</b>{section.eyebrow}</span>
+        )}
+        <h1 class="hero2__title" data-hero-title>{lead} <em>{last}</em></h1>
+        <p class="hero2__sub" data-hero-sub>{sub}</p>
+
+        <div class="hero2__actions">
+          <a class="btn btn-amber" href={primaryUrl} data-hero-cta>{primaryLabel}</a>
+          <a class="btn btn-outline" href={secondaryUrl}>{secondaryLabel}</a>
+        </div>
+
+        {slides.length > 1 && (
+          <div class="hero2__dots" role="tablist" aria-label="Hero slides">
+            {slides.map((_, i) => (
+              <button type="button" class={`hero2__dot${i === 0 ? ' is-on' : ''}`}
+                data-hero-dot aria-label={`Show slide ${i + 1}`}
+                aria-selected={i === 0} role="tab"></button>
+            ))}
+          </div>
+        )}
+
+        {proof.length > 0 && (
+          <div class="hero2__proof">
+            {proof.map((s) => (
+              <div class="hero2__proof-item">
+                <span class="hero2__proof-value">{s.value}</span>
+                <span class="hero2__proof-label">{s.label}</span>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+
+      <div class="hero2__media">
+        {image
+          ? <img src={image} alt="" loading="eager" fetchpriority="high" data-hero-img />
+          : <div class="hero2__media-empty">Add a hero image in Website &rsaquo; Banners</div>}
+      </div>
+    </div>
+
+    <form class="qsearch" action="/book" method="get" data-qsearch>
+      <div class="qsearch__row">
+        <div class="qsearch__field">
+          <label class="qsearch__label" for="qs-sport">Sport</label>
+          <select class="qsearch__control" id="qs-sport" name="category" data-qs-sport>
+            <option value="">Any sport</option>
+            {sports.map((c) => <option value={c.id}>{c.name}</option>)}
+          </select>
+        </div>
+
+        <div class="qsearch__field">
+          <label class="qsearch__label" for="qs-club">Club</label>
+          <select class="qsearch__control" id="qs-club" name="club">
+            <option value="">Any club</option>
+            {clubs.map((c) => (
+              <option value={c.id}>{c.city ? `${c.name} - ${c.city}` : c.name}</option>
+            ))}
+          </select>
+        </div>
+
+        <div class="qsearch__field">
+          <label class="qsearch__label" for="qs-date">Date</label>
+          <input class="qsearch__control" id="qs-date" name="d" type="date" data-qs-date />
+        </div>
+
+        <button class="btn btn-primary qsearch__submit" type="submit">Search</button>
+      </div>
+      <!-- Chosen from the sport on submit: the wizard needs a facility type,
+           and offering the sport is the question a customer can actually
+           answer. -->
+      <input type="hidden" name="facilityType" data-qs-type />
+    </form>
+  </div>
+</section>
+
+<script is:inline define:vars={{ facilityTypes, slides }}>
+  (function () {
+    var form = document.querySelector('[data-qsearch]');
+    if (!form) return;
+    var sport = form.querySelector('[data-qs-sport]');
+    var type = form.querySelector('[data-qs-type]');
+    var date = form.querySelector('[data-qs-date]');
+
+    // Never offer a date in the past.
+    if (date) {
+      var today = new Date();
+      var iso = new Date(today.getTime() - today.getTimezoneOffset() * 60000)
+        .toISOString().slice(0, 10);
+      date.min = iso;
+    }
+
+    form.addEventListener('submit', function () {
+      // The first bookable facility type in the chosen sport. The wizard lets
+      // the customer change it on the next step; this only saves a click.
+      var chosen = Number(sport && sport.value);
+      var match = chosen
+        ? facilityTypes.find(function (t) {
+          return (t.category_ids || []).indexOf(chosen) !== -1;
+        })
+        : null;
+      if (type) type.value = match ? String(match.id) : '';
+      // The wizard runs club -> facility -> add-ons -> date & time -> payment,
+      // and clamps the step to what the selections actually unlock. A club on
+      // its own reaches the facility list; a club and a facility reach the
+      // calendar. Anything more would be ignored.
+      var club = form.querySelector('[name="club"]').value;
+      var step = (club && match) ? '3' : (club ? '1' : '0');
+      var hidden = form.querySelector('[name="step"]')
+        || Object.assign(document.createElement('input'), { type: 'hidden', name: 'step' });
+      hidden.value = step;
+      if (!hidden.parentNode) form.appendChild(hidden);
+    });
+  })();
+
+  // Banner rotation. Text and image are swapped in place rather than the whole
+  // hero being re-rendered, so the search bar below never moves.
+  (function () {
+    var dots = Array.prototype.slice.call(document.querySelectorAll('[data-hero-dot]'));
+    if (dots.length < 2) return;
+    var title = document.querySelector('[data-hero-title]');
+    var sub = document.querySelector('[data-hero-sub]');
+    var cta = document.querySelector('[data-hero-cta]');
+    var img = document.querySelector('[data-hero-img]');
+    var at = 0;
+    var timer = null;
+
+    function show(i) {
+      var slide = slides[i];
+      if (!slide) return;
+      at = i;
+      if (title) {
+        var words = String(slide.heading || '').trim().split(/\s+/);
+        var last = words.pop() || '';
+        title.innerHTML = '';
+        title.appendChild(document.createTextNode(words.join(' ') + ' '));
+        var em = document.createElement('em');
+        em.textContent = last;
+        title.appendChild(em);
+      }
+      if (sub) sub.textContent = slide.subheading || '';
+      if (cta) {
+        if (slide.cta_label) cta.textContent = slide.cta_label;
+        if (slide.cta_url) cta.setAttribute('href', slide.cta_url);
+      }
+      if (img && slide.image_detail && slide.image_detail.url) {
+        img.setAttribute('src', slide.image_detail.url);
+      }
+      dots.forEach(function (d, j) {
+        d.classList.toggle('is-on', j === i);
+        d.setAttribute('aria-selected', String(j === i));
+      });
+    }
+
+    function start() {
+      // Someone who prefers reduced motion gets the dots but no auto-advance.
+      if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+      timer = window.setInterval(function () { show((at + 1) % slides.length); }, 7000);
+    }
+    dots.forEach(function (dot, i) {
+      dot.addEventListener('click', function () {
+        if (timer) window.clearInterval(timer);
+        show(i);
+        start();
+      });
+    });
+    start();
+  })();
+</script>

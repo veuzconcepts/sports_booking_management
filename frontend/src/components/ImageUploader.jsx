@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { ImagePlus, Crop, Trash2, X, ZoomIn } from 'lucide-react';
+import { useTranslation } from 'react-i18next';
 import toast from 'react-hot-toast';
 
 import { FormField } from './FormField.jsx';
@@ -21,6 +22,7 @@ export function ImageUploader({
   label, hint, aspect = 1, output, currentUrl,
   file, onChange, maxSourceMB = 8, fit = 'cover', stack = false, noCrop = false,
 }) {
+  const { t } = useTranslation('common');
   const out = { type: 'image/jpeg', quality: 0.92, ...output };
   const inputRef = useRef(null);
   const [rawSrc, setRawSrc] = useState(null);   // object URL of the source being cropped
@@ -46,7 +48,7 @@ export function ImageUploader({
     const f = e.target.files?.[0];
     e.target.value = '';                       // allow re-selecting the same file
     if (!f) return;
-    if (!f.type.startsWith('image/')) { toast.error('Please choose an image file.'); return; }
+    if (!f.type.startsWith('image/')) { toast.error(t('pleaseChooseImageFile')); return; }
     if (f.size > maxSourceMB * 1024 * 1024) { toast.error(`Image must be under ${maxSourceMB} MB.`); return; }
     if (noCrop) { onChange?.(f); return; }   // use the original image as-is (no crop/zoom)
     setRawSrc(URL.createObjectURL(f));
@@ -74,7 +76,7 @@ export function ImageUploader({
         <button
           type="button"
           onClick={() => inputRef.current?.click()}
-          title="Upload image"
+          title={t('uploadImage')}
           style={{
             // Stack mode: tile fills the column up to its natural width and keeps
             // aspect via aspect-ratio, so wide logos never overflow the column.
@@ -97,16 +99,16 @@ export function ImageUploader({
         <div style={{ display: 'flex', flexDirection: 'column', gap: 6, minWidth: 0 }}>
           <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
             <button type="button" className="btn btn-secondary btn-sm" onClick={() => inputRef.current?.click()}>
-              <ImagePlus size={14} /> {preview ? 'Replace' : 'Upload'}
+              <ImagePlus size={14} /> {preview ? t('replace') : t('common:actions.upload')}
             </button>
             {rawSrc && (
               <button type="button" className="btn btn-secondary btn-sm" onClick={() => setCropOpen(true)}>
-                <Crop size={14} /> Re-crop
+                <Crop size={14} /> {t('reCrop')}
               </button>
             )}
             {preview && (
               <button type="button" className="btn btn-secondary btn-sm" onClick={handleRemove}>
-                <Trash2 size={14} /> Remove
+                <Trash2 size={14} /> {t('common:actions.remove')}
               </button>
             )}
           </div>
@@ -140,6 +142,7 @@ export function ImageUploader({
  * Rendered in its own portal above the form modal (z-index 1100).
  * ------------------------------------------------------------------------ */
 function CropOverlay({ src, aspect, output, fit = 'cover', fileName, onCancel, onApply }) {
+  const { t } = useTranslation('common');
   // 'contain' fits the WHOLE image inside the frame (logos: nothing clipped,
   // transparent padding); 'cover' fills the frame, cropping the overflow.
   const fitScale = (vw, vh, w, h) =>
@@ -167,7 +170,7 @@ function CropOverlay({ src, aspect, output, fit = 'cover', fileName, onCancel, o
       setZoom(1);
       setOff({ x: (VW - dW) / 2, y: (VH - dH) / 2 });   // center
     };
-    im.onerror = () => toast.error('We were unable to load that image. Please choose another file.');
+    im.onerror = () => toast.error(t('weWereUnableLoadImage'));
     im.src = src;
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [src]);
@@ -221,7 +224,7 @@ function CropOverlay({ src, aspect, output, fit = 'cover', fileName, onCancel, o
     canvas.toBlob(
       (blob) => {
         setBusy(false);
-        if (!blob) { toast.error('We were unable to process that image. Please try a different file.'); return; }
+        if (!blob) { toast.error(t('weWereUnableProcessImage')); return; }
         onApply(new File([blob], fileName, { type: output.type }));
       },
       output.type,
@@ -240,8 +243,8 @@ function CropOverlay({ src, aspect, output, fit = 'cover', fileName, onCancel, o
         boxShadow: '0 24px 60px rgba(15,23,42,0.35)', maxWidth: '95vw',
       }}>
         <div className="modal-head">
-          <h3 className="modal-title">Crop image</h3>
-          <button className="icon-btn modal-close" onClick={onCancel} type="button" aria-label="Close">
+          <h3 className="modal-title">{t('cropImage')}</h3>
+          <button className="icon-btn modal-close" onClick={onCancel} type="button" aria-label={t('common:actions.close')}>
             <X size={28} strokeWidth={2.25} />
           </button>
         </div>
@@ -295,9 +298,9 @@ function CropOverlay({ src, aspect, output, fit = 'cover', fileName, onCancel, o
         </div>
 
         <div className="modal-foot">
-          <button type="button" className="btn btn-secondary" onClick={onCancel}>Cancel</button>
+          <button type="button" className="btn btn-secondary" onClick={onCancel}>{t('common:actions.cancel')}</button>
           <button type="button" className="btn btn-primary" onClick={apply} disabled={busy || !nat}>
-            {busy ? 'Processing…' : 'Apply crop'}
+            {busy ? t('processing') : t('applyCrop')}
           </button>
         </div>
       </div>

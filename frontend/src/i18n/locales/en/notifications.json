@@ -1,0 +1,70 @@
+{
+  "body": "Body",
+  "channel": "Channel",
+  "code": "Code",
+  "deliveryLog": "Delivery log",
+  "deliveryLogMessageTemplates": "Delivery log and message templates.",
+  "log": {
+    "columns": {
+      "channel": "Channel",
+      "event": "Event",
+      "recipient": "Recipient",
+      "sent": "Sent",
+      "status": "Status"
+    },
+    "emptyHint": "Notifications are sent automatically on booking and payment events.",
+    "emptyTitle": "No notifications yet",
+    "filters": {
+      "channel": "Channel",
+      "status": "Status"
+    },
+    "groups": {
+      "channel": "Channel",
+      "event": "Event",
+      "status": "Status"
+    },
+    "resend": "Resend",
+    "resendFailed": "Unable to resend the notification. Please try again.",
+    "resent": "Resent",
+    "searchPlaceholder": "Recipient, subject"
+  },
+  "markAllRead": "Mark all read",
+  "pending": "Pending",
+  "push": "Push",
+  "read": "Read",
+  "sent": "Sent",
+  "stableIdEGBooking": "Stable id, e.g. booking_confirmed.",
+  "subject": "Subject",
+  "tabs": {
+    "log": "Log",
+    "templates": "Templates"
+  },
+  "templates": {
+    "active": "Active",
+    "columns": {
+      "channel": "Channel",
+      "code": "Code",
+      "name": "Name",
+      "status": "Status",
+      "subject": "Subject"
+    },
+    "edit": "Edit template",
+    "emptyHint": "Create templates the dispatcher renders for each event.",
+    "emptyTitle": "No templates yet",
+    "filters": {
+      "channel": "Channel",
+      "status": "Status"
+    },
+    "groups": {
+      "channel": "Channel",
+      "status": "Status"
+    },
+    "inactive": "Inactive",
+    "newTemplate": "New template",
+    "saved": "Template saved",
+    "searchPlaceholder": "Code, name, subject"
+  },
+  "templates2": "Templates",
+  "title": "Notifications",
+  "unableSaveYourChangesPlease": "Unable to save your changes. Please try again."
+}

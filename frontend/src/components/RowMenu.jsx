@@ -1,6 +1,7 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { MoreVertical, ChevronDown } from 'lucide-react';
+import { useTranslation } from 'react-i18next';
 
 /**
  * Action dropdown. Default trigger is a kebab (⋮); pass `triggerLabel` for a
@@ -13,7 +14,8 @@ import { MoreVertical, ChevronDown } from 'lucide-react';
  * all - that's how the owner/self rows end up with no destructive actions.
  * The menu renders in a portal so it never clips inside the table's overflow.
  */
-export function RowMenu({ items = [], label = 'Actions', triggerLabel }) {
+export function RowMenu({ items = [], label, triggerLabel }) {
+  const { t } = useTranslation('table');
   const live = items.filter(Boolean);
   const btnRef = useRef(null);
   const menuRef = useRef(null);
@@ -63,7 +65,7 @@ export function RowMenu({ items = [], label = 'Actions', triggerLabel }) {
         type="button"
         className={triggerLabel ? 'btn btn-secondary' : 'icon-btn'}
         style={triggerLabel ? { display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12.5, fontWeight: 600, padding: '6px 11px' } : undefined}
-        aria-label={triggerLabel || label}
+        aria-label={triggerLabel || label || t('table:rowActions')}
         aria-haspopup="menu"
         aria-expanded={open}
         onClick={() => setOpen((o) => !o)}
