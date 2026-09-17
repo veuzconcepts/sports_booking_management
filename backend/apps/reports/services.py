@@ -90,6 +90,20 @@ def revenue_report(date_from=None, date_to=None, owner=None, club=None, scope_cl
         gross=Coalesce(Sum("amount"), ZERO),
         refunded=Coalesce(Sum("refunded_amount"), ZERO),
     )
+    # Peak versus off-peak, from the classification snapshotted on each
+    # booking when it was priced. Answers "did the cold-hour offer work?"
+    # without re-reading a schedule that may since have been re-classified.
+    by_period = (
+        qs.filter(booking__isnull=False)
+        .values("booking__period_type")
+        .annotate(net=Coalesce(Sum(F("amount") - F("refunded_amount")), ZERO))
+        .order_by("-net")
+    )
+    period_split = [
+        {"period": row["booking__period_type"] or "normal", "net": str(row["net"])}
+        for row in by_period
+    ]
+
     return {
         "date_from": start.isoformat(),
         "date_to": end.isoformat(),
@@ -98,6 +112,7 @@ def revenue_report(date_from=None, date_to=None, owner=None, club=None, scope_cl
         "net_revenue": str(totals["gross"] - totals["refunded"]),
         "series": series,
         "by_club": club_split,
+        "by_period": period_split,
     }
 
 
@@ -122,12 +137,18 @@ def bookings_report(date_from=None, date_to=None, owner=None, club=None, scope_c
                     .annotate(n=Count("id")).order_by("-n")
                     .values_list("club_id", "club__name", "n"))
     ]
+    # Utilisation split by how the hour was classified when it was booked.
+    by_period = dict(
+        qs.values_list("period_type").annotate(n=Count("id"))
+        .values_list("period_type", "n")
+    )
     return {
         "date_from": start.isoformat(),
         "date_to": end.isoformat(),
         "total": qs.count(),
         "by_status": by_status,
         "by_club": by_club,
+        "by_period": {(key or "normal"): value for key, value in by_period.items()},
     }
 
 

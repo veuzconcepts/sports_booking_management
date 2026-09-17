@@ -120,6 +120,10 @@ class Window:
 
     start: int
     end: int
+    # How busy this period is expected to be: "normal", "hot" (peak) or
+    # "cold" (off-peak). Classification only; it never changes a price on its
+    # own, and a pricing rule has to opt into using it.
+    period: str = "normal"
 
     @property
     def start_time(self) -> time:
@@ -236,9 +240,34 @@ def resolve_buffers(club=None, facility=None) -> tuple[int, int]:
 # --------------------------------------------------------------------------- #
 # Turning a stored day into windows
 # --------------------------------------------------------------------------- #
-def _windows(entries) -> list[Window]:
+#: A shift may be marked as peak or off-peak. Stored on the shift itself, so
+#: it inherits through Organization -> Club -> Facility exactly as the hours
+#: do, and a special date that replaces the hours replaces the classification
+#: with them.
+PERIOD_NORMAL = "normal"
+PERIOD_HOT = "hot"
+PERIOD_COLD = "cold"
+PERIOD_TYPES = (PERIOD_NORMAL, PERIOD_HOT, PERIOD_COLD)
+
+
+def normalize_period(value) -> str:
+    """A stored classification, or "normal" for anything unrecognised.
+
+    Unknown values are corrected rather than rejected: a malformed schedule
+    document must never be able to stop slots being generated.
+    """
+    value = str(value or "").strip().lower()
+    return value if value in PERIOD_TYPES else PERIOD_NORMAL
+
+
+def _windows(entries, *, with_period=False) -> list[Window]:
     """Parse [{open, close}] into sorted, valid windows. Invalid rows drop out;
-    validation is the serializer's job, this must never raise mid-booking."""
+    validation is the serializer's job, this must never raise mid-booking.
+
+    `with_period` reads the optional peak/off-peak classification. Breaks do
+    not carry one: nothing is bookable during a break, so there is nothing to
+    classify.
+    """
     out = []
     for item in entries or []:
         start = to_minutes(item.get("open"))
@@ -247,7 +276,9 @@ def _windows(entries) -> list[Window]:
             continue
         if end <= start:
             end += 24 * 60          # overnight, or a 24-hour day when equal
-        out.append(Window(start, end))
+        out.append(Window(start, end,
+                          normalize_period(item.get("period"))
+                          if with_period else PERIOD_NORMAL))
     out.sort(key=lambda w: w.start)
     return out
 
@@ -257,7 +288,7 @@ def day_windows(cfg) -> tuple[list[Window], list[Window]]:
     nd = normalize_day(cfg)
     if nd["closed"]:
         return [], []
-    return _windows(nd["shifts"]), _windows(nd["breaks"])
+    return _windows(nd["shifts"], with_period=True), _windows(nd["breaks"])
 
 
 def resolve_for_date(on_date, club=None, facility=None, *,
@@ -277,6 +308,39 @@ def resolve_for_date(on_date, club=None, facility=None, *,
     previous = on_date - timedelta(days=1)
     chain = _chain(club, facility)
     exceptions = _exceptions_between(previous, on_date, club, facility)
+    return _resolve_with(on_date, chain, exceptions,
+                         include_previous_overnight=include_previous_overnight)
+
+
+def resolve_for_range(first, last, club=None, facility=None, *,
+                      include_previous_overnight=True) -> dict:
+    """`{date: ResolvedDay}` for every date in [first, last], inclusive.
+
+    Same answer as calling `resolve_for_date` for each date, at the same fixed
+    cost as calling it once: the chain and the whole range of exceptions are
+    each read a single time. This exists so a month of calendar availability
+    does not cost two queries per day.
+    """
+    chain = _chain(club, facility)
+    exceptions = _exceptions_between(first - timedelta(days=1), last, club, facility)
+
+    days, cursor = {}, first
+    while cursor <= last:
+        days[cursor] = _resolve_with(
+            cursor, chain, exceptions,
+            include_previous_overnight=include_previous_overnight)
+        cursor += timedelta(days=1)
+    return days
+
+
+def _resolve_with(on_date, chain, exceptions, *, include_previous_overnight=True):
+    """Resolve one date from an already-loaded chain and exception map.
+
+    The body of `resolve_for_date`, separated so a range can be resolved
+    without re-reading either. Every caller therefore gets the same answer from
+    the same code: there is one schedule engine, not one per access pattern.
+    """
+    previous = on_date - timedelta(days=1)
 
     slot_minutes, _ = _slot_minutes_from_chain(chain)
     before, after = _buffers_from_chain(chain)
@@ -328,7 +392,9 @@ def _rebase_overnight(prev_cfg) -> tuple[list[Window], list[Window]]:
     day = 24 * 60
 
     def rebase(windows):
-        return [Window(max(0, w.start - day), w.end - day)
+        # The classification travels with the window: the small hours of an
+        # 18:00-02:00 hot shift are still that hot shift.
+        return [Window(max(0, w.start - day), w.end - day, w.period)
                 for w in windows if w.end > day]
 
     return rebase(shifts), rebase(breaks)
@@ -472,17 +538,26 @@ def validate_week(raw, *, allow_overnight=True, require_shift_when_open=True,
             if start is None or end is None:
                 bad = "Enter a valid start and end time."
                 break
+            # Peak/off-peak is a closed set. An unrecognised value is refused
+            # here rather than quietly corrected, so a typo in an API call is
+            # reported instead of silently classifying a shift as normal.
+            raw_period = sh.get("period")
+            if raw_period not in (None, "") and str(raw_period).lower() not in PERIOD_TYPES:
+                bad = ("Choose a valid time type: "
+                       + ", ".join(PERIOD_TYPES) + ".")
+                break
+            period = normalize_period(raw_period)
             if end == start:
                 # 00:00-00:00 (or any equal pair) = open around the clock.
                 if len(nd["shifts"]) > 1:
                     bad = "A 24-hour shift cannot be combined with another shift."
                     break
-                shifts.append(Window(start, start + day))
+                shifts.append(Window(start, start + day, period))
                 continue
             if end < start and not allow_overnight:
                 bad = "This schedule cannot run past midnight."
                 break
-            shifts.append(Window(start, end if end > start else end + day))
+            shifts.append(Window(start, end if end > start else end + day, period))
 
         if bad:
             errors[key] = bad
@@ -545,8 +620,14 @@ def validate_week(raw, *, allow_overnight=True, require_shift_when_open=True,
 
         cleaned[key] = {
             "closed": False,
-            "shifts": [{"open": fmt(w.start_time),
-                        "close": fmt(from_minutes(w.end))} for w in shifts],
+            # `period` is written only when it says something: leaving it off
+            # a normal shift keeps existing schedule documents byte-identical
+            # and keeps the common case uncluttered.
+            "shifts": [
+                {"open": fmt(w.start_time), "close": fmt(from_minutes(w.end)),
+                 **({"period": w.period} if w.period != PERIOD_NORMAL else {})}
+                for w in shifts
+            ],
             "breaks": [{"name": name, "open": fmt(w.start_time),
                         "close": fmt(from_minutes(w.end))} for w, name in breaks],
         }

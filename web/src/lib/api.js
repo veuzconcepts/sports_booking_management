@@ -38,6 +38,15 @@ export const getAvailability = ({ club, date, facilityType }) => {
   return getJSON(`/website/public/availability/?${qs.toString()}`);
 };
 
+/** Which DATES can be booked over a range, so the calendar can grey out a day
+ *  before the customer clicks it. The backend answers with the same engine
+ *  the booking itself uses; this is only a UX optimisation. */
+export const getAvailabilityCalendar = ({ club, from, to, facilityType }) => {
+  const qs = new URLSearchParams({ club: String(club), from, to });
+  if (facilityType) qs.set('facility_type', String(facilityType));
+  return getJSON(`/website/public/availability/calendar/?${qs.toString()}`);
+};
+
 /** POST JSON to the public API; returns { ok, status, data }. */
 async function postJSON(path, body) {
   try {

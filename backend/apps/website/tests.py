@@ -202,7 +202,11 @@ def test_public_availability_for_a_club(api, bookable, club, facilities):
     body = resp.json()
     assert body["date"] == on_date
     assert body["closed"] is False
-    assert all({"time", "end", "available"} == set(s) for s in body["slots"])
+    # `period` is the peak/off-peak classification of the shift the slot
+    # falls in; `offer` is the customer-visible discount covering it, or
+    # None. Both are informational and neither affects availability.
+    assert all({"time", "end", "available", "period", "offer"} == set(s)
+               for s in body["slots"])
 
 
 def test_public_availability_404s_for_an_unknown_club(api, bookable):

@@ -69,6 +69,9 @@
   "opens": "Opens",
   "operatingHours": "Operating hours",
   "overnight": "Overnight",
+  "periodCold": "Cold time (off-peak)",
+  "periodHot": "Hot time (peak)",
+  "periodNormal": "Normal",
   "presets": {
     "alwaysOpen": "Open 24/7",
     "alwaysOpenDetail": "No closing time on any day",
@@ -151,6 +154,7 @@
   },
   "startFrom": "Start from",
   "templates": "Templates",
+  "timeType": "Time type",
   "to": "to",
   "useParent": "Use {{parent}} schedule",
   "validation": {

@@ -109,7 +109,21 @@
       "maxReached_other": "You have chosen the maximum of {{count}} times",
       "chooseAtLeast_one": "Choose at least {{count}} time",
       "chooseAtLeast_other": "Choose at least {{count}} times",
-      "removeTime": "Remove this time"
+      "removeTime": "Remove this time",
+      "unavailable": "unavailable",
+      "checkingAvailability": "Checking availability...",
+      "availabilityUnknown": "We could not check availability. Open a date to see its times.",
+      "noneThisMonth": "No booking slots are available this month.",
+      "nextAvailable": "Next available: {{date}}",
+      "goToNextAvailable": "Go to next available date",
+      "slotsLeft_one": "{{count}} slot left",
+      "slotsLeft_other": "{{count}} slots left",
+      "noLongerAvailable": "No slots are available on this date anymore.",
+      "offer": "Offer",
+      "peak": "Peak",
+      "offPeak": "Off-peak",
+      "chosenCount_one": "{{count}} time",
+      "chosenCount_other": "{{count}} times"
     }
   },
   "checkout": {

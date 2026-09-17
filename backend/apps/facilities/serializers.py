@@ -379,7 +379,7 @@ class PricingRuleSerializer(serializers.ModelSerializer):
             "currency", "tax_applicable", "allow_stacking",
             "categories", "facility_types", "addons",
             "clubs", "membership_plans",
-            "customer_types", "days_of_week",
+            "customer_types", "days_of_week", "period_types",
             "valid_from", "valid_to", "start_time", "end_time",
             "min_amount", "min_quantity",
             # read-only display helpers
@@ -427,6 +427,20 @@ class PricingRuleSerializer(serializers.ModelSerializer):
         if obj.valid_from or obj.valid_to:
             return f"{obj.valid_from or '...'} to {obj.valid_to or '...'}"
         return "Always"
+
+    def validate_period_types(self, value):
+        """Peak/off-peak is a closed set, same as the schedule side.
+
+        An empty list means every period, which is the default and is what
+        keeps classifying a shift from changing any existing price.
+        """
+        from apps.settings_app.schedule import PERIOD_TYPES
+
+        bad = [v for v in (value or []) if v not in PERIOD_TYPES]
+        if bad:
+            raise serializers.ValidationError(
+                "Unknown time type: " + ", ".join(str(v) for v in bad) + ".")
+        return list(value or [])
 
     def validate(self, attrs):
         def eff(field):
@@ -479,7 +493,8 @@ class PricingRuleSerializer(serializers.ModelSerializer):
             attrs.get("categories"), attrs.get("facility_types"), attrs.get("addons"),
             attrs.get("clubs"), attrs.get("membership_plans"),
             attrs.get("customer_types"),
-            attrs.get("days_of_week"), start_time, end_time,
+            attrs.get("days_of_week"), attrs.get("period_types"),
+            start_time, end_time,
             attrs.get("min_amount"), attrs.get("min_quantity"),
         ]
         if self.instance is None and not any(targets):

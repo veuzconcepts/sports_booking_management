@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { isValidPhoneNumber, parsePhoneNumber } from 'libphonenumber-js/max';
 import { useTranslation } from 'react-i18next';
 
@@ -401,6 +401,7 @@ function Wizard({ categories = [], facilityTypes = [], clubs = [], currency = ''
           <Schedule
             facilityType={facilityType} category={category} club={club} currency={currency}
             initialDate={startDate}
+            addons={addons}
             values={slots} onChange={setSlots} onContinue={() => go(STEP_PAY)}
           />
         )}
@@ -465,7 +466,7 @@ function FacilityCard({ s, currency, onPick, onMore }) {
             
             {s.duration_minutes ? <span className="bw__tag"><Clock /> {duration(s.duration_minutes, t)}</span> : null}
           </div>
-          <div className="bw__fac-price"><strong><Price amount={s.from_price} currency={currency} /></strong> <VatNote inclusive={s.tax_inclusive} /></div>
+          <div className="bw__fac-price"><strong><Price amount={s.price} currency={currency} /></strong> <VatNote inclusive={s.tax_inclusive} /></div>
           {(s.description || s.whats_included) && (
             <div className="bw__fac-descrow">
               {s.description && <p className="bw__fac-desc">{s.description}</p>}
@@ -555,7 +556,7 @@ function FacilityModal({ facilityType: s, currency, onClose, onSelect }) {
         <div className="bw__modal-media">
           <FacilityMedia s={s} />
           <div className="bw__modal-media-tag">
-            <strong><Price amount={s.from_price} currency={currency} /></strong><VatNote inclusive={s.tax_inclusive} />
+            <strong><Price amount={s.price} currency={currency} /></strong><VatNote inclusive={s.tax_inclusive} />
           </div>
         </div>
         <div className="bw__modal-right">
@@ -806,6 +807,31 @@ function Location({ clubs, query, setQuery, club, onChoose, city }) {
   );
 }
 
+/** "Sat 19 Sep": enough to place a time, short enough for a chip. */
+const shortDate = (iso, locale) => {
+  const [y, m, d] = iso.split('-').map(Number);
+  return new Date(y, m - 1, d).toLocaleDateString(
+    intlLocale(locale), { weekday: 'short', day: 'numeric', month: 'short' });
+};
+
+/** Chosen slots as [{ date, times: [...] }], in order.
+ *
+ *  Both the summary and the basket read this, so the date is written once per
+ *  day rather than repeated against every time, which is what made two slots
+ *  on one evening fill the panel. */
+function groupByDate(slots) {
+  const order = [];
+  const byDate = new Map();
+  for (const slot of slots) {
+    if (!byDate.has(slot.date)) {
+      byDate.set(slot.date, []);
+      order.push(slot.date);
+    }
+    byDate.get(slot.date).push(slot);
+  }
+  return order.map((date) => ({ date, times: byDate.get(date) }));
+}
+
 const longDate = (iso, locale) => {
   const [y, m, d] = iso.split('-').map(Number);
   return new Date(y, m - 1, d).toLocaleDateString(
@@ -824,15 +850,86 @@ const Chevron = ({ dir }) => (
 // re-checks the slot at booking time, so a stale view can never double-book.
 const _availCache = new Map();
 const _availKey = (club, facilityType, date) => `${club?.id}|${facilityType?.id}|${date}`;
-const availInvalidate = (club, facilityType, date) =>
+
+// Month-level DATE availability, so a day the club cannot serve is greyed out
+// before it is clicked rather than after. Cached per month for the session and
+// dropped whenever a day's slots are known to have moved.
+const _monthCache = new Map();
+const _monthKey = (club, facilityType, from) => `${club?.id}|${facilityType?.id}|${from}`;
+
+const availInvalidate = (club, facilityType, date) => {
   _availCache.delete(_availKey(club, facilityType, date));
+  // The month summary said this date was bookable; something just proved
+  // otherwise, so it must be re-read rather than trusted.
+  if (date) _monthCache.delete(_monthKey(club, facilityType, `${date.slice(0, 7)}-01`));
+};
+
+/**
+ * The price of ONE slot, decided by the backend.
+ *
+ * Both the date step and the checkout ask this, because two screens working
+ * the price out separately is exactly how they came to disagree: the date
+ * step was showing the bare catalogue price while the checkout showed the
+ * same booking with its add-ons, its offer and VAT applied.
+ *
+ * The browser never computes a total here. It multiplies a backend figure by
+ * how many slots were chosen, and the backend prices every slot again for
+ * real when the booking is submitted.
+ */
+const fetchQuote = ({ club, facilityType, addons, coupon = '', slots = [] }) =>
+  fetch('/api/quote', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      facility_type: facilityType?.id, club: club?.id,
+      add_ons: addons || [], coupon,
+      // The dates matter: a rule limited to a date range or a time of day is
+      // skipped entirely when the backend is asked to price "some booking,
+      // no date". That is how an offer which ended in September came to be
+      // quoted against a December booking at a price the real booking would
+      // never have charged.
+      slots: slots.map((slot) => ({ date: slot.date, time: slot.time })),
+    }),
+  }).then((r) => (r.ok ? r.json() : null)).catch(() => null);
+
+/**
+ * Shown where a price will be, until the backend has said what it is.
+ *
+ * The alternative was to show the catalogue price and swap it for the real
+ * one a moment later, which a customer reads as the price changing while
+ * they watch. A figure that has not arrived is better drawn as absent than
+ * guessed at and corrected.
+ */
+const PriceSkeleton = () => (
+  <span className="bw__price-wait" aria-hidden="true" />
+);
+
+/** What the whole selection costs: every slot priced on its own date. */
+const orderTotal = (quote) => quote?.order_total
+  ?? quote?.summary?.total ?? quote?.total_amount ?? null;
+
+/** What ONE slot costs, for the line breakdown. */
+const quoteTotal = (quote) => quote?.summary?.total ?? quote?.total_amount ?? null;
+
+/** True when every chosen slot costs the same, so a per-slot figure and a
+ *  saving may honestly be shown against the whole order. */
+const slotsPriceAlike = (quote) => {
+  const totals = quote?.slot_totals || [];
+  return totals.length <= 1 || totals.every((value) => value === totals[0]);
+};
+
+const monthBounds = (view) => {
+  const y = view.getFullYear();
+  const m = view.getMonth();
+  return { from: isoDate(new Date(y, m, 1)), to: isoDate(new Date(y, m + 1, 0)) };
+};
 
 const sameSlot = (a, b) => a.date === b.date && a.time === b.time;
 const sortSlots = (list) => [...list].sort((a, b) => (a.date === b.date
   ? a.time.localeCompare(b.time) : a.date.localeCompare(b.date)));
 
-function Schedule({ facilityType, category, club, currency, initialDate = null,
-                   values = [], onChange, onContinue }) {
+export function Schedule({ facilityType, category, club, currency, initialDate = null,
+                   addons = [], values = [], onChange, onContinue }) {
   const { t, i18n } = useTranslation();
   const locale = i18n.language;
   const today = startOfToday();
@@ -863,6 +960,41 @@ function Schedule({ facilityType, category, club, currency, initialDate = null,
       .catch(() => { if (!cancelled && !cached) { setData({ closed: true, slots: [], weekdays: {} }); setLoading(false); } });
     return () => { cancelled = true; };
   }, [club, facilityType, date]);
+
+  // Which DATES are bookable this month, answered by the backend. The browser
+  // must not decide this from the weekday pattern: a holiday, a maintenance
+  // closure and a fully booked day all look open in a weekly schedule.
+  const { from: monthFrom, to: monthTo } = monthBounds(view);
+  const [month, setMonth] = useState(
+    () => _monthCache.get(_monthKey(club, facilityType, monthFrom)) || null);
+  const [monthLoading, setMonthLoading] = useState(true);
+  const [monthFailed, setMonthFailed] = useState(false);
+
+  useEffect(() => {
+    if (!club) return undefined;
+    const key = _monthKey(club, facilityType, monthFrom);
+    const cached = _monthCache.get(key);
+    if (cached) { setMonth(cached); setMonthLoading(false); } else { setMonthLoading(true); }
+    setMonthFailed(false);
+    let cancelled = false;
+    fetch(`/api/availability-calendar?club=${club.id}&from=${monthFrom}&to=${monthTo}`
+          + (facilityType ? `&facility_type=${facilityType.id}` : ''))
+      .then((r) => r.json())
+      .then((d) => {
+        if (cancelled) return;
+        _monthCache.set(key, d);
+        setMonth(d);
+        setMonthLoading(false);
+      })
+      .catch(() => {
+        if (cancelled) return;
+        // A failed summary must not silently disable the whole month. Say so,
+        // and fall back to letting the customer open a day to find out.
+        setMonthFailed(true);
+        setMonthLoading(false);
+      });
+    return () => { cancelled = true; };
+  }, [club, facilityType, monthFrom, monthTo]);
 
   const is24 = data?.time_format_24h;
   const weekdays = data?.weekdays || {};
@@ -909,10 +1041,103 @@ function Schedule({ facilityType, category, club, currency, initialDate = null,
   const atMin = y === firstAllowed.getFullYear() && m === firstAllowed.getMonth();
   const horizonView = latest || new Date(today.getFullYear(), today.getMonth() + 6, 1);
   const atMax = y === horizonView.getFullYear() && m === horizonView.getMonth();
-  const dayOff = (d) => d < firstAllowed
-    || (latest && d > latest)
-    || weekdays[WK[d.getDay()]]?.closed;
+  // What one slot really costs, including its add-ons, any automatic offer
+  // and VAT: the same figure the checkout shows, from the same endpoint, so
+  // the two steps cannot disagree.
+  const [priced, setPriced] = useState(null);
+  // Re-quoted whenever the selection changes, because the price of a day can
+  // differ from the price of the next one.
+  const pricedKey = `${club?.id}|${facilityType?.id}|${addons.join(',')}`
+    + `|${values.map((v) => `${v.date}T${v.time}`).join(',')}`;
+  useEffect(() => {
+    if (!facilityType) return undefined;
+    let cancelled = false;
+    fetchQuote({
+      club, facilityType, addons,
+      // Before anything is chosen, price the day being looked at, so the
+      // figure shown is still the figure for that date.
+      slots: values.length ? values : [{ date, time: '' }],
+    }).then((quote) => { if (!cancelled) setPriced(quote); });
+    return () => { cancelled = true; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pricedKey, values.length ? '' : date]);
+
+  // Falls back to the catalogue price only until the quote lands, so the
+  // panel is never blank; the quoted figure replaces it a moment later.
+  const chosenAddons = (facilityType?.add_ons || [])
+    .filter((addon) => addons.includes(addon.id));
+
+  // Only ever the backend's figure. `priced` is not cleared when the
+  // selection changes, so the previous total stays on screen while the new
+  // one is fetched and the number never blinks back to a placeholder.
+  const runningTotal = orderTotal(priced);
+
+  const days = month?.days || null;
+
+  // The month summary is a snapshot taken when the month was opened. Another
+  // customer can take the last slot in between, so a date it called bookable
+  // can arrive empty. That is not "no times today", it is "not any more", and
+  // the snapshot must be dropped so the date greys out.
+  const dayFree = (data?.slots || []).some((s) => s.available > 0);
+  const wentStale = Boolean(data && !loading && !data.closed
+    && !dayFree && days?.[date]?.available);
+
+  useEffect(() => {
+    if (!wentStale) return;
+    _monthCache.delete(_monthKey(club, facilityType, monthFrom));
+    setMonth((current) => (current?.days?.[date]
+      ? { ...current, days: { ...current.days,
+          [date]: { ...current.days[date], available: false, slot_count: 0 } } }
+      : current));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [wentStale, date]);
+  // Until the summary lands, and if it ever fails, fall back to the weekly
+  // pattern. That is a guess, so it is used ONLY as a provisional state: the
+  // slot list and the booking itself are still resolved by the backend.
+  const provisional = (d) => weekdays[WK[d.getDay()]]?.closed;
+  const dayState = (d) => {
+    const outside = d < firstAllowed || (latest && d > latest);
+    if (outside) return { off: true, count: 0 };
+    const known = days ? days[isoDate(d)] : null;
+    if (!known) return { off: Boolean(provisional(d)), count: 0, unknown: !days };
+    return {
+      off: !known.available,
+      count: known.slot_count || 0,
+      // Only a bookable date carries one. Advertising a discount on a day
+      // nobody can book is an advert for a disappointment.
+      offer: known.available ? known.offer || null : null,
+    };
+  };
+  const dayOff = (d) => dayState(d).off;
   const todayIso = isoDate(today);
+
+  // Nothing at all this month, once we actually know.
+  const monthEmpty = Boolean(days) && !monthLoading
+    && !cells.some((d) => d && !dayOff(d));
+  const nextAvailable = month?.next_available || null;
+
+  // Section 10: if the day the calendar opened on cannot be booked, move to
+  // the first one that can. Only on the first summary for a month, so it never
+  // fights a customer who has deliberately chosen a date.
+  const settled = useRef('');
+  useEffect(() => {
+    if (!days || monthLoading) return;
+    const key = `${club?.id}|${facilityType?.id}|${monthFrom}`;
+    if (settled.current === key) return;
+    settled.current = key;
+    if (days[date]?.available) return;
+    const firstOpen = Object.keys(days).sort().find((iso) => days[iso].available);
+    if (firstOpen) setDate(firstOpen);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [days, monthLoading, monthFrom]);
+
+  /** Jump to the month holding the backend's next bookable date, and select it. */
+  const goToNextAvailable = () => {
+    if (!nextAvailable) return;
+    const [ny, nm, nd] = nextAvailable.split('-').map(Number);
+    setView(new Date(ny, nm - 1, 1));
+    setDate(isoDate(new Date(ny, nm - 1, nd)));
+  };
 
   return (
     <div className="bw__cal">
@@ -925,16 +1150,55 @@ function Schedule({ facilityType, category, club, currency, initialDate = null,
           {facilityType?.duration_minutes ? <li><Clock /> {duration(facilityType.duration_minutes, t)}</li> : null}
           <li><Pin /> {club?.name}{club?.city ? `, ${club.city}` : ''}</li>
         </ul>
+
+        {/* What was chosen on the previous step. Without this the add-ons are
+            invisible from here on, and they are part of the price shown
+            below. */}
+        {chosenAddons.length > 0 && (
+          <ul className="bw__cal-pills" aria-label={t('wizard.addons.title')}>
+            {chosenAddons.map((addon) => (
+              <li key={addon.id} className="bw__cal-pill">{addon.name}</li>
+            ))}
+          </ul>
+        )}
         <div className="bw__cal-sep" />
-        {value && (
+        {values.length > 0 && (
           <div className="bw__cal-appt">
-            <span>{t('wizard.when.appointment')}</span>
-            <strong>{longDate(value.date, locale)}<br /><bdi>{fmtTime(value.time, is24)} - {fmtTime(value.end, is24)}</bdi></strong>
+            <span className="bw__cal-appt-k">{t('wizard.when.appointment')}</span>
+            <ul className="bw__cal-appt-list">
+              {groupByDate(values).map((group) => (
+                <li key={group.date}>
+                  <span className="bw__cal-appt-d">
+                    {longDate(group.date, locale)}
+                  </span>
+                  {group.times.map((slot) => (
+                    <span className="bw__cal-appt-t" key={slot.time}>
+                      <bdi>{fmtTime(slot.time, is24)} - {fmtTime(slot.end, is24)}</bdi>
+                    </span>
+                  ))}
+                </li>
+              ))}
+            </ul>
           </div>
         )}
         <div className="bw__cal-total">
           <span>{t('common.total')}</span>
-          <strong><Price amount={facilityType?.from_price} currency={currency} /></strong>
+          <div className="bw__cal-total-v">
+            {/* The backend's figure for exactly these slots, or a placeholder
+                until it arrives. Never the catalogue price: showing that
+                first and correcting it is what made the total appear to
+                change on its own. */}
+            <strong>
+              {runningTotal === null
+                ? <PriceSkeleton />
+                : <Price amount={runningTotal} currency={currency} />}
+            </strong>
+            {values.length > 1 && (
+              <span className="bw__cal-total-n">
+                {t('wizard.when.chosenCount', { count: values.length })}
+              </span>
+            )}
+          </div>
         </div>
 
         <p className="bw__cal-pay"><Clock /> {t('wizard.when.payOnCompletion')}</p>
@@ -968,16 +1232,60 @@ function Schedule({ facilityType, category, club, currency, initialDate = null,
           {cells.map((d, i) => {
             if (!d) return <span key={`b${i}`} className="bw__day bw__day--blank" />;
             const iso = isoDate(d);
-            const off = dayOff(d);
+            const state = dayState(d);
+            const off = state.off;
             const active = iso === date;
             const isToday = iso === todayIso;
+            // A handful of slots left is worth a quiet mark; a full day is not
+            // worth decorating, and every day carrying a badge would be noise.
+            const limited = !off && state.count > 0 && state.count <= 2;
+            const offer = state.offer;
+            // A discount confined to part of the day says only that an offer
+            // exists; claiming "-20%" for the whole date would be a lie.
+            const offerText = offer
+              ? (offer.time_limited ? t('wizard.when.offer') : offer.label)
+              : '';
             return (
               <button key={iso} type="button" disabled={off}
-                className={`bw__day${active ? ' is-active' : off ? ' is-off' : ' is-open'}${isToday && !active && !off ? ' is-today' : ''}`}
-                onClick={() => setDate(iso)}>{d.getDate()}</button>
+                title={offer ? offer.name : undefined}
+                aria-label={longDate(iso, locale)
+                  + (off ? `, ${t('wizard.when.unavailable')}` : '')
+                  + (!off && limited ? `, ${t('wizard.when.slotsLeft', { count: state.count })}` : '')
+                  + (offer ? `, ${offer.name}` : '')}
+                className={`bw__day${active ? ' is-active' : off ? ' is-off' : ' is-open'}${isToday && !active && !off ? ' is-today' : ''}${limited ? ' is-limited' : ''}${offer ? ' has-offer' : ''}`}
+                onClick={() => setDate(iso)}>
+                {d.getDate()}
+                {offer && <span className="bw__day-offer"><bdi>{offerText}</bdi></span>}
+                {limited && !offer && <span className="bw__day-dot" aria-hidden="true" />}
+              </button>
             );
           })}
         </div>
+
+        {monthLoading && !days && (
+          <p className="bw__cal-note">{t('wizard.when.checkingAvailability')}</p>
+        )}
+        {monthFailed && (
+          <p className="bw__cal-note">{t('wizard.when.availabilityUnknown')}</p>
+        )}
+        {monthEmpty && (
+          <div className="bw__cal-empty" role="status">
+            <p>{t('wizard.when.noneThisMonth')}</p>
+            {nextAvailable && (
+              <>
+                <p className="bw__cal-next">
+                  {t('wizard.when.nextAvailable', {
+                    date: longDate(nextAvailable, locale),
+                  })}
+                </p>
+                <button type="button" className="bw__cal-jump"
+                  onClick={goToNextAvailable}>
+                  {t('wizard.when.goToNextAvailable')}
+                </button>
+              </>
+            )}
+          </div>
+        )}
       </div>
 
       {/* RIGHT - times for the selected date */}
@@ -986,6 +1294,9 @@ function Schedule({ facilityType, category, club, currency, initialDate = null,
         <div className="bw__time-list">
           {loading ? <p className="bw__sch-loading">{t('common.loading')}</p>
             : data?.closed ? <p className="bw__cal-none">{t('wizard.when.closed')}</p>
+              : wentStale ? (
+                <p className="bw__cal-none">{t('wizard.when.noLongerAvailable')}</p>
+              )
               : data?.slots?.length ? data.slots.map((s) => {
                 const off = s.available <= 0;
                 const sel = isPicked(s.time);
@@ -999,6 +1310,24 @@ function Schedule({ facilityType, category, club, currency, initialDate = null,
                       <span className="bw__time-t"><bdi>{fmtTime(s.time, is24)}</bdi></span>
                       {off ? <span className="bw__time-tag">{t('wizard.when.fullyBooked')}</span>
                         : null}
+                      {/* Peak / off-peak, as classified on the business hours.
+                          Shown to the customer in the words they price things
+                          in, not in the admin's Hot/Cold wording. */}
+                      {!off && s.period === 'hot' && (
+                        <span className="bw__time-per bw__time-per--hot">
+                          {t('wizard.when.peak')}
+                        </span>
+                      )}
+                      {!off && s.period === 'cold' && (
+                        <span className="bw__time-per bw__time-per--cold">
+                          {t('wizard.when.offPeak')}
+                        </span>
+                      )}
+                      {!off && s.offer && (
+                        <span className="bw__time-offer" title={s.offer.name}>
+                          <bdi>{s.offer.label}</bdi>
+                        </span>
+                      )}
                     </button>
                     {/* In multi-select the Continue lives once at the foot of
                         the list, so it is not repeated beside every chosen time. */}
@@ -1022,18 +1351,26 @@ function Schedule({ facilityType, category, club, currency, initialDate = null,
             ) : (
               <>
                 <ul className="bw__pick-list">
-                  {values.map((v) => (
-                    <li key={`${v.date}T${v.time}`} className="bw__pick-item">
-                      <span>
-                        <bdi>{longDate(v.date, locale)}</bdi>
-                        {' '}
-                        <bdi>{fmtTime(v.time, is24)} - {fmtTime(v.end, is24)}</bdi>
+                  {groupByDate(values).map((group) => (
+                    <li key={group.date} className="bw__pick-day">
+                      <span className="bw__pick-date">
+                        <bdi>{shortDate(group.date, locale)}</bdi>
                       </span>
-                      <button type="button" className="bw__pick-x"
-                        aria-label={t('wizard.when.removeTime')}
-                        onClick={() => onChange(values.filter((x) => !sameSlot(x, v)))}>
-                        &times;
-                      </button>
+                      <span className="bw__pick-chips">
+                        {group.times.map((v) => (
+                          <button
+                            key={v.time}
+                            type="button"
+                            className="bw__pick-chip"
+                            title={t('wizard.when.removeTime')}
+                            aria-label={`${longDate(v.date, locale)} ${fmtTime(v.time, is24)}, ${t('wizard.when.removeTime')}`}
+                            onClick={() => onChange(values.filter((x) => !sameSlot(x, v)))}
+                          >
+                            <bdi>{fmtTime(v.time, is24)}</bdi>
+                            <span className="bw__pick-x" aria-hidden="true">&times;</span>
+                          </button>
+                        ))}
+                      </span>
                     </li>
                   ))}
                 </ul>
@@ -1201,10 +1538,9 @@ function Details({ facilityType, category, club, slot, slots = [], currency, cou
     } finally { setOtpBusy(false); }
   }
 
-  const loadQuote = (code) => fetch('/api/quote', {
-    method: 'POST', headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ facility_type: facilityType?.id, club: club?.id, add_ons: addons, coupon: code || '' }),
-  }).then((r) => (r.ok ? r.json() : null)).catch(() => null);
+  const loadQuote = (code) => fetchQuote({
+    club, facilityType, addons, coupon: code || '', slots: chosen,
+  });
 
   // Initial price breakdown (re-applies a coupon kept from before navigating away).
   useEffect(() => { loadQuote(applied?.code || '').then((q) => q && setQuote(q)); /* eslint-disable-next-line */ }, []);
@@ -1460,9 +1796,15 @@ function Details({ facilityType, category, club, slot, slots = [], currency, cou
   // backend remains authoritative and recomputes every slot on submit, so this
   // is what the customer is about to agree to, not what they will be charged
   // by some separate calculation.
-  const perSlotTotal = quote?.summary?.total ?? quote?.total_amount ?? facilityType?.from_price;
-  const bookingTotal = slotCount > 1
-    ? (num(perSlotTotal) * slotCount).toFixed(2) : perSlotTotal;
+  // The order total comes from the backend, which priced each slot on its own
+  // date. Multiplying the first slot's price would be wrong the moment a
+  // selection straddles the end of an offer.
+  const perSlotTotal = quote?.summary?.total ?? quote?.total_amount ?? null;
+  // Null until the backend answers. The catalogue price was standing in here
+  // too, so the total moved once on arriving at this step.
+  const bookingTotal = orderTotal(quote);
+  const priceReady = bookingTotal !== null && bookingTotal !== undefined;
+  const uniformPricing = slotsPriceAlike(quote);
   const shares = split.on && split.mode === 'equal'
     ? previewEqualSplit(bookingTotal, split.people)
     : split.custom.map((row) => row.amount);
@@ -1477,9 +1819,14 @@ function Details({ facilityType, category, club, slot, slots = [], currency, cou
   const contactLine = [form.name, form.phone, form.email].filter(Boolean).join(' · ');
   // Everything the promo, the rules and the loyalty discount took off the price,
   // so the customer can see the offer worked.
-  const savings = (quote?.summary?.adjustments || [])
-    .filter((a) => a.kind !== 'surcharge')
-    .reduce((total, a) => total + num(a.amount), 0) * slotCount;
+  // Stated only when every slot costs the same. With mixed prices the
+  // per-slot adjustment cannot be multiplied out, and a wrong saving is worse
+  // than none.
+  const savings = uniformPricing
+    ? (quote?.summary?.adjustments || [])
+      .filter((a) => a.kind !== 'surcharge')
+      .reduce((total, a) => total + num(a.amount), 0) * slotCount
+    : 0;
 
   return (
     <div className="ck">
@@ -1655,7 +2002,12 @@ function Details({ facilityType, category, club, slot, slots = [], currency, cou
                 </span>
               </li>
             ))}
-            {selectedAddons.length > 0 && (
+            {/* The add-ons are not listed here: the price breakdown below
+                names every one of them with its own amount, and saying them
+                twice made the summary longer without saying anything more.
+                They are only named here when there is no breakdown to fall
+                back on. */}
+            {selectedAddons.length > 0 && !quote?.summary && (
               <li><Sparkle /> <span>{selectedAddons.map((a) => a.name).join(', ')}</span></li>
             )}
           </ul>
@@ -1698,7 +2050,7 @@ function Details({ facilityType, category, club, slot, slots = [], currency, cou
             <div className="ck__lines">
               <div className="ck__line">
                 <span>{t('common.subtotal')}</span>
-                <span><Money amount={quote?.subtotal ?? facilityType?.from_price} currency={cur} /></span>
+                <span><Money amount={quote?.subtotal ?? facilityType?.price} currency={cur} /></span>
               </div>
             </div>
           )}
@@ -1713,7 +2065,11 @@ function Details({ facilityType, category, club, slot, slots = [], currency, cou
             <>
               <div className="ck__line ck__line--sub">
                 <span>{t('checkout.bookingTotal')}</span>
-                <span><Money amount={bookingTotal} currency={cur} /></span>
+                <span>
+                  {priceReady
+                    ? <Money amount={bookingTotal} currency={cur} />
+                    : <PriceSkeleton />}
+                </span>
               </div>
               <div className="ck__total">
                 <div>
@@ -1733,7 +2089,11 @@ function Details({ facilityType, category, club, slot, slots = [], currency, cou
             <div className="ck__total">
               <span className="ck__total-k">{t('common.total')}</span>
               <div className="ck__total-v">
-                <strong><Money amount={bookingTotal} currency={cur} /></strong>
+                <strong>
+                  {priceReady
+                    ? <Money amount={bookingTotal} currency={cur} />
+                    : <PriceSkeleton />}
+                </strong>
                 {quote?.summary && (
                   <span className="ck__total-sub">
                     {t('checkout.includesVat', {
@@ -1762,7 +2122,9 @@ function Details({ facilityType, category, club, slot, slots = [], currency, cou
                     ? (paysNow
                       ? t('checkout.payMyShare', { amount: `${cur} ${Number(myShare).toFixed(2)}` })
                       : t('checkout.createSplit'))
-                    : t('checkout.payAmount', { amount: `${cur} ${Number(bookingTotal || 0).toFixed(2)}` })}
+                    : priceReady
+                      ? t('checkout.payAmount', { amount: `${cur} ${Number(bookingTotal).toFixed(2)}` })
+                      : t('checkout.working')}
               </>
             )}
           </button>

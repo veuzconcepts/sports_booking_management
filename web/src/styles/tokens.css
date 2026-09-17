@@ -51,6 +51,11 @@
   --muted: #6d7a71;
   --line: #e3dfd2;
   --track: #e8e4d8;
+  /* Offer badge ink, and the warm/cool accents behind a peak or off-peak
+     marker. Defined per theme so both stay legible in dark mode. */
+  --offer-ink: #2f6b1f;
+  --warm-soft: rgba(196, 106, 24, 0.14);
+  --cool-soft: rgba(38, 112, 150, 0.14);
   --soft-accent: #eaf6d8;       /* lime at rest */
   --soft-active: #dff0c2;       /* lime, selected */
   --faq-open-bg: #f1f6e8;
@@ -102,6 +107,9 @@
   --muted: #8ea194;
   --line: rgba(255, 255, 255, 0.10);
   --track: #1b4130;
+  --offer-ink: #cff56a;
+  --warm-soft: rgba(238, 164, 84, 0.20);
+  --cool-soft: rgba(116, 190, 226, 0.20);
   --soft-accent: rgba(207, 245, 106, 0.14);
   --soft-active: rgba(207, 245, 106, 0.24);
   --faq-open-bg: rgba(207, 245, 106, 0.10);
@@ -141,6 +149,10 @@
   --navy-700: var(--brand-deep);
   --indigo: var(--brand-soft);
   --indigo-600: var(--brand-soft);
+  /* Used for card hover borders. It was only ever a hard-coded purple
+     fallback, which showed a leftover palette on a green-branded site
+     and could not follow the theme. */
+  --indigo-400: var(--brand-soft);
   --amber: var(--accent);
   --amber-600: var(--accent-strong);
   --plate: var(--logo-plate);

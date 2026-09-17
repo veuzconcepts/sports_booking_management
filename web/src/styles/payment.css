@@ -159,7 +159,9 @@
   padding: 13px 14px;
   border: 1px solid var(--line);
   border-radius: var(--radius-sm);
-  background: var(--surface-2);
+  /* Same surface as the phone field beside it: a filled grey box next to a
+     white one read as though one of them were disabled. */
+  background: var(--surface);
   color: var(--ink);
   font: inherit;
   font-size: 15px;
@@ -170,7 +172,6 @@
 .ck__input:focus-visible {
   outline: 2px solid var(--brand-soft);
   outline-offset: 1px;
-  background: var(--surface);
 }
 
 .ck__input.is-invalid {
@@ -653,7 +654,7 @@
   padding: 5px 8px;
   border: 1px solid var(--line);
   border-radius: 8px;
-  background: var(--surface-2);
+  background: var(--surface);
   color: var(--ink);
   font: inherit;
   font-size: 12.5px;
@@ -675,7 +676,7 @@
   padding: 8px 10px;
   border: 1px solid var(--line);
   border-radius: 10px;
-  background: var(--surface-2);
+  background: var(--surface);
   color: var(--ink);
   font: inherit;
   font-size: 14px;
@@ -1405,3 +1406,24 @@ bdi,
 /* Every slot a share covers, on the friend's payment page. */
 .sp__times { list-style: none; margin: 2px 0 0; padding: 0; display: grid; gap: 3px; }
 .sp__times li { font-size: 13px; }
+
+/* Placeholder for a price the backend has not returned yet. Mirrors the
+   booking page rule so both steps wait identically. */
+.bw__price-wait {
+  display: inline-block;
+  inline-size: 5.5ch;
+  block-size: 1em;
+  vertical-align: -0.12em;
+  border-radius: 6px;
+  background: var(--track);
+  animation: bw-price-wait 1.1s ease-in-out infinite;
+}
+
+@keyframes bw-price-wait {
+  0%, 100% { opacity: .55; }
+  50% { opacity: .85; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .bw__price-wait { animation: none; }
+}

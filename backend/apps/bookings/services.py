@@ -26,6 +26,9 @@ logger = logging.getLogger(__name__)
 
 from .models import (
     ACTIVE_STATUSES,
+    SLOT_BLOCKING_STATUSES,
+    BookingSource,
+    PaymentMethod,
     STATUS_TRANSITIONS,
     VERIFIED_BOOKING_STATUSES,
     Booking,
@@ -109,9 +112,10 @@ def eligible_facilities(club=None, facility_type=None):
 
 
 def _day_bookings(on_date, club=None, exclude_booking_id=None):
-    """(facility_id, start, end) for every live booking holding a facility."""
+    """(facility_id, start, end) for every booking holding a facility."""
     qs = Booking.objects.filter(
-        scheduled_date=on_date, status__in=ACTIVE_STATUSES, facility__isnull=False)
+        scheduled_date=on_date, status__in=SLOT_BLOCKING_STATUSES,
+        facility__isnull=False)
     if club is not None:
         qs = qs.filter(club=club)
     if exclude_booking_id:
@@ -173,6 +177,23 @@ def _merge_windows(windows):
         else:
             merged.append(sched.Window(window.start, window.end))
     return merged
+
+
+def slot_period(day, start, end) -> str:
+    """The peak/off-peak classification of the shift a slot falls in.
+
+    Read from the day's ORIGINAL shifts rather than the merged grid, because
+    merging two adjacent shifts into one bookable window is exactly what would
+    lose the boundary between a cold afternoon and a hot evening. A slot that
+    straddles two differently classified shifts takes the one it starts in,
+    which is the one the customer is booking.
+    """
+    from apps.settings_app import schedule as sched
+
+    for shift in day.shifts:
+        if shift.start <= start < shift.end:
+            return shift.period
+    return sched.PERIOD_NORMAL
 
 
 def _covers(day, start, end) -> bool:
@@ -289,8 +310,6 @@ def available_slots(on_date, club=None, facility_type=None, facility=None) -> li
     timezone), when the booking would run past the shift's close or past
     midnight, or when it would overlap a break.
     """
-    from apps.settings_app import schedule as sched
-
     day = _resolve_schedule(on_date, club=club, facility=facility)
 
     interval = day.slot_minutes or SLOT_MINUTES
@@ -320,6 +339,24 @@ def available_slots(on_date, club=None, facility_type=None, facility=None) -> li
             own_day[f.id] = (_resolve_schedule(on_date, club=club, facility=f)
                              if f.id in distinct else shared_day)
 
+    return _build_slots(on_date, day=day, own_day=own_day, bookings=bookings,
+                        blocks=blocks, interval=interval, duration=duration)
+
+
+def _build_slots(on_date, *, day, own_day, bookings, blocks, interval, duration,
+                 now=None):
+    """The slot grid for one date, from data the caller has already loaded.
+
+    Separated from `available_slots` so a whole month can be summarised
+    without re-reading the schedule, the facilities, the bookings and the
+    maintenance blocks once per day. Both callers run this same code, so a
+    date can never be described differently by the calendar and by the slot
+    list.
+    """
+    from apps.settings_app import schedule as sched
+
+    day_minutes = 24 * 60
+
     # The grid is the union of the hours the facilities that can serve this
     # booking actually keep, not the club's alone. A court with its own evening
     # schedule has to offer its evening, and must not offer the club's morning
@@ -330,10 +367,12 @@ def available_slots(on_date, club=None, facility_type=None, facility=None) -> li
     if not shifts:
         return []                                   # closed, or fully excepted
 
-    now = sched.local_now()
+    # Resolved once by a range caller and passed in: reading the clock asks
+    # the Organization for its timezone, which is a query, and a month of days
+    # would otherwise ask thirty times for the same answer.
+    now = now or sched.local_now()
     is_today = on_date == now.date()
     now_minutes = now.hour * 60 + now.minute
-    day_minutes = 24 * 60
 
     slots = []
     seen = set()
@@ -377,10 +416,272 @@ def available_slots(on_date, club=None, facility_type=None, facility=None) -> li
                     "capacity": capacity,
                     "booked": booked,
                     "available": max(0, capacity - booked),
+                    # Classification only. It never changes a price by itself;
+                    # a pricing rule has to ask for it.
+                    "period": slot_period(day, cursor, cursor + duration),
                 })
             cursor += interval
     slots.sort(key=lambda s: s["time"])
     return slots
+
+
+# Why a date cannot be booked. The public UI shows one plain "unavailable"
+# state; these exist so support and tests can tell the cases apart.
+DATE_CLOSED = "closed"
+DATE_HOLIDAY = "holiday"
+DATE_FULL = "fully_booked"
+DATE_PAST = "past"
+DATE_OUTSIDE_WINDOW = "outside_window"
+DATE_RULES = "rules"
+
+
+def date_is_bookable(slots, rules) -> bool:
+    """Whether this date's free slots can actually form a valid booking.
+
+    Section 15: "at least one free slot" is not the question. A facility that
+    demands two back-to-back slots cannot be booked on a date offering one
+    isolated gap, and offering that date would send the customer to a slot
+    list they cannot complete.
+
+    What counts as enough depends on the same rules the submit path enforces:
+
+    * one slot per booking, or a floor of one: any free slot will do;
+    * a floor above one with back-to-back required: that many CONSECUTIVE free
+      slots must exist on this date, because the engine refuses a consecutive
+      run that spans dates;
+    * a floor above one with other dates allowed: one free slot is enough, the
+      rest can come from another date;
+    * a floor above one confined to a single date: that many free slots must
+      exist here, though they need not be adjacent.
+    """
+    free = [s for s in slots if s["available"] > 0]
+    if not free:
+        return False
+
+    minimum = max(1, int(rules.get("min_slots_per_booking") or 1))
+    if minimum <= 1 or not rules.get("allow_multiple_slots"):
+        return True
+
+    if rules.get("require_consecutive_slots"):
+        return _longest_consecutive_run(free) >= minimum
+    if rules.get("allow_multiple_dates"):
+        return True
+    return len(free) >= minimum
+
+
+def _longest_consecutive_run(free_slots) -> int:
+    """The most back-to-back free slots on one date.
+
+    "Back to back" means one slot's end IS the next one's start, which is the
+    same test `multi_slot.check_selection_shape` applies.
+    """
+    ordered = sorted(free_slots, key=lambda s: s["time"])
+    best = run = 1
+    for previous, current in zip(ordered, ordered[1:]):
+        run = run + 1 if previous["end"] == current["time"] else 1
+        best = max(best, run)
+    return best
+
+
+def date_availability_summary(first, last, *, club=None, facility_type=None,
+                              facility=None) -> dict:
+    """`{iso date: {available, slot_count, reason}}` for a whole date range.
+
+    So the calendar can grey out a date before the customer clicks it, without
+    one request or one query per day. Every date is answered by the SAME slot
+    engine the booking path uses: the schedule chain, exceptions, breaks,
+    maintenance, live bookings, capacity, duration and the booking window all
+    apply exactly as they would at submit time.
+
+    This is a UX optimisation and nothing more. A date reported available here
+    is still revalidated in full when a slot is chosen and again when the
+    booking is saved.
+
+    Cost is fixed rather than per day: the facilities, the whole range of
+    bookings, the maintenance blocks and the schedule chain are each read once.
+    """
+    from apps.settings_app import schedule as sched
+
+    from . import availability_cache
+
+    if last < first:
+        return {}
+
+    cached = availability_cache.get(first, last, club=club,
+                                    facility_type=facility_type, facility=facility)
+    if cached is not None:
+        return cached
+
+    rules = resolve_booking_slot_rules(club=club, facility_type=facility_type)
+    window = booking_window(club)
+    earliest = date_cls.fromisoformat(window["earliest_date"])
+    latest = date_cls.fromisoformat(window["latest_date"]) if window["latest_date"] else None
+    now = sched.local_now()
+    today = now.date()
+
+    candidates = list(eligible_facilities(club=club, facility_type=facility_type))
+    if facility is not None:
+        candidates = [f for f in candidates if f.id == facility.id]
+
+    summary = {}
+    if not candidates:
+        cursor = first
+        while cursor <= last:
+            summary[cursor.isoformat()] = _unbookable(DATE_CLOSED)
+            cursor += timedelta(days=1)
+        availability_cache.set(first, last, summary, club=club,
+                               facility_type=facility_type, facility=facility)
+        return summary
+
+    # Customer-visible discounts that could land anywhere in the range, read
+    # once from the pricing engine rather than per date.
+    from apps.facilities import pricing
+
+    club_id = getattr(club, "id", None)
+    category_ids = (list(facility_type.categories.values_list("id", flat=True))
+                    if facility_type is not None else [])
+    offer_rules = pricing.offer_candidates(
+        first, last, facility_type=facility_type, club_id=club_id)
+
+    bookings_by_date = _range_bookings(first, last, club=club)
+    blocks = _range_blocks(first, last, club=club)
+    club_days = sched.resolve_for_range(first, last, club=club, facility=facility)
+    # Only facilities that can actually differ from their club are resolved
+    # separately, the same shortcut the single-day path takes.
+    distinct = _facilities_with_own_schedule_in_range(first, last, candidates)
+    facility_days = {
+        f.id: sched.resolve_for_range(first, last, club=club, facility=f)
+        for f in candidates if f.id in distinct
+    }
+
+    duration = getattr(facility_type, "duration_minutes", None)
+    cursor = first
+    while cursor <= last:
+        key = cursor.isoformat()
+        day = club_days[cursor]
+        if cursor < today or cursor < earliest:
+            summary[key] = _unbookable(DATE_PAST if cursor < today
+                                       else DATE_OUTSIDE_WINDOW)
+        elif latest is not None and cursor > latest:
+            summary[key] = _unbookable(DATE_OUTSIDE_WINDOW)
+        else:
+            own_day = {f.id: facility_days.get(f.id, {}).get(cursor, day)
+                       for f in candidates}
+            slots = _build_slots(
+                cursor, day=day, own_day=own_day,
+                bookings=bookings_by_date.get(cursor, []),
+                blocks=_blocks_on(blocks, cursor),
+                interval=day.slot_minutes or SLOT_MINUTES,
+                duration=duration or day.slot_minutes or SLOT_MINUTES,
+                now=now,
+            )
+            free = sum(1 for s in slots if s["available"] > 0)
+            if date_is_bookable(slots, rules):
+                summary[key] = {"available": True, "slot_count": free, "reason": "",
+                                # Availability first, offer second. A discount
+                                # badge on a date nobody can book would be an
+                                # advert for a disappointment.
+                                "offer": pricing.date_offer(
+                                    cursor, offer_rules, facility_type=facility_type,
+                                    category_ids=category_ids, club_id=club_id)}
+            elif not day.is_open:
+                summary[key] = _unbookable(
+                    DATE_HOLIDAY if day.exception else DATE_CLOSED)
+            elif slots and free == 0:
+                summary[key] = _unbookable(DATE_FULL)
+            elif free:
+                # Slots exist but not enough of them to satisfy the floor or
+                # the back-to-back rule.
+                summary[key] = _unbookable(DATE_RULES, slot_count=free)
+            else:
+                summary[key] = _unbookable(DATE_CLOSED)
+        cursor += timedelta(days=1)
+
+    availability_cache.set(first, last, summary, club=club,
+                           facility_type=facility_type, facility=facility)
+    return summary
+
+
+def _unbookable(reason, slot_count=0):
+    return {"available": False, "slot_count": slot_count, "reason": reason}
+
+
+def _range_bookings(first, last, club=None) -> dict:
+    """{date: [(facility_id, start, end)]} for the range, in one query."""
+    qs = Booking.objects.filter(
+        scheduled_date__gte=first, scheduled_date__lte=last,
+        status__in=SLOT_BLOCKING_STATUSES, facility__isnull=False)
+    if club is not None:
+        qs = qs.filter(club=club)
+    grouped = {}
+    for on_date, fid, start, end in qs.values_list(
+            "scheduled_date", "facility_id", "scheduled_time", "end_time"):
+        grouped.setdefault(on_date, []).append((fid, start, end))
+    return grouped
+
+
+def _range_blocks(first, last, club=None) -> list:
+    """Maintenance overlapping the range, in one query, with its own dates so
+    each day can take the slice that covers it."""
+    from apps.facilities.models import MaintenanceBlock
+
+    qs = MaintenanceBlock.objects.filter(start_date__lte=last, end_date__gte=first)
+    if club is not None:
+        qs = qs.filter(facility__club=club)
+    return list(qs.values_list("facility_id", "start_time", "end_time",
+                               "start_date", "end_date"))
+
+
+def _blocks_on(blocks, on_date) -> list:
+    return [(fid, start, end) for fid, start, end, first, last in blocks
+            if first <= on_date <= last]
+
+
+def _facilities_with_own_schedule_in_range(first, last, facilities) -> set:
+    """Facility ids whose day can differ from their club's, anywhere in the
+    range. One query for the whole range rather than one per date."""
+    from apps.settings_app.models import ScheduleException
+
+    distinct = {f.id for f in facilities
+                if (f.booking_hours or {}) or f.slot_minutes
+                or f.buffer_before_minutes or f.buffer_after_minutes}
+    previous = first - timedelta(days=1)
+    ids = [f.id for f in facilities]
+    distinct |= set(
+        ScheduleException.objects
+        .filter(is_active=True, facility_id__in=ids, start_date__lte=last)
+        .filter(Q(end_date__isnull=True, start_date__gte=previous)
+                | Q(end_date__gte=previous))
+        .values_list("facility_id", flat=True))
+    return distinct
+
+
+def next_available_date(after, *, club=None, facility_type=None, facility=None,
+                        horizon_days=120):
+    """The first bookable date on or after `after`, or None within the horizon.
+
+    Searched a month at a time through `date_availability_summary`, so finding
+    a date three months out costs three range queries rather than ninety.
+    Bounded by the booking window, because a date the policy would refuse is
+    not an answer.
+    """
+    window = booking_window(club)
+    latest = date_cls.fromisoformat(window["latest_date"]) if window["latest_date"] else None
+    limit = after + timedelta(days=horizon_days)
+    if latest is not None and latest < limit:
+        limit = latest
+
+    cursor = after
+    while cursor <= limit:
+        chunk_end = min(cursor + timedelta(days=30), limit)
+        summary = date_availability_summary(
+            cursor, chunk_end, club=club, facility_type=facility_type,
+            facility=facility)
+        for key in sorted(summary):
+            if summary[key]["available"]:
+                return date_cls.fromisoformat(key)
+        cursor = chunk_end + timedelta(days=1)
+    return None
 
 
 def public_availability(on_date, club=None, facility_type=None, facility=None) -> dict:
@@ -397,11 +698,29 @@ def public_availability(on_date, club=None, facility_type=None, facility=None) -
     org = Organization.get_solo()
     day = _resolve_schedule(on_date, club=club, facility=facility)
 
-    slots = [
-        {"time": s["time"], "end": s["end"], "available": s["available"]}
-        for s in available_slots(on_date, club=club, facility_type=facility_type,
-                                 facility=facility)
-    ]
+    # Which of the day's times a customer-visible discount actually covers.
+    # Read once for the date and narrowed per slot, so a discount that runs
+    # only in the morning marks only the morning.
+    from apps.facilities import pricing
+
+    club_id = getattr(club, "id", None)
+    category_ids = (list(facility_type.categories.values_list("id", flat=True))
+                    if facility_type is not None else [])
+    offer_rules = pricing.offer_candidates(
+        on_date, on_date, facility_type=facility_type, club_id=club_id)
+
+    slots = []
+    for s in available_slots(on_date, club=club, facility_type=facility_type,
+                             facility=facility):
+        hour, minute = (int(part) for part in s["time"].split(":"))
+        slots.append({
+            "time": s["time"], "end": s["end"], "available": s["available"],
+            "period": s.get("period", "normal"),
+            "offer": pricing.slot_offer(
+                on_date, time(hour, minute), offer_rules,
+                facility_type=facility_type, category_ids=category_ids,
+                club_id=club_id) if offer_rules else None,
+        })
 
     week = sched.effective_week(club=club, facility=facility)
     weekdays = {key: {"closed": bool(cfg["closed"])} for key, cfg in week.items()}
@@ -650,6 +969,89 @@ def resolve_slot_rules(club=None, facility=None) -> dict:
     return rules
 
 
+
+# --------------------------------------------------------------------------- #
+# Abandoned online checkouts
+# --------------------------------------------------------------------------- #
+#: How long a booking may hold a court while its customer is paying online.
+#: Long enough to find a card and type it, short enough that a busy evening is
+#: not lost to somebody who closed the tab.
+PAYMENT_WINDOW_MINUTES = getattr(settings, "BOOKING_PAYMENT_WINDOW_MINUTES", 15)
+
+
+def expire_unpaid_bookings(*, now=None) -> int:
+    """Release slots held by online checkouts that were never completed.
+
+    This is deliberately narrow. A booking is only released when ALL of these
+    are true, because every one of them rules out a booking somebody is
+    relying on:
+
+    * the customer chose to pay online, and we recorded that at checkout.
+      A blank method is never expired: not knowing is a reason to leave it
+      alone, not a reason to cancel somebody's court;
+    * NOT "pay at venue". A cash booking is a real reservation the club
+      agreed to hold, and expiring it would be the club breaking its word;
+    * no money has been taken, not even partly;
+    * no split payment arrangement exists. Split expiry is inert by confirmed
+      policy, and a half-collected split must be resolved by a person;
+    * still in the opening status. Anything staff have touched is theirs;
+    * the payment window has passed.
+
+    Returns how many were released. Safe to run repeatedly and safe to run
+    late: it only ever acts on bookings still matching all of the above.
+    """
+    from apps.payments.models import BookingPaymentSplit, SplitStatus
+
+    now = now or timezone.now()
+    cutoff = now - timedelta(minutes=PAYMENT_WINDOW_MINUTES)
+
+    candidates = (
+        Booking.objects
+        .filter(
+            status=BookingStatus.BOOKED,
+            payment_status=PaymentStatus.PENDING,
+            created_at__lt=cutoff,
+            source=BookingSource.WEBSITE,
+        )
+        # Not cash, and not unknown.
+        .exclude(payment_method=PaymentMethod.CASH)
+        .exclude(payment_method="")
+        .select_related("club", "facility_type")
+    )
+
+    released = 0
+    for booking in candidates:
+        with transaction.atomic():
+            locked = (Booking.objects.select_for_update()
+                      .filter(pk=booking.pk, status=BookingStatus.BOOKED,
+                              payment_status=PaymentStatus.PENDING)
+                      .first())
+            if locked is None:
+                continue                      # somebody got there first
+            if booking_amount_paid(locked) > 0:
+                continue                      # part paid: a person decides
+            if BookingPaymentSplit.objects.filter(
+                    booking=locked, status=SplitStatus.ACTIVE).exists():
+                continue                      # friends are still paying
+            if locked.order_id and BookingPaymentSplit.objects.filter(
+                    order_id=locked.order_id, status=SplitStatus.ACTIVE).exists():
+                continue
+
+            locked.status = BookingStatus.CANCELLED
+            locked.cancelled_at = now
+            locked.cancellation_reason = "Payment not completed in time"
+            locked.save(update_fields=["status", "cancelled_at",
+                                       "cancellation_reason", "updated_at"])
+            record_booking_event(
+                locked,
+                "Released automatically - online payment was not completed "
+                f"within {PAYMENT_WINDOW_MINUTES} minutes.",
+                event="payment_window_expired",
+                meta={"window_minutes": PAYMENT_WINDOW_MINUTES},
+            )
+            released += 1
+    return released
+
 def booking_window(club=None, now=None):
     """The bookable window a customer may choose from, for the date picker.
 
@@ -781,6 +1183,40 @@ class FacilityUnavailable(Exception):
     """No eligible facility is free for the requested interval."""
 
 
+def _lock_club_day(club_id, on_date) -> None:
+    """Hold an exclusive lock on one club's day for the rest of the transaction.
+
+    Allocation reads "which courts are free?" and then writes a booking. Those
+    two steps have to be one step as far as any other booking is concerned, or
+    two customers are both told the same court is free.
+
+    A PostgreSQL advisory lock is used rather than row locks because the thing
+    being protected does not exist yet: it is the absence of a conflicting
+    booking. Advisory locks need no table, cover an empty day exactly as well
+    as a busy one, and are released automatically when the transaction ends,
+    including on rollback, so a crash cannot leave a club unbookable.
+
+    The key is (club, date) so two clubs, or two days at one club, never wait
+    on each other. Anything other than PostgreSQL falls back to the ordinary
+    row locks, which is weaker but is not a configuration this project runs.
+    """
+    from django.db import connection
+
+    if connection.vendor != "postgresql":
+        list(Booking.objects.select_for_update()
+             .filter(club_id=club_id, scheduled_date=on_date,
+                     status__in=SLOT_BLOCKING_STATUSES)
+             .values_list("id", flat=True))
+        return
+
+    # Two 32-bit keys: the club, and the date as a day number. Both are well
+    # inside int4, so neither needs hashing and the pair stays legible in
+    # `pg_locks` when somebody is diagnosing a wait.
+    with connection.cursor() as cursor:
+        cursor.execute("SELECT pg_advisory_xact_lock(%s, %s)",
+                       [int(club_id), int(on_date.toordinal())])
+
+
 def allocate_facility(booking, *, commit=True):
     """Pick a facility for `booking` and pin it to the booking.
 
@@ -800,10 +1236,16 @@ def allocate_facility(booking, *, commit=True):
 
     with transaction.atomic():
         # Serialise allocation for this club/day.
-        list(Booking.objects.select_for_update()
-             .filter(club_id=booking.club_id, scheduled_date=booking.scheduled_date,
-                     status__in=ACTIVE_STATUSES)
-             .values_list("id", flat=True))
+        #
+        # This used to be a SELECT FOR UPDATE over the day's existing bookings,
+        # which does not do the job: row locks only cover rows that are already
+        # there, so an empty day locked nothing at all, and PostgreSQL at READ
+        # COMMITTED has no gap locks to stop a concurrent INSERT either. Two
+        # customers could both be told a court was free and both get it. The
+        # unique index caught that only when the two start times were
+        # identical; a 19:00 two-hour booking and a 20:00 one-hour booking are
+        # different rows, and both were accepted.
+        _lock_club_day(booking.club_id, booking.scheduled_date)
 
         free = free_facilities(
             booking.scheduled_date, booking.scheduled_time,

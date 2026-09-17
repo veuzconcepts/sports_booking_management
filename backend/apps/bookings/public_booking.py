@@ -580,6 +580,25 @@ def _custom_split_participants(entries, organizer_name):
     return rows
 
 
+#: How the customer said they would pay. Recorded even when the payment then
+#: fails, because "they chose to pay at the club" and "their card was declined"
+#: are different situations and afterwards look identical on the booking.
+_INTENT = {"cash": "cash", "card": "card", "split": "online"}
+
+
+def _record_intent(booking, method) -> None:
+    """Remember the payment method the customer chose.
+
+    Only ever written once, and never over a method that a real payment
+    already set, so retrying a declined card cannot rewrite history.
+    """
+    intent = _INTENT.get(method)
+    if not intent or booking.payment_method:
+        return
+    booking.payment_method = intent
+    booking.save(update_fields=["payment_method", "updated_at"])
+
+
 def collect_checkout_payment(booking, payment_request, *, request=None):
     """Settle a freshly created booking according to the chosen method.
 
@@ -600,6 +619,7 @@ def collect_checkout_payment(booking, payment_request, *, request=None):
     from apps.website.split_views import read_card
 
     method = str((payment_request or {}).get("method") or "cash").strip().lower()
+    _record_intent(booking, method)
     outstanding = booking_outstanding(booking)
 
     if method == "cash" or outstanding <= 0:
@@ -666,6 +686,8 @@ def collect_order_payment(order, bookings, payment_request, *, request=None):
     from apps.website.split_views import read_card
 
     method = str((payment_request or {}).get("method") or "cash").strip().lower()
+    for booking in bookings:
+        _record_intent(booking, method)
     outstanding = sum((booking_outstanding(b) for b in bookings), Decimal("0"))
 
     if method == "cash" or outstanding <= 0:

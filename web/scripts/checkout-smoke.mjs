@@ -427,7 +427,12 @@ check('clock times and money are isolated from bidi reordering', () => {
   const problems = [];
   for (const [name, text] of [['BookingWizard', wizard], ['SplitPay', split]]) {
     for (const [line] of text.matchAll(/^.*\bfmtTime\(.*$/gm)) {
-      if (!line.includes('<bdi>') && !line.includes('function fmtTime')) {
+      // An aria-label or title is a plain string read linearly by a screen
+      // reader, not rendered text, so <bdi> would do nothing there. Visible
+      // text is still required to isolate.
+      const isAttribute = /\b(aria-label|title)=/.test(line);
+      if (!line.includes('<bdi>') && !line.includes('function fmtTime')
+          && !isAttribute) {
         problems.push(`${name}: ${line.trim().slice(0, 60)}`);
       }
     }
@@ -560,6 +565,10 @@ await esbuild.build({
   outfile: wizardPath,
   jsx: 'automatic',
   loader: { '.css': 'empty' },
+  // React stays external for the same reason the checkout bundle keeps it so:
+  // a second copy gives the component its own hook dispatcher and every
+  // render fails with "Invalid hook call".
+  external: ['react', 'react-dom', 'react-i18next'],
   logLevel: 'silent',
 });
 const wizard = await import(pathToFileURL(wizardPath).href);
@@ -632,6 +641,238 @@ check('the order proxy hides the backend like the booking one does', () => {
   const proxy = readFileSync('src/pages/api/order.js', 'utf8');
   assert(proxy.includes('createOrder'), 'does not call the shared client');
   return assert(!proxy.includes('http'), 'the proxy names a backend URL');
+});
+
+// --------------------------------------------------------------------------- //
+console.log('\nAvailability-aware calendar:');
+
+const calendarSource = readFileSync('src/components/BookingWizard.jsx', 'utf8');
+
+check('the calendar asks the backend which dates are bookable', () => {
+  // Section 3: the browser must not decide this from the weekly pattern. A
+  // holiday, a maintenance closure and a full day all look open in one.
+  assert(calendarSource.includes('/api/availability-calendar'),
+    'the month summary endpoint is never called');
+  return assert(calendarSource.includes('month?.days'),
+    'the summary is fetched but not used');
+});
+
+check('a date the backend refuses is disabled, not merely faded', () => {
+  // Section 32: a visually disabled date that is still reachable by keyboard
+  // is worse than no disabled state at all.
+  assert(calendarSource.includes('disabled={off}'), 'day cells are not disabled');
+  return assert(calendarSource.includes("t('wizard.when.unavailable')"),
+    'a disabled date carries no accessible reason');
+});
+
+check('an empty month offers somewhere to go', () => {
+  // Section 8 and 27: a customer must not have to press next repeatedly.
+  assert(calendarSource.includes('noneThisMonth'), 'no empty-month message');
+  assert(calendarSource.includes('next_available'), 'the next date is not read');
+  return assert(calendarSource.includes('goToNextAvailable'),
+    'there is no action to jump to it');
+});
+
+check('a date that empties after the month loaded says so', () => {
+  // Section 12: "no times today" and "not any more" are different messages,
+  // and the second one has to retire the stale summary.
+  assert(calendarSource.includes('wentStale'), 'staleness is not detected');
+  return assert(calendarSource.includes('noLongerAvailable'),
+    'a date that just filled up reads as if it never had times');
+});
+
+check('booking a slot drops the month it belongs to', () => {
+  // Otherwise the calendar keeps offering a date its own booking just filled.
+  return assert(/availInvalidate[\s\S]{0,400}_monthCache\.delete/.test(calendarSource),
+    'invalidating a day leaves the month summary stale');
+});
+
+check('the month is fetched once per month, not once per day', () => {
+  // Section 6: thirty requests to paint thirty days is the thing this
+  // replaces.
+  assert(calendarSource.includes('monthBounds'), 'no month range is computed');
+  return assert(!/for\s*\([^)]*\)\s*\{[^}]*\/api\/availability-calendar/.test(calendarSource),
+    'the summary is fetched in a loop');
+});
+
+check('the calendar proxy hides the backend like the others do', () => {
+  const proxy = readFileSync('src/pages/api/availability-calendar.js', 'utf8');
+  assert(proxy.includes('getAvailabilityCalendar'), 'does not use the shared client');
+  return assert(!proxy.includes('http'), 'the proxy names a backend URL');
+});
+
+check('a failed summary does not silently disable the whole month', () => {
+  // Availability is a UX optimisation. Losing it must degrade to the old
+  // behaviour, not to a calendar where nothing can be clicked.
+  return assert(calendarSource.includes('availabilityUnknown'),
+    'a failed summary has no message');
+});
+
+// --------------------------------------------------------------------------- //
+console.log('\nOffers and time classification:');
+
+const bookingCss = readFileSync('src/styles/booking.css', 'utf8');
+const tokensCss = readFileSync('src/styles/tokens.css', 'utf8');
+
+check('every custom property the booking styles use is actually defined', () => {
+  // Twice now a stylesheet has used an invented token with a hard-coded
+  // fallback, which silently pins that colour to light mode for ever.
+  const used = new Set();
+  for (const [, name] of bookingCss.matchAll(/var\(\s*(--[a-z0-9-]+)/g)) used.add(name);
+  const defined = new Set();
+  for (const source of [tokensCss, bookingCss, readFileSync('src/styles/theme.css', 'utf8')]) {
+    for (const [, name] of source.matchAll(/(--[a-z0-9-]+)\s*:/g)) defined.add(name);
+  }
+  const missing = [...used].filter((name) => !defined.has(name));
+  return assert(missing.length === 0, `undefined: ${missing.join(', ')}`);
+});
+
+check('an offer colour is defined for dark mode too', () => {
+  const dark = tokensCss.slice(tokensCss.indexOf('[data-theme="dark"]'));
+  return assert(dark.includes('--offer-ink') && dark.includes('--warm-soft')
+    && dark.includes('--cool-soft'), 'a badge colour is light-mode only');
+});
+
+check('an offer is only ever shown on a date that can be booked', () => {
+  // Section 8: availability first, offer second.
+  return assert(calendarSource.includes('offer: known.available ? known.offer || null : null'),
+    'an offer can be rendered on an unavailable date');
+});
+
+check('a part-of-day offer does not claim the whole day', () => {
+  // Section 12: "-20%" on a date discounted only in the morning is a lie.
+  return assert(calendarSource.includes('offer.time_limited ?'),
+    'a time-limited offer is shown as though it covered the date');
+});
+
+check('the browser never computes a discount', () => {
+  // Section 14: the label and the price both come from the backend.
+  assert(calendarSource.includes('offer.label'), 'the backend label is unused');
+  return assert(!/offer\.value\s*[*/]/.test(calendarSource),
+    'a discount is being arithmetic-ed in the browser');
+});
+
+check('peak and off-peak reach the slot list', () => {
+  assert(calendarSource.includes("s.period === 'hot'"), 'peak is never shown');
+  return assert(calendarSource.includes("t('wizard.when.offPeak')"),
+    'off-peak has no customer wording');
+});
+
+// --------------------------------------------------------------------------- //
+console.log('\nThe date step actually renders:');
+
+// esbuild proves the file parses. It does not prove the component runs: a
+// reference to a prop that was renamed is valid JavaScript and only explodes
+// when React evaluates it. That has now shipped three times, always as a blank
+// step, so the step is rendered here for real.
+const wizardUi = await import(pathToFileURL(wizardPath).href);
+
+const CLUB = { id: 1, name: 'Nadena Club', city: 'Jeddah' };
+const ACTIVITY = { id: 3, name: 'Badminton Court', duration_minutes: 45,
+                   price: '120.00' };
+
+function renderSchedule(props = {}) {
+  return renderToStaticMarkup(h(I18nextProvider, { i18n: getI18n('en') },
+    h(wizardUi.Schedule, {
+      club: CLUB, facilityType: ACTIVITY, currency: 'SAR',
+      values: [], onChange() {}, onContinue() {}, ...props,
+    })));
+}
+
+check('the date step renders with nothing chosen yet', () => {
+  const html = renderSchedule();
+  return assert(html.includes('Badminton Court'), 'the step did not render');
+});
+
+check('the date step renders with times already chosen', () => {
+  // The exact shape that crashed: the summary aside reads the selection.
+  const html = renderSchedule({
+    values: [
+      { date: '2026-09-17', time: '21:00', end: '21:45' },
+      { date: '2026-09-18', time: '09:00', end: '09:45' },
+    ],
+  });
+  assert(html.includes('21:00') || html.includes('9:00'),
+    'a chosen time is missing from the summary');
+  return assert(html.includes('Nadena Club'), 'the club is missing');
+});
+
+check('the date step renders in Arabic', () => {
+  const html = renderToStaticMarkup(h(I18nextProvider, { i18n: getI18n('ar') },
+    h(wizardUi.Schedule, {
+      club: CLUB, facilityType: ACTIVITY, currency: 'SAR',
+      values: [{ date: '2026-09-17', time: '21:00', end: '21:45' }],
+      onChange() {}, onContinue() {},
+    })));
+  return assert(html.length > 0 && html.includes('bw__cal'),
+    'the Arabic render produced nothing');
+});
+
+check('the site reads the price field the backend actually sends', () => {
+  // The backend renamed this during the CarWash rename and has a test pinning
+  // `from_price` OUT of the payload. The site kept reading the old name, so
+  // every price it rendered was blank.
+  return assert(!calendarSource.includes('from_price'),
+    'the wizard still reads the removed from_price field');
+});
+
+check('a price that has not arrived waits rather than guessing', () => {
+  // Showing the catalogue price and swapping it for the quoted one a moment
+  // later reads as the price changing while the customer watches. Nothing is
+  // fetched during a server render, so this is exactly that first moment.
+  const html = renderSchedule({
+    values: [
+      { date: '2026-09-19', time: '20:00', end: '20:45' },
+      { date: '2026-09-19', time: '21:00', end: '21:45' },
+    ],
+  });
+  assert(html.includes('bw__price-wait'), 'no placeholder while the price loads');
+  return assert(!/SAR\s*\d/.test(html),
+    'a price was rendered before the backend supplied one');
+});
+
+check('neither step falls back to the catalogue price', () => {
+  // That fallback is what produced the visible switch.
+  assert(!calendarSource.includes('Number(facilityType.price) * Math.max'),
+    'the date step still multiplies the catalogue price');
+  return assert(!/orderTotal\(quote\)\s*\?\?\s*perSlotTotal/.test(calendarSource),
+    'the checkout still falls back to a per-slot figure');
+});
+
+check('the date step and the checkout price from the same endpoint', () => {
+  // They disagreed once: the date step showed the bare catalogue price while
+  // the checkout showed the same booking with add-ons, the offer and VAT.
+  const calls = calendarSource.match(/fetch\('\/api\/quote'/g) || [];
+  assert(calls.length <= 1, `${calls.length} separate quote calls`);
+  assert(calendarSource.includes('const fetchQuote ='), 'no shared quote helper');
+  // Both callers go through it.
+  const users = calendarSource.match(/fetchQuote\(\{/g) || [];
+  return assert(users.length >= 2,
+    `only ${users.length} caller uses the shared helper`);
+});
+
+check('the quote is asked about the dates that were chosen', () => {
+  // A rule limited to a date range or a time of day is skipped entirely when
+  // the backend prices "some booking, no date". That is how an offer which
+  // ended in September was quoted against a December booking, at a price the
+  // real booking would never have charged.
+  assert(/slots: slots\.map\(/.test(calendarSource),
+    'the quote request carries no dates');
+  return assert(calendarSource.includes('slots: chosen'),
+    'the checkout does not quote the slots it is about to book');
+});
+
+check('the order total comes from the backend, not from multiplication', () => {
+  // Multiplying the first slot's price is wrong the moment a selection
+  // straddles the end of an offer.
+  assert(calendarSource.includes('const orderTotal ='), 'no order total helper');
+  return assert(calendarSource.includes('const bookingTotal = orderTotal(quote)'),
+    'the checkout does not take its total from the quote');
+});
+
+check('a saving is only claimed when every slot costs the same', () => {
+  return assert(calendarSource.includes('uniformPricing'),
+    'a per-slot saving could be multiplied across differently priced slots');
 });
 
 rmSync(workDir, { recursive: true, force: true });

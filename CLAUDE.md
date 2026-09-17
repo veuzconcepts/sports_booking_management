@@ -194,6 +194,37 @@ Every booking entry point must use the same backend availability engine and reva
 
 Do not trust a slot simply because it appeared available earlier.
 
+## Availability-Aware Calendar
+
+Customer booking calendars must not present a date as selectable unless the
+authoritative backend availability engine confirms that at least one valid
+booking option exists for that date under the current booking rules.
+
+Do not require customers to click dates just to discover there are no slots.
+
+Use efficient date-range availability summaries, preserve final backend
+revalidation, and avoid duplicate availability logic.
+
+## Calendar Offer and Time Classification Standard
+
+Customer booking calendars may display compact offer indicators only when the
+backend confirms a customer-visible promotion is applicable to that booking
+context.
+
+Offer indicators are informational. They must never create availability and
+must never perform a pricing calculation in the frontend: availability is
+resolved first, the offer second, and both the label and the price come from
+the backend.
+
+Business-hour periods may be classified as Normal, Hot or Cold using the
+existing schedule architecture, stored on the shift so the classification
+inherits and is replaced exactly as the hours are. The classification may be
+used by pricing, reporting and customer UI, but must not change pricing unless
+an explicit pricing rule names the period it applies to.
+
+Reuse the existing schedule, pricing, promotion and availability engines. Do
+not create duplicate logic.
+
 # 13. Concurrency and Transaction Safety
 
 Use transactions for operations that must succeed or fail together, especially:
@@ -204,6 +235,58 @@ Use transactions for operations that must succeed or fail together, especially:
 - Resource allocation
 
 Prevent double booking and race conditions. Revalidate availability before final creation and use locking/constraints where appropriate.
+
+## Booking Workflow Integrity
+
+All booking entry points, including the customer website, admin, manual
+booking, reschedule, multi-slot and API flows, must use the same authoritative
+backend availability, pricing, entitlement and payment rules.
+
+A confirmed or otherwise slot-blocking booking must make that exclusive slot
+unavailable to all other bookings until it is validly cancelled, expired or
+released.
+
+Never rely on frontend availability. Revalidate and protect slots atomically
+before booking confirmation.
+
+Allocation reads which facilities are free and then writes a booking. Those
+two steps must be one step as far as any other booking is concerned. Row locks
+do not achieve that, because the thing being protected is the ABSENCE of a
+conflicting row: the club/day advisory lock in `allocate_facility` is what
+serialises it, and the partial unique index on (facility, date, start) is the
+backstop, not the protection.
+
+Prevent double booking, duplicate payment, duplicate entitlement consumption,
+duplicate loyalty posting and duplicate notifications through transactions,
+concurrency protection and idempotency.
+
+Pricing, promo, offers, holidays, subscriptions, packages, loyalty, add-ons,
+tax and finance must be integrated into the same booking lifecycle and must
+not operate as isolated parallel logic.
+### Slot occupancy, payment window and discount order
+
+Three rules that were previously implicit and are now fixed.
+
+**What occupies a slot** is `SLOT_BLOCKING_STATUSES` in `apps.bookings.models`,
+and nothing else. It is wider than `ACTIVE_STATUSES`: a completed or closed
+booking still held that court for its period, so marking a booking complete
+early must not hand the court to somebody else while it is in use. Cancelled
+and no-show release the slot. Availability, allocation and the database
+constraint all read that one set.
+
+**An unpaid booking is released only when it is certainly abandoned.** A
+website checkout that chose to pay online, took no money, has no live split
+arrangement, is still in the opening status and is past
+`BOOKING_PAYMENT_WINDOW_MINUTES` is cancelled by
+`expire_unpaid_bookings`. A pay-at-venue booking, a part-paid booking, an
+admin or walk-in booking, and a booking whose payment method was never
+recorded are never released by the clock. Not knowing is a reason to leave a
+booking alone, not a reason to cancel somebody's court.
+
+**Discounts compose in one order**: catalogue price, then automatic pricing
+rules (offers), then the promo code on the already-discounted subtotal, then
+loyalty, then VAT. Offers and promo codes stack; neither replaces the other,
+and the total can never go below zero.
 
 # 14. Date, Time, and Money
 

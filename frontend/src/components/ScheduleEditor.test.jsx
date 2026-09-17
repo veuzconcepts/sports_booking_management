@@ -228,3 +228,64 @@ describe('read-only mode', () => {
     expect(screen.queryByLabelText('Monday actions')).toBeNull();
   });
 });
+
+/**
+ * Hot / cold classification of an operating shift.
+ *
+ * The classification is stored ON the shift, so it inherits and is replaced
+ * exactly as the hours are. The thing worth pinning here is that a normal
+ * shift stays exactly as it was: writing `period: 'normal'` into every shift
+ * would rewrite every stored schedule document for no reason.
+ */
+describe('peak and off-peak classification', () => {
+  const openDayFor = (label) => {
+    const row = rowFor(label);
+    fireEvent.click(within(row).getByText('08:00').closest('button')
+      || within(row).getAllByRole('button')[0]);
+  };
+
+  it('offers all three classifications on a shift', () => {
+    renderEditor();
+    const row = rowFor('Monday');
+    fireEvent.click(within(row).getAllByRole('button')[0]);
+    const groups = screen.getAllByRole('group');
+    const picker = groups.find((g) => g.className.includes('sch-period'));
+    expect(picker).toBeTruthy();
+    expect(picker.querySelectorAll('button')).toHaveLength(3);
+  });
+
+  it('marking a shift hot stores it on that shift', () => {
+    const { onChange } = renderEditor();
+    const row = rowFor('Monday');
+    fireEvent.click(within(row).getAllByRole('button')[0]);
+    const picker = screen.getAllByRole('group')
+      .find((g) => g.className.includes('sch-period'));
+    fireEvent.click(picker.querySelectorAll('button')[1]);
+    const week = onChange.mock.calls.at(-1)[0];
+    expect(week.mon.shifts[0].period).toBe('hot');
+  });
+
+  it('returning a shift to normal removes the key rather than storing it', () => {
+    // An untouched schedule document must stay byte-identical.
+    const week = fullWeek();
+    week.mon = { closed: false, shifts: [{ open: '08:00', close: '22:00', period: 'hot' }], breaks: [] };
+    const { onChange } = renderEditor({ value: week });
+    const row = rowFor('Monday');
+    fireEvent.click(within(row).getAllByRole('button')[0]);
+    const picker = screen.getAllByRole('group')
+      .find((g) => g.className.includes('sch-period'));
+    fireEvent.click(picker.querySelectorAll('button')[0]);
+    const next = onChange.mock.calls.at(-1)[0];
+    expect('period' in next.mon.shifts[0]).toBe(false);
+  });
+
+  it('shows the classification without expanding the day', () => {
+    const week = fullWeek();
+    week.tue = { closed: false, shifts: [{ open: '08:00', close: '22:00', period: 'cold' }], breaks: [] };
+    renderEditor({ value: week });
+    const row = rowFor('Tuesday');
+    // Queried by class, not by label text: the label is translated, and
+    // this test is about the icon appearing, not about its wording.
+    expect(row.querySelector('.sch-row__period--cold')).toBeTruthy();
+  });
+});

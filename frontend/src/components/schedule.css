@@ -520,3 +520,38 @@
   .sch-filters__tabs { width: 100%; }
   .sch-filters__tab { flex: 1; text-align: center; }
 }
+
+/* Peak / off-peak classification.
+
+   Icon-sized on purpose: this sits on a row that already carries two time
+   pickers, an overnight badge and a remove button, and it has to survive a
+   phone. Semantic warm/cool accents, so both themes keep the meaning. */
+.sch-period { display: inline-flex; gap: 2px; flex-shrink: 0; }
+
+.sch-period__b {
+  display: inline-grid;
+  place-items: center;
+  inline-size: 24px;
+  block-size: 24px;
+  padding: 0;
+  border: 1px solid var(--color-border);
+  border-radius: 6px;
+  background: var(--color-surface);
+  color: var(--color-text-muted);
+  cursor: pointer;
+}
+
+.sch-period__b:disabled { cursor: not-allowed; opacity: 0.6; }
+.sch-period__b.is-on { border-color: currentColor; }
+.sch-period__b--hot.is-on { color: var(--color-warning-600); }
+.sch-period__b--cold.is-on { color: var(--color-info-600, var(--color-primary-600)); }
+.sch-period__b--normal.is-on { color: var(--color-text); }
+
+.sch-row__period { vertical-align: -2px; margin-inline-start: 4px; }
+.sch-row__period--hot { color: var(--color-warning-600); }
+.sch-row__period--cold { color: var(--color-info-600, var(--color-primary-600)); }
+
+@media (max-width: 640px) {
+  /* The row wraps on a phone; the classification stays with its times. */
+  .sch-period { margin-inline-start: auto; }
+}

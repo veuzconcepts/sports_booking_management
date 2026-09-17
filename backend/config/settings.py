@@ -396,6 +396,11 @@ PAYMENT_ALLOW_DEMO = DEBUG or config("PAYMENT_ALLOW_DEMO", default=False, cast=b
 # is NOT a separate hold (a pending booking already occupies its slot), so this
 # only governs how long the shareable links keep working.
 SPLIT_PAYMENT_MINUTES = config("SPLIT_PAYMENT_MINUTES", default=60, cast=int)
+# How long a website booking may hold a court while its customer pays online.
+# Only ever applied to a checkout that chose to pay online and then did not:
+# pay-at-venue, part-paid and split bookings are never released by the clock.
+BOOKING_PAYMENT_WINDOW_MINUTES = config(
+    "BOOKING_PAYMENT_WINDOW_MINUTES", default=15, cast=int)
 # Upper bound on how many people one booking may be split between.
 SPLIT_PAYMENT_MAX_SHARES = config("SPLIT_PAYMENT_MAX_SHARES", default=20, cast=int)
 # Public base URL used to build shareable payment links (the customer website).

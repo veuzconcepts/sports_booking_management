@@ -110,6 +110,19 @@ ACTIVE_STATUSES = {
 # A booking that has finished service (completed, and then optionally closed).
 COMPLETED_STATUSES = {BookingStatus.COMPLETED, BookingStatus.CLOSED}
 
+# THE definition of "this facility is spoken for at this time".
+#
+# Wider than ACTIVE_STATUSES on purpose. A completed booking used the court for
+# its period; releasing the slot the moment it is marked complete meant staff
+# closing a booking a few minutes early handed the court to somebody else while
+# it was still in use. Cancelled and no-show are excluded: nobody is there, and
+# the club should be able to resell the time.
+#
+# Availability, allocation and the database constraint all read this one set.
+# Keep `ACTIVE_STATUSES` for "a live booking the customer still holds", which
+# is a different question and drives per-customer caps and upcoming lists.
+SLOT_BLOCKING_STATUSES = ACTIVE_STATUSES | COMPLETED_STATUSES
+
 # Statuses that mean the booking was confirmed (or has progressed past it). A
 # customer with any booking in one of these is treated as a real, verified
 # customer. Pending (booked), cancelled and no-show are excluded.
@@ -334,6 +347,10 @@ class Booking(models.Model):
     calculated_at = models.DateTimeField(null=True, blank=True)
     # Snapshot of pricing rules applied at computation time (for traceability).
     applied_rules = models.JSONField(default=list, blank=True)
+    # Peak / off-peak as classified on the business hours WHEN THIS WAS PRICED.
+    # A snapshot, like `applied_rules` beside it: schedules get re-classified,
+    # and a report about last quarter must describe the hours as they were.
+    period_type = models.CharField(max_length=10, blank=True, db_index=True)
     # Redeemed promo code (optional) + the discount it produced.
     promo_code = models.ForeignKey(
         "promotions.PromoCode", on_delete=models.SET_NULL,
@@ -429,8 +446,13 @@ class Booking(models.Model):
             # facility-less types are unaffected.
             models.UniqueConstraint(
                 fields=["facility", "scheduled_date", "scheduled_time"],
+                # Spelled out because an index cannot import a Python set.
+                # `test_workflow_integrity` asserts this list and
+                # SLOT_BLOCKING_STATUSES stay identical, so the two cannot
+                # drift apart unnoticed.
                 condition=Q(status__in=[
                     "booked", "confirmed", "assigned", "arrived", "in_progress",
+                    "completed", "closed",
                 ]),
                 name="unique_live_booking_per_facility_slot",
             ),
@@ -471,6 +493,23 @@ class Booking(models.Model):
     # ------------------------------------------------------------------ #
     # Pricing
     # ------------------------------------------------------------------ #
+    def _slot_period(self):
+        """How this booking's time is classified on the business hours.
+
+        Resolved through the one schedule engine, so a facility that
+        overrides its club's hours also overrides their classification.
+        Returns None when there is no schedule to read, which leaves every
+        pricing rule applying exactly as it did before.
+        """
+        if not (self.scheduled_date and self.scheduled_time):
+            return None
+        from apps.bookings.services import _resolve_schedule, slot_period
+
+        day = _resolve_schedule(self.scheduled_date, club=self.club,
+                                facility=self.facility)
+        start = self.scheduled_time.hour * 60 + self.scheduled_time.minute
+        return slot_period(day, start, start + (self.duration_minutes or 0))
+
     def compute_pricing(self, addons=None, covered_override=None,
                         promo_discount_override=None):
         """Recompute the price snapshot from the current catalogue selection.
@@ -547,6 +586,11 @@ class Booking(models.Model):
         else:
             rule_category_ids = []
 
+        # Peak/off-peak, resolved once from the business hours this slot falls
+        # in, then both priced against and snapshotted for reporting.
+        period = self._slot_period()
+        self.period_type = period or ""
+
         # Apply dynamic pricing rules on top of the catalogue subtotal.
         result = calculate_price(
             catalogue_subtotal,
@@ -559,6 +603,9 @@ class Booking(models.Model):
             booking_date=self.scheduled_date,
             booking_time=self.scheduled_time,
             quantity=1,
+            # Only rules that name a period ever see it, so classifying a
+            # shift changes nothing until somebody prices it.
+            period=period,
         )
         rule_discount = Decimal(str(result["total_discount"]))
         rule_surcharge = Decimal(str(result["total_surcharge"]))

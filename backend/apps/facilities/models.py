@@ -405,6 +405,11 @@ class PricingRule(models.Model):
     )
     customer_types = models.JSONField(default=list, blank=True)  # LoyaltyTier values
     days_of_week = models.JSONField(default=list, blank=True)    # ints 0=Mon .. 6=Sun
+    # Peak/off-peak periods this rule applies to, as classified on the business
+    # hours ("hot", "cold", "normal"). Empty means every period, which is what
+    # keeps the classification from changing any existing price on its own: a
+    # rule has to name the periods it wants before it sees them at all.
+    period_types = models.JSONField(default=list, blank=True)
 
     valid_from = models.DateField(null=True, blank=True)
     valid_to = models.DateField(null=True, blank=True)
