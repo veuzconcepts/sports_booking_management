@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import {
-  FileSpreadsheet, FileText, Maximize2, RefreshCw, Send, Sparkles, Trash2, X,
+  ArrowRight, FileSpreadsheet, FileText, Maximize2, RefreshCw, Send, Sparkles,
+  Trash2, X,
 } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import toast from 'react-hot-toast';
@@ -63,7 +64,7 @@ function coverage(turn) {
   return [when, meta.scope].filter(Boolean).join(' | ');
 }
 
-export function AiInsightsPanel({ open, onClose, onOpenFullReport }) {
+export function AiInsightsPanel({ open, onClose, onOpenFullReport, scope }) {
   const { t } = useTranslation('reports');
   const [capabilities, setCapabilities] = useState(null);
   const [turns, setTurns] = useState([]);       // { question, answer, ... }
@@ -151,6 +152,18 @@ export function AiInsightsPanel({ open, onClose, onOpenFullReport }) {
         </div>
       </header>
 
+      {/* What the answers will cover, taken from the report's own filters so
+          the two can never describe different periods. Read-only: the filters
+          above the report remain the one place scope is changed. */}
+      {scope && (
+        <div className="ai-scope">
+          <span className="ai-scope__k">{t('insights.scope')}</span>
+          <span className="ai-scope__v">{scope.period}</span>
+          <span className="ai-scope__v">{scope.club}</span>
+          <span className="ai-scope__sync">{t('insights.syncedWithFilters')}</span>
+        </div>
+      )}
+
       <div className="ai-panel__thread" ref={thread}>
         {unavailable && (
           <div className="ai-note ai-note--warn">{t('insights.unavailable')}</div>
@@ -159,11 +172,21 @@ export function AiInsightsPanel({ open, onClose, onOpenFullReport }) {
         {!turns.length && !unavailable && (
           <div className="ai-empty">
             <p className="ai-empty__lead">{t('insights.emptyLead')}</p>
+            {(capabilities?.suggestions || []).length > 0 && (
+              <p className="ai-tryasking">{t('insights.tryAsking')}</p>
+            )}
             <div className="ai-suggestions">
               {(capabilities?.suggestions || []).map((prompt) => (
                 <button type="button" className="ai-suggestion" key={prompt}
                   onClick={() => send(prompt)}>
-                  {prompt}
+                  {/* The prompt's own first letter. A cue to tell one row
+                      from the next at a glance, not a category: inventing
+                      categories here would be labelling data we do not have. */}
+                  <span className="ai-suggestion__key" aria-hidden="true">
+                    {prompt.trim().charAt(0).toUpperCase()}
+                  </span>
+                  <span className="ai-suggestion__text">{prompt}</span>
+                  <ArrowRight size={14} className="ai-suggestion__go" aria-hidden="true" />
                 </button>
               ))}
             </div>
