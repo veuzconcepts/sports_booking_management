@@ -508,12 +508,18 @@ class BookingCreateSerializer(serializers.ModelSerializer):
         except BookingRuleViolation as exc:
             raise serializers.ValidationError({"scheduled_date": exc.reasons})
 
-    @staticmethod
-    def _allocate_facility(booking):
-        """Pin the booking to a free facility, or fail with a clear field error."""
+    def _allocate_facility(self, booking):
+        """Pin the booking to a free facility, or fail with a clear field error.
+
+        `exclude_hold_id` in the context is the reservation this booking is
+        being created from. It must not block its own booking, and passing it
+        through the context rather than the payload keeps it out of reach of
+        the client: a caller cannot ask to ignore somebody else's hold.
+        """
         from apps.bookings.services import FacilityUnavailable, allocate_facility
         try:
-            allocate_facility(booking, commit=False)
+            allocate_facility(booking, commit=False,
+                              exclude_hold_id=self.context.get("exclude_hold_id"))
         except FacilityUnavailable as exc:
             raise serializers.ValidationError({"scheduled_time": str(exc)})
 

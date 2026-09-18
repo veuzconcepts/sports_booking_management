@@ -1074,6 +1074,16 @@ class BookingViewSet(GroupedListMixin, viewsets.ModelViewSet):
                 {"detail": " ".join(reasons), "code": "availability",
                  "overridable": can_override}, status=status.HTTP_409_CONFLICT)
 
+        # Assigning a worker walks the booking forward through Confirmed, and the
+        # confirmation gate applies to that step exactly as it would to pressing
+        # Confirm. Asked BEFORE anything is written, so a refusal does not leave a
+        # worker assigned to a booking that never moved.
+        try:
+            booking_services.check_confirmable(booking)
+        except ValueError as exc:
+            return Response({"detail": str(exc), "code": "not_confirmable"},
+                            status=status.HTTP_409_CONFLICT)
+
         booking.assigned_to = worker
         if "facility" in ser.validated_data:
             booking.facility = facility

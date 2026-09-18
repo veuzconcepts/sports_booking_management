@@ -29,6 +29,10 @@ from .views import (
     WebsiteCampaignViewSet,
     WhyChooseUsPointViewSet,
 )
+from .reservation_views import (
+    PublicReservationCreateView,
+    PublicReservationView,
+)
 from .split_views import (
     PublicBookingPayView,
     PublicPaymentConfigView,
@@ -68,8 +72,12 @@ urlpatterns = [
          name="website-public-payment-config"),
     path("public/booking-pay/", PublicBookingPayView.as_view(),
          name="website-public-booking-pay"),
+    path("public/reservations/", PublicReservationCreateView.as_view(),
+         name="website-public-reservation-create"),
     # Bearer-token routes. The token in the path IS the authorisation, so these
     # deliberately carry no booking or customer id.
+    path("public/reservations/<str:token>/", PublicReservationView.as_view(),
+         name="website-public-reservation"),
     path("public/split/<str:token>/", PublicSplitShareView.as_view(),
          name="website-public-split-share"),
     path("public/split/manage/<str:token>/", PublicSplitManageView.as_view(),

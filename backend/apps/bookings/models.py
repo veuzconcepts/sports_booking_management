@@ -1051,3 +1051,183 @@ def _log_booking_created(sender, instance, created, **kwargs):
         changed_by=instance.created_by,
         note="Booking created",
     )
+
+
+class HoldStatus(models.TextChoices):
+    """Where a reservation is in its own life, which is not the booking's.
+
+    Kept apart from `BookingStatus` on purpose. A booking is a commercial
+    record; a hold is a temporary claim on a court. Folding the two together
+    is what produces statuses like "pending forever" that block a slot with
+    nothing behind them.
+    """
+
+    ACTIVE = "active", _("Active")
+    CONVERTED = "converted", _("Converted")     # became a confirmed booking
+    RELEASED = "released", _("Released")        # given up deliberately
+    EXPIRED = "expired", _("Expired")           # ran out of time
+    CANCELLED = "cancelled", _("Cancelled")
+
+
+#: Only an ACTIVE hold keeps other people off a court. Everything else is
+#: history, exactly as cancelled bookings are.
+LIVE_HOLD_STATUSES = {HoldStatus.ACTIVE}
+
+
+class BookingHold(models.Model):
+    """A time-limited claim on one or more slots while a customer pays.
+
+    A booking is Confirmed only when it has been paid for, so something else
+    has to keep the court in the meantime. That used to be the booking row
+    itself, created unpaid and blocking its slot with no deadline; a customer
+    who closed the tab held a Saturday evening court until somebody noticed.
+
+    The hold owns the deadline and the booking owns the commerce. When payment
+    completes the hold CONVERTS and the confirmed booking takes over holding
+    the slot permanently; when the clock runs out the hold EXPIRES and the
+    court is free again, with the abandoned booking left as history.
+
+    Guests have no account, so a hold is addressed by a bearer token stored
+    only as a digest, the same treatment split payment links get. That is what
+    lets a refresh, a second tab or the back button find the same reservation
+    instead of starting a new one.
+    """
+
+    reference = models.CharField(
+        max_length=14, unique=True, editable=False, db_index=True,
+        help_text="Human-friendly reservation code, e.g. HLD-2A4F9C.",
+    )
+    # A digest, never the token. A leaked backup cannot be replayed.
+    token_hash = models.CharField(max_length=64, unique=True, db_index=True)
+
+    # Nullable: a guest checkout holds a court before we know who they are.
+    customer = models.ForeignKey(
+        "customers.Customer", on_delete=models.CASCADE,
+        related_name="booking_holds", null=True, blank=True,
+    )
+    club = models.ForeignKey(
+        "clubs.Club", on_delete=models.CASCADE, related_name="booking_holds",
+    )
+    facility_type = models.ForeignKey(
+        "facilities.FacilityType", on_delete=models.CASCADE,
+        related_name="booking_holds", null=True, blank=True,
+    )
+    source = models.CharField(
+        max_length=20, choices=BookingSource.choices, default=BookingSource.WEBSITE,
+    )
+    created_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.SET_NULL,
+        related_name="created_booking_holds", null=True, blank=True,
+    )
+
+    # What it turned into, once it did. Either, never both.
+    booking = models.ForeignKey(
+        "Booking", on_delete=models.SET_NULL, related_name="holds",
+        null=True, blank=True,
+    )
+    order = models.ForeignKey(
+        "BookingOrder", on_delete=models.SET_NULL, related_name="holds",
+        null=True, blank=True,
+    )
+
+    status = models.CharField(
+        max_length=12, choices=HoldStatus.choices,
+        default=HoldStatus.ACTIVE, db_index=True,
+    )
+    expires_at = models.DateTimeField(db_index=True)
+    # The ceiling. `expires_at` may be pushed out when the first real payment
+    # arrives, but never past this, so repeated small payments cannot keep a
+    # court locked indefinitely.
+    max_expires_at = models.DateTimeField()
+    # Set the once the unpaid window becomes the part-paid window, so the
+    # extension happens exactly once however many friends pay.
+    extended_at = models.DateTimeField(null=True, blank=True)
+
+    created_at = models.DateTimeField(auto_now_add=True, db_index=True)
+    updated_at = models.DateTimeField(auto_now=True)
+    ended_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        ordering = ("-created_at",)
+        indexes = [
+            # The expiry sweep asks exactly this question.
+            models.Index(fields=["status", "expires_at"]),
+        ]
+        constraints = [
+            models.CheckConstraint(
+                check=Q(booking__isnull=True) | Q(order__isnull=True),
+                name="hold_converts_to_one_of_booking_or_order",
+            ),
+        ]
+
+    def __str__(self):
+        return f"{self.reference} ({self.status})"
+
+    def save(self, *args, **kwargs):
+        if not self.reference:
+            for _attempt in range(5):
+                candidate = f"HLD-{secrets.token_hex(3).upper()}"
+                if not BookingHold.objects.filter(reference=candidate).exists():
+                    self.reference = candidate
+                    break
+        super().save(*args, **kwargs)
+
+    @property
+    def is_live(self) -> bool:
+        """Active AND still within its deadline.
+
+        Both halves matter: a sweep that has not run yet leaves rows ACTIVE
+        past their expiry, and those must not hold a court. Every read path
+        asks this rather than the status alone.
+        """
+        return (self.status == HoldStatus.ACTIVE
+                and self.expires_at > timezone.now())
+
+    @property
+    def seconds_remaining(self) -> int:
+        """What a countdown should show. Never negative."""
+        if self.status != HoldStatus.ACTIVE:
+            return 0
+        return max(0, int((self.expires_at - timezone.now()).total_seconds()))
+
+
+class BookingHoldSlot(models.Model):
+    """One court, on one date, for one interval, claimed by a hold.
+
+    A hold pins a REAL facility rather than just a type, because that is the
+    only way it can take part in the same "is this court free?" question a
+    booking answers. Anything vaguer would let the allocator hand the same
+    court to a booking while a hold was paying for it.
+    """
+
+    hold = models.ForeignKey(
+        BookingHold, on_delete=models.CASCADE, related_name="slots",
+    )
+    facility = models.ForeignKey(
+        "facilities.Facility", on_delete=models.CASCADE,
+        related_name="held_slots",
+    )
+    scheduled_date = models.DateField(db_index=True)
+    scheduled_time = models.TimeField()
+    end_time = models.TimeField()
+
+    class Meta:
+        ordering = ("scheduled_date", "scheduled_time")
+        indexes = [models.Index(fields=["scheduled_date", "facility"])]
+        # No unique index here, deliberately.
+        #
+        # The obvious one would be (facility, date, start) WHERE the hold is
+        # active, but a constraint condition cannot reach through a relation,
+        # so it would mean copying the hold's status onto every slot row and
+        # keeping the copy in step. That buys little: it would catch a hold
+        # clashing with another HOLD, while the case that actually matters,
+        # a hold clashing with a BOOKING, spans two tables and no index can
+        # express it at all.
+        #
+        # Both cases are already prevented by the same thing: the club/day
+        # advisory lock taken in `reservations`, which is what makes "is this
+        # court free?" and "take it" one step. A denormalised column that can
+        # drift is a worse backstop than the lock it would be backing up.
+
+    def __str__(self):
+        return f"{self.facility_id} {self.scheduled_date} {self.scheduled_time}"

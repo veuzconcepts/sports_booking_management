@@ -14,6 +14,7 @@ import { bookingConfigApi } from '../../services/settingsService.js';
 import { bookingPoliciesApi } from '../../services/bookingsService.js';
 import { SpecialDates } from '../../components/SpecialDates.jsx';
 import { BookingRulesModal } from './BookingRulesModal.jsx';
+import { ReservationSettings } from './ReservationSettings.jsx';
 import { clubsApi } from '../../services/clubsService.js';
 import { apiErrorMessage } from '../../utils/apiError.js';
 
@@ -122,6 +123,8 @@ export default function BookingConfiguration() {
           )}
 
           <BookingRulesSection canManage={canManage} />
+
+          <ReservationSettings canManage={canManage} />
 
           <SpecialDates canManage={canManage} />
         </>

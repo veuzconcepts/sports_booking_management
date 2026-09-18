@@ -156,9 +156,10 @@ export async function copyLink(url) {
 /**
  * Which methods exist is the BACKEND's answer, not this component's.
  *
- * `card` appears only when a provider is actually configured, so a checkout that
- * cannot take money offers paying at the venue instead of a form that would
- * fail. A wallet tile (Apple Pay and similar) is listed here for the day a
+ * `card` appears only when a provider is actually configured, and `venue` only
+ * where the club accepts payment at the desk. Both answers come from the same
+ * payload the server enforces against, so a tile that is shown can always be
+ * used. A wallet tile (Apple Pay and similar) is listed here for the day a
  * provider supports one and is filtered out until then, rather than rendered as
  * a button that does nothing.
  */
@@ -172,11 +173,14 @@ export function paymentTiles({ config, country, splitOn }) {
       available: Boolean(config?.card_enabled) },
     { key: 'wallet', labelKey: 'methods.wallet', icon: <WalletIcon />,
       available: Boolean(config?.wallet_enabled) },
-    // Paying on arrival cannot be split between payment links, so the tile is
-    // withdrawn while a split is being arranged rather than left to be chosen
-    // and then refused.
+    // Two separate reasons this tile can be withdrawn. The club may simply not
+    // take money at the desk, which the backend reports as `cash_enabled`; and
+    // paying on arrival cannot be split between payment links, so it also goes
+    // while a split is being arranged rather than being chosen and then
+    // refused. `cash_enabled` missing from an older payload is read as true, so
+    // a checkout that has not been told otherwise keeps working.
     { key: 'venue', labelKey: 'methods.venue', icon: <VenueIcon />,
-      available: !splitOn },
+      available: config?.cash_enabled !== false && !splitOn },
   ];
   return tiles.filter((tile) => tile.available);
 }

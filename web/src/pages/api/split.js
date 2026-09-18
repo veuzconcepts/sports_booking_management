@@ -39,10 +39,12 @@ export async function GET({ url }) {
   const token = url.searchParams.get('token') || '';
   const scope = url.searchParams.get('scope') || 'share';
   if (scope === 'config') {
-    const config = await getPaymentConfig();
+    const config = await getPaymentConfig(url.searchParams.get('club') || '');
     // A checkout that cannot reach the backend must fall back to cash, never to
     // a card form that would collect details nothing can charge.
-    return json(config || { card_enabled: false, demo_mode: false, test_cards: [] }, 200);
+    return json(config || {
+      card_enabled: false, demo_mode: false, test_cards: [], cash_enabled: true,
+    }, 200);
   }
   if (!token) return json({ detail: 'Missing payment link.' }, 400);
   const data = scope === 'manage'

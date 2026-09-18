@@ -710,7 +710,99 @@ switched off stops appearing at once.
 Do not create duplicate promotion, CMS, popup, preview or analytics systems when
 existing infrastructure can be reused.
 
-# 38. Final Quality Check
+# 38. Reservation Holds and Payment Methods
+
+A court is claimed by a `BookingHold` while the customer pays, not by an unpaid
+booking row. The hold owns the deadline; the booking owns the commerce. When
+payment lands the hold CONVERTS and the confirmed booking takes over blocking
+the slot; when the clock runs out the hold EXPIRES and the court is free again.
+
+A hold is all or nothing. Reserving two of three chosen slots and reporting
+failure would lock a court for a booking that is not going to happen.
+
+Acquisition and allocation take the SAME club/day advisory lock, so a hold and
+a booking can never be handed the same court. Availability, allocation and the
+range summary all subtract live holds.
+
+Expiry is read, never assumed. The sweep runs every few minutes, so rows sit
+ACTIVE past their deadline in between. Every read asks the clock as well as the
+status.
+
+## Confirmation requires the money, for one case only
+
+A website checkout that chose to pay online and has collected nothing may not
+become Confirmed. That is the same condition `expire_unpaid_bookings` uses to
+release a slot, read from one predicate, `services.awaiting_online_payment`, so
+the two can never disagree about a booking.
+
+Nothing else is gated. Pay-at-venue, admin and walk-in bookings, part-paid,
+covered and zero-value bookings, and anything whose payment method was never
+recorded all confirm as before. Staff committing a court in person is a
+decision, not an oversight. A gate that refuses too much is not the safer gate.
+
+Assigning a worker walks a booking through Confirmed, so it asks the same gate,
+BEFORE it writes anything.
+
+## Spending a reservation
+
+The checkout sends its reservation token with the booking. Two things follow
+from that and neither is optional.
+
+The customer's OWN hold must not block their own booking, so `exclude_hold_id`
+is threaded explicitly from `create_public_booking` and `create_public_order`
+down through `validate_selection`, `slot_is_available`, the
+`BookingCreateSerializer` context and `allocate_facility`. It travels in the
+serializer CONTEXT, never the payload, so a caller cannot ask to ignore
+somebody else's hold.
+
+A token may only be spent on slots it actually holds (`reservations.covers`).
+Otherwise a token for 7pm could be used to book 8pm, and converting it would
+quietly give away the 7pm court.
+
+Conversion happens inside the booking transaction, after the booking exists
+and is already blocking the slot, so there is no instant at which the court
+looks free and a rollback takes the conversion with it.
+
+A booking with no token still works exactly as before. Rubbish in the field
+does not: silently ignoring an unreadable token would book a court that was
+never held.
+
+## The countdown
+
+`expires_at` is issued by the server and always sent with `server_time`. The
+browser anchors its countdown on the difference between the two, because a
+device whose clock is twenty minutes fast would otherwise declare a live
+reservation dead.
+
+The token is kept in `sessionStorage` under a signature of what was reserved,
+and the signature ignores the order slots were clicked in. A reload on the
+payment step re-reads the existing reservation rather than claiming a second
+one, which would be refused by the customer's own hold and would look exactly
+like somebody else taking the slot.
+
+Leaving the checkout releases the courts at once instead of making the next
+customer wait out a timer nobody is watching.
+
+## Timeouts and payment methods are settings, not constants
+
+`hold_unpaid_minutes`, `hold_partly_paid_minutes`, `hold_max_minutes`,
+`split_enabled`, `split_hold_minutes`, `split_max_shares` and `cash_enabled`
+live on the Organization, and a Club may override any of them one at a time. A
+null club value inherits. `settings_app.schedule.resolve_booking_policy` is the
+only place that chain is resolved; nothing reads the fields directly.
+
+`split_hold_minutes` is clamped to `hold_max_minutes`, because payment links
+that outlive the reservation would keep collecting for a court already resold.
+
+Pay at venue is offered only where `cash_enabled`. The website hides the tile
+and the server refuses the method, from the same
+`gateway.checkout_payment_options` payload, so a customer is never refused for
+something the page said was fine. A checkout that names no method gets the
+club's default rather than cash: a cash booking is deliberately exempt from the
+expiry sweep, so recording one where cash is not accepted would hold a court
+that nobody could ever pay for.
+
+# 39. Final Quality Check
 
 Before considering a task complete, confirm:
 - Existing code was inspected first.

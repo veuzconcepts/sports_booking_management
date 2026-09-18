@@ -123,6 +123,50 @@ def _day_bookings(on_date, club=None, exclude_booking_id=None):
     return list(qs.values_list("facility_id", "scheduled_time", "end_time"))
 
 
+def _day_holds(on_date, club=None, exclude_hold_id=None):
+    """(facility_id, start, end) for every LIVE reservation on this date.
+
+    Same shape as `_day_bookings`, so a held court drops out of availability
+    through the identical path a booked one does rather than through a second
+    set of rules that could disagree with it.
+
+    "Live" means active AND not yet past its deadline. The expiry sweep runs
+    every few minutes, so between ticks the table holds rows that are still
+    marked active but have run out; reading the clock here is what stops one
+    of those blocking a court it no longer has any claim to.
+    """
+    from .models import BookingHoldSlot, HoldStatus
+
+    qs = BookingHoldSlot.objects.filter(
+        scheduled_date=on_date,
+        hold__status=HoldStatus.ACTIVE,
+        hold__expires_at__gt=timezone.now(),
+    )
+    if club is not None:
+        qs = qs.filter(hold__club=club)
+    if exclude_hold_id:
+        qs = qs.exclude(hold_id=exclude_hold_id)
+    return list(qs.values_list("facility_id", "scheduled_time", "end_time"))
+
+
+def _range_holds(first, last, club=None) -> dict:
+    """{date: [(facility_id, start, end)]} for a range, in one query."""
+    from .models import BookingHoldSlot, HoldStatus
+
+    qs = BookingHoldSlot.objects.filter(
+        scheduled_date__gte=first, scheduled_date__lte=last,
+        hold__status=HoldStatus.ACTIVE,
+        hold__expires_at__gt=timezone.now(),
+    )
+    if club is not None:
+        qs = qs.filter(hold__club=club)
+    grouped = {}
+    for on_date, fid, start, end in qs.values_list(
+            "scheduled_date", "facility_id", "scheduled_time", "end_time"):
+        grouped.setdefault(on_date, []).append((fid, start, end))
+    return grouped
+
+
 def _day_blocks(on_date, club=None):
     """(facility_id, start|None, end|None) for maintenance covering the date."""
     from apps.facilities.models import MaintenanceBlock
@@ -239,7 +283,7 @@ def _taken_ids(bookings, blocks, start, end, *, buffer_before=0, buffer_after=0)
 
 
 def free_facilities(on_date, at_time, *, duration=None, club=None, facility_type=None,
-                    exclude_booking_id=None):
+                    exclude_booking_id=None, exclude_hold_id=None):
     """Facilities free for the whole interval this booking would occupy.
 
     `duration` defaults to the facility type's own duration, so asking for a
@@ -256,7 +300,8 @@ def free_facilities(on_date, at_time, *, duration=None, club=None, facility_type
     if not candidates:
         return []
     taken = _taken_ids(
-        _day_bookings(on_date, club=club, exclude_booking_id=exclude_booking_id),
+        _day_bookings(on_date, club=club, exclude_booking_id=exclude_booking_id)
+        + _day_holds(on_date, club=club, exclude_hold_id=exclude_hold_id),
         _day_blocks(on_date, club=club),
         start, end,
     )
@@ -320,7 +365,9 @@ def available_slots(on_date, club=None, facility_type=None, facility=None) -> li
     if not candidates:
         return []
 
-    bookings = _day_bookings(on_date, club=club)
+    # A court claimed by a live reservation is as unavailable as a booked one.
+    bookings = (_day_bookings(on_date, club=club)
+                + _day_holds(on_date, club=club))
     blocks = _day_blocks(on_date, club=club)
 
     # Every eligible facility's OWN operating day.
@@ -544,6 +591,7 @@ def date_availability_summary(first, last, *, club=None, facility_type=None,
         first, last, facility_type=facility_type, club_id=club_id)
 
     bookings_by_date = _range_bookings(first, last, club=club)
+    holds_by_date = _range_holds(first, last, club=club)
     blocks = _range_blocks(first, last, club=club)
     club_days = sched.resolve_for_range(first, last, club=club, facility=facility)
     # Only facilities that can actually differ from their club are resolved
@@ -569,7 +617,8 @@ def date_availability_summary(first, last, *, club=None, facility_type=None,
                        for f in candidates}
             slots = _build_slots(
                 cursor, day=day, own_day=own_day,
-                bookings=bookings_by_date.get(cursor, []),
+                bookings=(bookings_by_date.get(cursor, [])
+                          + holds_by_date.get(cursor, [])),
                 blocks=_blocks_on(blocks, cursor),
                 interval=day.slot_minutes or SLOT_MINUTES,
                 duration=duration or day.slot_minutes or SLOT_MINUTES,
@@ -827,11 +876,15 @@ def facility_rule_breaches(bookings) -> list:
 
 
 def slot_is_available(on_date, at_time, club=None, facility_type=None,
-                      duration=None, exclude_pk=None) -> bool:
-    """True when at least one eligible facility is free for the whole interval."""
+                      duration=None, exclude_pk=None, exclude_hold_id=None) -> bool:
+    """True when at least one eligible facility is free for the whole interval.
+
+    `exclude_hold_id` is the customer's OWN reservation. Without it the hold
+    they are checking out against would report their own slot as taken.
+    """
     return bool(free_facilities(
         on_date, at_time, duration=duration, club=club, facility_type=facility_type,
-        exclude_booking_id=exclude_pk))
+        exclude_booking_id=exclude_pk, exclude_hold_id=exclude_hold_id))
 
 
 # --------------------------------------------------------------------------- #
@@ -979,6 +1032,31 @@ def resolve_slot_rules(club=None, facility=None) -> dict:
 PAYMENT_WINDOW_MINUTES = getattr(settings, "BOOKING_PAYMENT_WINDOW_MINUTES", 15)
 
 
+def awaiting_online_payment(booking) -> bool:
+    """Is this booking still waiting for money the customer promised online?
+
+    One definition, used by two rules that have to agree. `expire_unpaid_bookings`
+    releases the court when this stays true past the window; the confirmation gate
+    refuses to call the booking Confirmed while it is true. If they ever disagreed
+    a booking could be confirmed at the same moment its slot was being handed to
+    somebody else.
+
+    Deliberately narrow, and false whenever we are not sure:
+
+    * a blank payment method means we never recorded an intent, so there is
+      nothing to wait for;
+    * cash is pay-at-venue: the money is due at the door, not now;
+    * anything already part paid, covered or settled is somebody's real booking.
+    """
+    if booking.payment_status != PaymentStatus.PENDING:
+        return False
+    method = booking.payment_method or ""
+    if not method or method == PaymentMethod.CASH:
+        return False
+    return booking_amount_paid(booking) <= 0
+
+
+
 def expire_unpaid_bookings(*, now=None) -> int:
     """Release slots held by online checkouts that were never completed.
 
@@ -1028,8 +1106,10 @@ def expire_unpaid_bookings(*, now=None) -> int:
                       .first())
             if locked is None:
                 continue                      # somebody got there first
-            if booking_amount_paid(locked) > 0:
-                continue                      # part paid: a person decides
+            # Re-read the shared rule under the lock. The queryset above is a
+            # pre-filter; this is the decision.
+            if not awaiting_online_payment(locked):
+                continue                      # paid, or never ours to release
             if BookingPaymentSplit.objects.filter(
                     booking=locked, status=SplitStatus.ACTIVE).exists():
                 continue                      # friends are still paying
@@ -1217,7 +1297,7 @@ def _lock_club_day(club_id, on_date) -> None:
                        [int(club_id), int(on_date.toordinal())])
 
 
-def allocate_facility(booking, *, commit=True):
+def allocate_facility(booking, *, commit=True, exclude_hold_id=None):
     """Pick a facility for `booking` and pin it to the booking.
 
     Server-side allocation: the customer books a TYPE, we choose the unit. Runs
@@ -1251,6 +1331,9 @@ def allocate_facility(booking, *, commit=True):
             booking.scheduled_date, booking.scheduled_time,
             duration=booking.duration_minutes, club=booking.club,
             facility_type=booking.facility_type, exclude_booking_id=booking.pk,
+            # The reservation this booking is being created FROM must not
+            # block it. Every other live hold still does.
+            exclude_hold_id=exclude_hold_id,
         )
         if booking.facility_id:
             chosen = next((f for f in free if f.id == booking.facility_id), None)
@@ -1303,6 +1386,7 @@ def transition_booking(booking: Booking, target: str, *, actor=None, note="", re
                 meta={"source": event_source(actor), "membership": reval["membership"],
                       "from_amount": reval["from_amount"], "to_amount": reval["to_amount"],
                       "currency": booking.currency})
+    _validate_confirmation_gate(booking, target)
     _validate_completion_gate(booking, target)
 
     booking.status = target
@@ -1375,10 +1459,44 @@ def transition_booking(booking: Booking, target: str, *, actor=None, note="", re
     return booking
 
 
+def _validate_confirmation_gate(booking, target):
+    """A website checkout that chose to pay online is not Confirmed until it pays.
+
+    Confirmed means the club has committed the court. Saying that while the
+    money is still outstanding is how a booking ends up looking settled at the
+    same moment `expire_unpaid_bookings` is about to release its slot, so the
+    two rules read the same predicate.
+
+    Only that one case is refused. Pay-at-venue, admin and walk-in bookings,
+    part-paid bookings, covered and zero-value bookings, and anything whose
+    payment method was never recorded all confirm exactly as before: staff
+    committing a court in person is a decision, not an oversight.
+    """
+    if target != BookingStatus.CONFIRMED:
+        return
+    if booking.source != BookingSource.WEBSITE:
+        return
+    if awaiting_online_payment(booking):
+        raise ValueError(
+            "This booking is still awaiting its online payment and cannot be "
+            "confirmed yet.")
+
+
+def check_confirmable(booking):
+    """Raise if this booking could not be confirmed right now.
+
+    For callers that write something else first and would have to undo it if
+    the confirmation were refused. A booking already past Pending is not being
+    confirmed, so it passes.
+    """
+    if booking.status == BookingStatus.BOOKED:
+        _validate_confirmation_gate(booking, BookingStatus.CONFIRMED)
+
+
 def _validate_completion_gate(booking, target):
     """Enforce the completion/closure business rules (spec #6/#12):
     - Completed: a payment must be recorded (paid payment or booking marked Paid)
-      — zero-value bookings are exempt.
+      - zero-value bookings are exempt.
     - Closed: a live invoice must exist for a payable booking.
     Cancelled / No-show are not gated (they are separate terminal states).
     """

@@ -1427,3 +1427,58 @@ bdi,
 @media (prefers-reduced-motion: reduce) {
   .bw__price-wait { animation: none; }
 }
+
+/* --------------------------------------------------------------------------
+   Reservation countdown
+   --------------------------------------------------------------------------
+   Sits above the checkout, quiet while there is time and loud once there is
+   not. Three states share one box so the layout never jumps as it changes:
+   at rest, running out (warm), and finished (the error palette).
+   -------------------------------------------------------------------------- */
+.ck__hold {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-bottom: 14px;
+  padding: 10px 14px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--soft-accent);
+  color: var(--ink);
+  font-size: 13.5px;
+  line-height: 1.45;
+}
+
+.ck__hold--soon {
+  background: var(--warm-soft);
+}
+
+.ck__hold--over {
+  background: var(--err-bg);
+  border-color: var(--err-border);
+  color: var(--err-ink);
+}
+
+.ck__hold-tx { min-width: 0; }
+
+.ck__hold-btn {
+  flex: 0 0 auto;
+  border: 1px solid currentColor;
+  border-radius: 999px;
+  background: none;
+  color: inherit;
+  padding: 6px 14px;
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.ck__hold-btn:hover { background: rgba(0, 0, 0, 0.06); }
+.ck__hold-btn:focus-visible { outline: 2px solid currentColor; outline-offset: 2px; }
+
+@media (max-width: 480px) {
+  .ck__hold { align-items: flex-start; flex-direction: column; }
+  .ck__hold-btn { width: 100%; }
+}

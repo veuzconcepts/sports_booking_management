@@ -112,7 +112,7 @@ def check_selection_shape(slots, rules, *, duration):
 
 
 def check_selection_availability(slots, *, club, facility_type, duration,
-                                 exclude_booking_ids=None):
+                                 exclude_booking_ids=None, exclude_hold_id=None):
     """Ask the availability engine about every slot, and report each one.
 
     Returns the list of slots that are NO LONGER bookable, each with the
@@ -130,6 +130,9 @@ def check_selection_availability(slots, *, club, facility_type, duration,
         free = booking_services.slot_is_available(
             on_date, at_time, club=club, facility_type=facility_type,
             duration=duration,
+            # The customer's own reservation is what they are checking out
+            # against, so it must not report their own slots as taken.
+            exclude_hold_id=exclude_hold_id,
         )
         if not free:
             unavailable.append({
@@ -141,7 +144,7 @@ def check_selection_availability(slots, *, club, facility_type, duration,
 
 
 def validate_selection(slots, *, club, facility_type, customer=None,
-                       staff_booking=False, rules=None):
+                       staff_booking=False, rules=None, exclude_hold_id=None):
     """Everything that must be true before a selection may be paid for.
 
     Shape first, then the booking policy, then availability, because telling
@@ -168,7 +171,8 @@ def validate_selection(slots, *, club, facility_type, customer=None,
             raise SelectionError(" ".join(reasons), code="rules")
 
     unavailable = check_selection_availability(
-        slots, club=club, facility_type=facility_type, duration=duration)
+        slots, club=club, facility_type=facility_type, duration=duration,
+        exclude_hold_id=exclude_hold_id)
     if unavailable:
         times = ", ".join(f"{s['time']}" for s in unavailable)
         raise SelectionError(
@@ -206,7 +210,8 @@ def allocate_discount(amounts, discount):
 @transaction.atomic
 def create_order(*, customer, club, facility_type, slots, addons=None,
                  promo_input="", notes="", source="website", request=None,
-                 staff_booking=False, booking_type="advance"):
+                 staff_booking=False, booking_type="advance",
+                 exclude_hold_id=None):
     """Turn a validated selection into one order and one booking per slot.
 
     Atomic by construction: every booking, the facility allocation behind it and
@@ -232,7 +237,8 @@ def create_order(*, customer, club, facility_type, slots, addons=None,
     addon_ids = list(addons or [])
 
     still_taken = check_selection_availability(
-        slots, club=club, facility_type=facility_type, duration=duration)
+        slots, club=club, facility_type=facility_type, duration=duration,
+        exclude_hold_id=exclude_hold_id)
     if still_taken:
         times = ", ".join(entry["time"] for entry in still_taken)
         raise SelectionError(
@@ -261,7 +267,9 @@ def create_order(*, customer, club, facility_type, slots, addons=None,
             "scheduled_time": at_time.strftime("%H:%M"),
             "customer_notes": notes,
         }
-        serializer = BookingCreateSerializer(data=payload, context={"request": request})
+        serializer = BookingCreateSerializer(
+            data=payload,
+            context={"request": request, "exclude_hold_id": exclude_hold_id})
         try:
             serializer.is_valid(raise_exception=True)
             booking = serializer.save()

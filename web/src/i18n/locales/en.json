@@ -328,12 +328,20 @@
     "chooseTwoPeople": "Choose at least two people",
     "tooManyForAmount": "That is too many people for this amount",
     "slotTaken": "That time was just booked by someone else, please go back and pick another slot",
+    "holdExpired": "Your reservation ran out and the time has gone back on sale, please pick another slot",
     "generic": "Something went wrong, please try again",
     "unreachable": "Could not reach the booking service, please try again",
     "paymentFailed": "The payment could not be completed.",
     "paymentUnreachable": "Could not reach the payment service, please try again.",
     "couponCheck": "Could not check that code, please try again",
     "couponInvalid": "This coupon cannot be applied."
+  },
+  "hold": {
+    "heading": "Your courts are held",
+    "remaining": "{{time}} left to complete your booking",
+    "soon": "Only {{time}} left",
+    "expired": "Your reservation has ended. Pick your times again to continue.",
+    "pickAgain": "Pick times again"
   },
   "hero": {
     "anySport": "Any sport",

@@ -180,6 +180,36 @@ def _resolve_public_customer(request, ctx, *, authenticated_customer,
     return customer, False, info_updated, None
 
 
+def _resolve_reservation(data, *, club, slots):
+    """The reservation this checkout is completing, or a refusal.
+
+    Returns `(hold, error)`. No token at all is not an error: a checkout that
+    never reserved anything still works exactly as it did, so this stays
+    backward compatible with any client that has not been updated.
+
+    A token that has run out IS an error, and a loud one, because the courts
+    behind it have already gone back on sale. Telling the customer at the
+    payment step is the whole point of having a deadline.
+    """
+    from apps.bookings import reservations
+
+    token = str(data.get("reservation") or "").strip()
+    if not token:
+        return None, None
+    try:
+        hold = reservations.require_live(token)
+    except reservations.HoldExpired as exc:
+        return None, (409, {"detail": str(exc), "code": exc.code})
+    if hold.club_id != club.id:
+        return None, (409, {"detail": "This reservation is for a different club.",
+                            "code": "hold_mismatch"})
+    if not reservations.covers(hold, slots):
+        return None, (409, {
+            "detail": "This reservation does not cover the times you are booking.",
+            "code": "hold_mismatch"})
+    return hold, None
+
+
 def create_public_booking(data, *, request, source="website",
                           authenticated_customer=None, customer_source="web",
                           update_via="website_booking", update_by_label="Customer (website)"):
@@ -191,7 +221,7 @@ def create_public_booking(data, *, request, source="website",
       no OTP/uniqueness gate. Missing name/phone/email default from their profile.
 
     `source` tags `Booking.source`. Returns `(status_code, payload_dict)`."""
-    from apps.bookings import contacts, services as booking_services
+    from apps.bookings import contacts, reservations, services as booking_services
     from apps.bookings.models import ACTIVE_STATUSES, Booking
     from apps.bookings.serializers import BookingCreateSerializer
     from apps.customers.models import Customer
@@ -241,8 +271,13 @@ def create_public_booking(data, *, request, source="website",
     if rule_errors:
         return 400, {"detail": " ".join(rule_errors), "rules": rule_errors}
 
+    hold, hold_error = _resolve_reservation(d, club=club, slots=[(on_date, at_time)])
+    if hold_error:
+        return hold_error
+
     if not booking_services.slot_is_available(
-            on_date, at_time, club=club, facility_type=item):
+            on_date, at_time, club=club, facility_type=item,
+            exclude_hold_id=hold.id if hold else None):
         return 409, {"detail": "That time slot was just taken - please pick another"}
 
     valid_addon_ids = set(item.add_ons.filter(is_active=True).values_list("id", flat=True))
@@ -287,12 +322,20 @@ def create_public_booking(data, *, request, source="website",
         }
         if coupon:
             payload["promo_code_input"] = coupon
-        ser = BookingCreateSerializer(data=payload, context={"request": request})
+        ser = BookingCreateSerializer(
+            data=payload,
+            context={"request": request,
+                     "exclude_hold_id": hold.id if hold else None})
         ser.is_valid(raise_exception=True)
         booking = ser.save()
         booking.customer_was_new = customer_was_new
         booking.customer_info_updated = customer_info_updated
         booking.save(update_fields=["customer_was_new", "customer_info_updated", "updated_at"])
+        # Inside the transaction, AFTER the booking exists and is already
+        # blocking the slot. There is therefore no instant at which the court
+        # looks free, and a rollback takes the conversion with it.
+        if hold is not None:
+            reservations.convert(hold, booking=booking)
 
     # Self-service bookings stay PENDING (Booked) until staff confirm them.
     from apps.notifications.services import notify_booking_created
@@ -339,7 +382,7 @@ def create_public_order(data, *, request, source="website",
 
     Returns `(status_code, payload_dict)`.
     """
-    from apps.bookings import multi_slot, services as booking_services
+    from apps.bookings import multi_slot, reservations, services as booking_services
     from apps.bookings.models import ACTIVE_STATUSES, Booking
     from apps.facilities.models import FacilityType
     from apps.settings_app.models import BookingConfiguration
@@ -371,12 +414,17 @@ def create_public_order(data, *, request, source="website",
     except multi_slot.SelectionError as exc:
         return 400, {"detail": str(exc), "code": exc.code}
 
+    hold, hold_error = _resolve_reservation(d, club=club, slots=slots)
+    if hold_error:
+        return hold_error
+
     # Shape, booking window and availability, before anything is written and
     # before the customer record is touched.
     try:
         multi_slot.validate_selection(
             slots, club=club, facility_type=item,
-            customer=authenticated_customer, staff_booking=False)
+            customer=authenticated_customer, staff_booking=False,
+            exclude_hold_id=hold.id if hold else None)
     except multi_slot.SelectionError as exc:
         return (409 if exc.code == "slot_unavailable" else 400), {
             "detail": str(exc), "code": exc.code, "slots": exc.slots}
@@ -424,10 +472,14 @@ def create_public_order(data, *, request, source="website",
             order, bookings = multi_slot.create_order(
                 customer=customer, club=club, facility_type=item, slots=slots,
                 addons=addon_ids, promo_input=coupon, notes=notes,
-                source=source, request=request)
+                source=source, request=request,
+                exclude_hold_id=hold.id if hold else None)
         except multi_slot.SelectionError as exc:
             return (409 if exc.code == "slot_unavailable" else 400), {
                 "detail": str(exc), "code": exc.code, "slots": exc.slots}
+
+        if hold is not None:
+            reservations.convert(hold, order=order)
 
         first = bookings[0]
         first.customer_was_new = customer_was_new
@@ -599,6 +651,66 @@ def _record_intent(booking, method) -> None:
     booking.save(update_fields=["payment_method", "updated_at"])
 
 
+
+
+def _no_provider(method, club, outstanding):
+    """No card provider is configured. Say what is actually left.
+
+    Telling somebody they can pay at the club is only true where the club takes
+    cash. At a card-only club there is genuinely nothing they can do right now,
+    and saying so is better than sending them to a desk that will turn them
+    away.
+    """
+    from apps.payments.gateway import checkout_payment_options
+
+    detail = "Online payment is not available at the moment."
+    if checkout_payment_options(club)["cash_enabled"]:
+        detail += " You can still pay at the club."
+    else:
+        detail += " Please try again shortly."
+    return {"method": method, "status": "unavailable", "detail": detail,
+            "code": "provider_unavailable", "outstanding": str(outstanding)}
+
+
+def _resolve_checkout_method(payment_request, *, club, outstanding):
+    """Which method this checkout is using, or why it cannot be used.
+
+    Returns `(method, refusal)`. `refusal` is a ready payment block when the
+    club does not offer what was asked for, and None otherwise.
+
+    The website hides a method the club has switched off, but hiding is not
+    enforcing: a stale tab, a replayed request or a direct API call still
+    arrives here. This is where the club's answer is actually applied, and it
+    reads the same `checkout_payment_options` the website was given, so a
+    customer can never be refused for something the page told them was fine.
+    """
+    from apps.payments.gateway import checkout_payment_options, default_checkout_method
+
+    options = checkout_payment_options(club)
+    method = str((payment_request or {}).get("method") or "").strip().lower()
+    if not method:
+        method = default_checkout_method(club)
+
+    # Nothing to collect, so no method can be wrong.
+    if outstanding <= 0:
+        return method, None
+
+    if method == "cash" and not options["cash_enabled"]:
+        return method, {
+            "method": "cash", "status": "unavailable",
+            "detail": "This club does not take payment at the venue. "
+                      "Please pay online to confirm your booking.",
+            "code": "cash_disabled", "outstanding": str(outstanding)}
+
+    if method == "split" and not options["split_enabled"]:
+        return method, {
+            "method": "split", "status": "unavailable",
+            "detail": "Splitting a payment is not available for this booking.",
+            "code": "split_disabled", "outstanding": str(outstanding)}
+
+    return method, None
+
+
 def collect_checkout_payment(booking, payment_request, *, request=None):
     """Settle a freshly created booking according to the chosen method.
 
@@ -618,9 +730,14 @@ def collect_checkout_payment(booking, payment_request, *, request=None):
     from apps.payments.gateway import card_payment_available
     from apps.website.split_views import read_card
 
-    method = str((payment_request or {}).get("method") or "cash").strip().lower()
-    _record_intent(booking, method)
     outstanding = booking_outstanding(booking)
+    method, refusal = _resolve_checkout_method(
+        payment_request, club=booking.club, outstanding=outstanding)
+    if refusal is not None:
+        # Nothing is recorded: the customer has not chosen a method the club
+        # offers, so the booking must not look like it is waiting for cash.
+        return refusal
+    _record_intent(booking, method)
 
     if method == "cash" or outstanding <= 0:
         # Unchanged behaviour: nothing is collected online and the booking waits
@@ -631,10 +748,7 @@ def collect_checkout_payment(booking, payment_request, *, request=None):
     if not card_payment_available():
         # No provider is configured. Say so plainly rather than confirming a
         # booking as paid that nobody has actually paid for.
-        return {"method": method, "status": "unavailable",
-                "detail": "Online payment is not available at the moment. "
-                          "You can still pay at the club.",
-                "outstanding": str(outstanding)}
+        return _no_provider(method, booking.club, outstanding)
 
     if method == "split":
         return _start_split(booking, payment_request, outstanding, request=request)
@@ -685,20 +799,20 @@ def collect_order_payment(order, bookings, payment_request, *, request=None):
     from apps.payments.gateway import card_payment_available
     from apps.website.split_views import read_card
 
-    method = str((payment_request or {}).get("method") or "cash").strip().lower()
+    outstanding = sum((booking_outstanding(b) for b in bookings), Decimal("0"))
+    method, refusal = _resolve_checkout_method(
+        payment_request, club=order.club, outstanding=outstanding)
+    if refusal is not None:
+        return refusal
     for booking in bookings:
         _record_intent(booking, method)
-    outstanding = sum((booking_outstanding(b) for b in bookings), Decimal("0"))
 
     if method == "cash" or outstanding <= 0:
         return {"method": "cash", "status": "due_at_venue",
                 "outstanding": str(outstanding)}
 
     if not card_payment_available():
-        return {"method": method, "status": "unavailable",
-                "detail": "Online payment is not available at the moment. "
-                          "You can still pay at the club.",
-                "outstanding": str(outstanding)}
+        return _no_provider(method, order.club, outstanding)
 
     if method == "split":
         return _start_order_split(order, bookings, payment_request, outstanding,

@@ -116,6 +116,8 @@ const DEMO = {
 };
 const LIVE = { card_enabled: true, demo_mode: false, split_enabled: true, split_minutes: 60 };
 const NO_PROVIDER = { card_enabled: false, demo_mode: false, split_enabled: false };
+// A club that takes no money at the desk: card only.
+const CASH_OFF = { card_enabled: true, demo_mode: false, split_enabled: true, cash_enabled: false };
 
 console.log('\nRendering:');
 
@@ -190,7 +192,22 @@ console.log('\nWhat the backend is allowed to decide:');
 check('no card provider means no card tile', () => {
   const keys = paymentTiles({ config: NO_PROVIDER, country: 'SA' }).map((tile) => tile.key);
   assert(!keys.includes('card'), 'a card tile was offered with no provider configured');
-  return assert(keys.includes('venue'), 'paying at the venue must always remain');
+  return assert(keys.includes('venue'),
+    'with no provider and cash allowed, paying at the venue must remain');
+});
+
+check('a club that does not take cash offers no venue tile', () => {
+  const keys = paymentTiles({ config: CASH_OFF, country: 'SA' }).map((tile) => tile.key);
+  assert(!keys.includes('venue'), 'pay at the venue was offered where cash is off');
+  return assert(keys.includes('card'), 'nothing at all was left to pay with');
+});
+
+check('a config that says nothing about cash still offers the venue', () => {
+  // Backward compatibility: an older payload, or one that could not be fetched,
+  // must not silently remove the only method that works without a gateway.
+  const keys = paymentTiles({ config: { card_enabled: false }, country: 'SA' })
+    .map((tile) => tile.key);
+  return assert(keys.includes('venue'), 'an unknown cash setting removed the tile');
 });
 
 check('a wallet tile stays hidden until a provider supports one', () => {
@@ -874,6 +891,93 @@ check('a saving is only claimed when every slot costs the same', () => {
   return assert(calendarSource.includes('uniformPricing'),
     'a per-slot saving could be multiplied across differently priced slots');
 });
+
+// --------------------------------------------------------------------------- //
+console.log('\nThe reservation countdown:');
+
+const holdPath = join(workDir, 'hold.mjs');
+await esbuild.build({
+  entryPoints: ['src/lib/useReservation.js'],
+  bundle: true,
+  format: 'esm',
+  platform: 'node',
+  outfile: holdPath,
+  external: ['react'],
+  logLevel: 'silent',
+});
+const { formatCountdown, signatureOf } = await import(pathToFileURL(holdPath).href);
+
+check('the countdown reads as minutes and seconds', () => {
+  assert(formatCountdown(600) === '10:00', formatCountdown(600));
+  assert(formatCountdown(65) === '1:05', formatCountdown(65));
+  return assert(formatCountdown(0) === '0:00', formatCountdown(0));
+});
+
+check('a countdown that has run past zero never goes negative', () =>
+  assert(formatCountdown(-30) === '0:00', formatCountdown(-30)));
+
+check('the reservation signature ignores the order slots were clicked in', () => {
+  // The signature decides whether a stored reservation still matches. If click
+  // order changed it, returning to the checkout would drop a perfectly good
+  // reservation and immediately be refused by its own hold.
+  const club = { id: 1 };
+  const activity = { id: 2 };
+  const a = signatureOf(club, activity,
+    [{ date: '2026-09-18', time: '20:00' }, { date: '2026-09-18', time: '19:00' }]);
+  const b = signatureOf(club, activity,
+    [{ date: '2026-09-18', time: '19:00' }, { date: '2026-09-18', time: '20:00' }]);
+  return assert(a === b, `${a} !== ${b}`);
+});
+
+check('changing the times changes the signature', () => {
+  const club = { id: 1 };
+  const activity = { id: 2 };
+  const a = signatureOf(club, activity, [{ date: '2026-09-18', time: '19:00' }]);
+  const b = signatureOf(club, activity, [{ date: '2026-09-18', time: '21:00' }]);
+  return assert(a !== b, 'a different selection reused the same reservation');
+});
+
+check('changing the club changes the signature', () => {
+  const activity = { id: 2 };
+  const slots = [{ date: '2026-09-18', time: '19:00' }];
+  return assert(signatureOf({ id: 1 }, activity, slots)
+    !== signatureOf({ id: 9 }, activity, slots), 'the club was ignored');
+});
+
+function renderHold(reservation) {
+  return render(h(wizardUi.HoldBanner, { reservation, onPickAgain() {} }));
+}
+
+check('no reservation shows no countdown', () =>
+  assert(renderHold(null) === '' && renderHold({ secondsLeft: null }) === '',
+    'a countdown appeared with nothing to count'));
+
+check('a live reservation shows the time left', () => {
+  const html = renderHold({ secondsLeft: 540, expired: false });
+  return assert(html.includes('9:00'), html.slice(0, 200));
+});
+
+check('the countdown is not announced second by second', () => {
+  // A polite live region reading out every tick makes the page unusable with a
+  // screen reader. The status is announced; the number is not.
+  const html = renderHold({ secondsLeft: 540, expired: false });
+  assert(html.includes('role="status"'), 'the reservation was not announced at all');
+  return assert(html.includes('aria-live="off"'), html.slice(0, 200));
+});
+
+check('an expired reservation is announced and offers a way back', () => {
+  const html = renderHold({ secondsLeft: 0, expired: true });
+  assert(html.includes('role="alert"'), 'expiry was not announced');
+  return assert(html.includes(RESOURCES.en.hold.pickAgain), html.slice(0, 300));
+});
+
+check('the expired reservation reads in Arabic too', () => {
+  const html = render(
+    h(wizardUi.HoldBanner, { reservation: { secondsLeft: 0, expired: true },
+      onPickAgain() {} }), 'ar');
+  return assert(html.includes(RESOURCES.ar.hold.pickAgain), html.slice(0, 300));
+});
+
 
 rmSync(workDir, { recursive: true, force: true });
 

@@ -179,22 +179,30 @@ class PublicPaymentConfigView(_PublicView):
     """What payment methods the checkout may offer, decided by the backend.
 
     The website never decides for itself whether card payment works. When no
-    provider is configured this reports `card_enabled: false` and the checkout
-    offers cash only, which is what stops a misconfigured production site from
-    collecting money that never reaches a gateway. Demo test cards appear here
-    only while the demo adapter is genuinely active.
+    provider is configured this reports `card_enabled: false`, which is what
+    stops a misconfigured production site from collecting money that never
+    reaches a gateway. Demo test cards appear here only while the demo adapter
+    is genuinely active.
+
+    Pay-at-venue and split payment are the club's decision rather than the
+    gateway's, so they come from the booking policy and inherit the
+    organization's setting when the club states nothing. `club` narrows the
+    answer; without it the organization-wide setting is returned.
     """
 
     throttle_scope = None
 
     def get(self, request):
-        from django.conf import settings
+        from apps.clubs.models import Club
+        from apps.payments.gateway import checkout_payment_options
 
-        config = public_payment_config()
-        config["split_enabled"] = True
-        config["split_minutes"] = int(getattr(settings, "SPLIT_PAYMENT_MINUTES", 60))
-        config["split_max_shares"] = int(getattr(settings, "SPLIT_PAYMENT_MAX_SHARES", 20))
-        return Response(config)
+        club = None
+        club_id = str(request.query_params.get("club") or "").strip()
+        if club_id.isdigit():
+            # An unknown or inactive club falls back to the organization rather
+            # than erroring: the checkout still needs an answer it can render.
+            club = Club.objects.filter(pk=int(club_id), is_active=True).first()
+        return Response(checkout_payment_options(club))
 
 
 # --------------------------------------------------------------------------- #

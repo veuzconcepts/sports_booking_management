@@ -48,6 +48,21 @@ export const getAvailabilityCalendar = ({ club, from, to, facilityType }) => {
 };
 
 /** POST JSON to the public API; returns { ok, status, data }. */
+async function sendJSON(method, path, body) {
+  try {
+    const res = await fetch(`${API_BASE}${path}`, {
+      method,
+      headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+      ...(body === undefined ? {} : { body: JSON.stringify(body) }),
+    });
+    let data = null;
+    try { data = await res.json(); } catch { /* empty body */ }
+    return { ok: res.ok, status: res.status, data };
+  } catch {
+    return { ok: false, status: 0, data: null };
+  }
+}
+
 async function postJSON(path, body) {
   try {
     const res = await fetch(`${API_BASE}${path}`, {
@@ -68,6 +83,24 @@ export const createBooking = (payload) => postJSON('/website/public/bookings/', 
 
 /** Create a MULTI-SLOT booking: one order, one booking per slot. */
 export const createOrder = (payload) => postJSON('/website/public/orders/', payload);
+
+/**
+ * Hold the chosen courts while the customer checks out.
+ *
+ * Returns the reservation's token once, plus a server-issued deadline. The
+ * token is what the booking request is later spent against, and what lets a
+ * refresh find the same reservation instead of claiming a second one.
+ */
+export const createReservation = (payload) =>
+  postJSON('/website/public/reservations/', payload);
+
+/** How long is left on a reservation, asked of the server rather than the clock. */
+export const getReservation = (token) =>
+  getJSON(`/website/public/reservations/${encodeURIComponent(token)}/`);
+
+/** Give the courts back now instead of at the deadline. */
+export const releaseReservation = (token) =>
+  sendJSON('DELETE', `/website/public/reservations/${encodeURIComponent(token)}/`);
 
 /** Website booking contact rules (email/phone required + unique). */
 export const getBookingConfig = () => getJSON('/website/public/booking-config/');
@@ -105,8 +138,14 @@ export const recordCampaignEvent = (payload) =>
  * The backend decides: it knows whether a provider is configured and whether
  * the demo adapter is genuinely active, and it only ever sends test card
  * numbers while it is. The site must never assume card payment works.
+ *
+ * `club` matters because taking cash at the desk and splitting a bill are the
+ * club's decisions and a club may differ from the organization default. Asking
+ * without one gets the organization-wide answer.
  */
-export const getPaymentConfig = () => getJSON('/website/public/payment-config/');
+export const getPaymentConfig = (club) => getJSON(
+  club ? `/website/public/payment-config/?club=${encodeURIComponent(club)}`
+    : '/website/public/payment-config/');
 
 /** The minimal booking summary and assigned amount behind one share link. */
 export const getSplitShare = (token) =>

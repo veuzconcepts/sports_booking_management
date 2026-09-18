@@ -857,3 +857,62 @@ def dates_in(start, end=None, *, cap=370):
         out.append(cursor)
         cursor += timedelta(days=1)
     return out
+
+
+# --------------------------------------------------------------------------- #
+# Reservation, split and payment-method policy
+#
+# Same inheritance as the hours above: the club states only what differs and
+# everything else follows the organization. Resolved in ONE place so a hold, a
+# split arrangement and the checkout can never disagree about how long a court
+# is protected or which payment methods exist.
+# --------------------------------------------------------------------------- #
+#: Settings that resolve Organization -> Club, with the env value as the last
+#: resort so an install works before anybody configures anything.
+BOOKING_POLICY_FIELDS = (
+    "hold_unpaid_minutes",
+    "hold_partly_paid_minutes",
+    "hold_max_minutes",
+    "split_enabled",
+    "split_hold_minutes",
+    "split_max_shares",
+    "cash_enabled",
+)
+
+
+def resolve_booking_policy(club=None, *, org=None) -> dict:
+    """Reservation timeouts, split rules and payment methods for one club.
+
+    A club field left empty inherits, exactly as an unset weekday does. False
+    is a real answer and must not be treated as unset, which is why booleans
+    are tested against None rather than for truthiness: a club that switches
+    cash off would otherwise silently inherit the organization's "on".
+
+    The split window is clamped to the maximum reservation lifetime. A split
+    deadline longer than the hold would let payment links keep collecting
+    money after the court had been released and resold, which is the one
+    combination here that loses somebody money.
+    """
+    org = org or Organization.get_solo()
+    resolved = {}
+    for field in BOOKING_POLICY_FIELDS:
+        value = getattr(club, field, None) if club is not None else None
+        resolved[field] = getattr(org, field) if value is None else value
+
+    resolved["split_hold_minutes"] = min(
+        int(resolved["split_hold_minutes"]), int(resolved["hold_max_minutes"]))
+    return resolved
+
+
+def hold_minutes_for(payment_state, club=None, *, org=None) -> int:
+    """How long a reservation in this payment state may hold its slot.
+
+    `payment_state` is the booking's payment status. Anything that is not a
+    part payment is treated as unpaid: a paid booking does not need a hold at
+    all, because being Confirmed is what keeps its court.
+    """
+    policy = resolve_booking_policy(club, org=org)
+    minutes = (policy["hold_partly_paid_minutes"]
+               if payment_state == "partially_paid"
+               else policy["hold_unpaid_minutes"])
+    return min(int(minutes), int(policy["hold_max_minutes"]))

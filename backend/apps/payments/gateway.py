@@ -335,3 +335,43 @@ def public_payment_config() -> dict:
         "test_expiry": "12/30" if visible else "",
         "test_cvv": "123" if visible else "",
     }
+
+
+def checkout_payment_options(club=None) -> dict:
+    """Every payment method this club's checkout may offer, and its terms.
+
+    Two different things decide this and they have to be read together:
+    whether the software CAN take the money (is a card provider configured?)
+    and whether the club WANTS to take it that way (does this club accept cash
+    at the desk? does it allow a group to split a bill, and for how long?).
+
+    One function answers both, because the website's buttons and the server's
+    refusals must come from the same answer. If the checkout offered pay-at-
+    venue from one source and the booking endpoint refused it from another,
+    the customer would lose their slot at the last step for no stated reason.
+
+    `club` may be None for the organization-wide answer.
+    """
+    from apps.settings_app.schedule import resolve_booking_policy
+
+    policy = resolve_booking_policy(club)
+    config = public_payment_config()
+    config.update({
+        "cash_enabled": bool(policy["cash_enabled"]),
+        "split_enabled": bool(policy["split_enabled"]) and config["card_enabled"],
+        "split_minutes": int(policy["split_hold_minutes"]),
+        "split_max_shares": int(policy["split_max_shares"]),
+        "hold_minutes": int(policy["hold_unpaid_minutes"]),
+    })
+    return config
+
+
+def default_checkout_method(club=None) -> str:
+    """What a checkout that names no method is asking for.
+
+    It used to be cash unconditionally. At a club that does not take cash that
+    quietly produced a booking nobody could ever pay for and the expiry sweep
+    would never release, because a pay-at-venue booking is deliberately exempt
+    from the clock. So the default is whatever the club actually offers.
+    """
+    return "cash" if checkout_payment_options(club)["cash_enabled"] else "card"

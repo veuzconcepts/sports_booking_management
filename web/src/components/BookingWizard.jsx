@@ -6,6 +6,7 @@ import { I18n } from '../i18n/client.jsx';
 import { intlLocale, weekdayStyle } from '../i18n/index.js';
 import PhoneField from './PhoneField.jsx';
 import { phoneCountryFor } from '../utils/countries.js';
+import { formatCountdown, useReservation } from '../lib/useReservation.js';
 import {
   CardForm,
   CheckIcon,
@@ -331,6 +332,16 @@ function Wizard({ categories = [], facilityTypes = [], clubs = [], currency = ''
 
   const go = (n) => setStep(Math.max(0, Math.min(STEP_KEYS.length - 1, n)));
 
+  // The courts are claimed while the checkout is open and given back the
+  // moment it is left, so somebody who returns to the calendar does not leave
+  // an evening slot locked behind a timer nobody is watching. A completed
+  // booking has already converted its reservation, so the hold is dropped
+  // rather than released.
+  const reservation = useReservation({
+    club, facilityType, slots,
+    active: step === STEP_PAY && !bookingDone,
+  });
+
   // A facility with no optional extras has nothing to show on the add-ons step,
   // so that step is passed over in both directions rather than shown empty.
   const hasAddons = Boolean(facilityType?.add_ons?.length);
@@ -411,6 +422,7 @@ function Wizard({ categories = [], facilityTypes = [], clubs = [], currency = ''
             slot={slot} slots={slots} currency={currency}
             country={country}
             addons={addons}
+            reservation={reservation}
             details={details} setDetails={setDetails} pay={pay} setPay={setPay}
             done={bookingDone} setDone={setBookingDone} onReset={reset}
             onEditBooking={() => go(STEP_WHEN)}
@@ -1395,6 +1407,49 @@ export function Schedule({ facilityType, category, club, currency, initialDate =
   );
 }
 
+/**
+ * How long the courts are held for, and what to do when that runs out.
+ *
+ * Deliberately not a modal and not a scary red box until it matters. A
+ * countdown is information while there is time and an instruction once there
+ * is not, so the tone changes at the one minute mark and the whole thing turns
+ * into a way back to the calendar when it reaches zero.
+ *
+ * `role="status"` rather than `role="timer"`: a screen reader should hear that
+ * the reservation exists, not every passing second. `aria-live="off"` on the
+ * ticking value keeps the number from being announced sixty times a minute,
+ * and the expiry message is the one thing that does get announced.
+ */
+export function HoldBanner({ reservation, onPickAgain }) {
+  const { t } = useTranslation();
+  if (!reservation || reservation.secondsLeft === null) return null;
+
+  const { secondsLeft, expired } = reservation;
+  if (expired) {
+    return (
+      <div className="ck__hold ck__hold--over" role="alert">
+        <span className="ck__hold-tx">{t('hold.expired')}</span>
+        <button type="button" className="ck__hold-btn" onClick={onPickAgain}>
+          {t('hold.pickAgain')}
+        </button>
+      </div>
+    );
+  }
+
+  const urgent = secondsLeft <= 60;
+  const time = formatCountdown(secondsLeft);
+  return (
+    <div className={`ck__hold${urgent ? ' ck__hold--soon' : ''}`} role="status">
+      <span className="ck__hold-tx">
+        <strong>{t('hold.heading')}</strong>{' '}
+        <span aria-live="off">
+          {t(urgent ? 'hold.soon' : 'hold.remaining', { time })}
+        </span>
+      </span>
+    </div>
+  );
+}
+
 function Money({ amount, currency }) {
   const n = Number(amount);
   // Whole numbers drop the ".00"; fractional amounts keep 2 decimals.
@@ -1406,7 +1461,7 @@ function Money({ amount, currency }) {
   return <bdi>{sym} {v}</bdi>;
 }
 
-function Details({ facilityType, category, club, slot, slots = [], currency, country = '', addons = [], details, setDetails, pay, setPay, done, setDone, onReset, onEditBooking }) {
+function Details({ facilityType, category, club, slot, slots = [], currency, country = '', addons = [], reservation, details, setDetails, pay, setPay, done, setDone, onReset, onEditBooking }) {
   // One checkout may hold several times. Everything priced or paid for below
   // is the whole selection, never just the first slot.
   const chosen = slots.length ? slots : (slot ? [slot] : []);
@@ -1439,13 +1494,21 @@ function Details({ facilityType, category, club, slot, slots = [], currency, cou
   // form stays strict until the live config loads.
   const [cfg, setCfg] = useState({ email_required: true, phone_required: true, email_unique: false, phone_unique: false });
   // What payment methods are actually available. Defaults to card-off so a
-  // checkout that cannot reach the backend offers cash rather than a card form
-  // that would fail.
-  const [payCfg, setPayCfg] = useState({ card_enabled: false, demo_mode: false, test_cards: [], split_enabled: false });
+  // checkout that cannot reach the backend offers paying at the venue rather
+  // than a card form that would fail, and to cash-on for the same reason: the
+  // fallback has to be a method that still works when nothing is known.
+  const [payCfg, setPayCfg] = useState({
+    card_enabled: false, demo_mode: false, test_cards: [],
+    split_enabled: false, cash_enabled: true });
+  // Re-asked per club, because taking cash at the desk and allowing a bill to
+  // be split are the club's decisions, not the organization's alone.
   useEffect(() => {
-    fetch('/api/split?scope=config').then((r) => (r.ok ? r.json() : null))
-      .then((c) => c && setPayCfg(c)).catch(() => {});
-  }, []);
+    const scope = club?.id ? `&club=${encodeURIComponent(club.id)}` : '';
+    let current = true;
+    fetch(`/api/split?scope=config${scope}`).then((r) => (r.ok ? r.json() : null))
+      .then((c) => { if (current && c) setPayCfg(c); }).catch(() => {});
+    return () => { current = false; };
+  }, [club?.id]);
 
   // The details block collapses to a one-line summary once it is done with, the
   // way a checkout should: the payment step is what the customer came here for.
@@ -1686,6 +1749,10 @@ function Details({ facilityType, category, club, slot, slots = [], currency, cou
         name: form.name, phone: form.phone, email: form.email, notes: form.notes,
         coupon: applied?.code || '', verification_token: tokenValid ? token : undefined,
         payment: paymentRequest(mode),
+        // The reservation this checkout is completing. Sending it is what
+        // stops the customer's own hold reporting their slot as taken, and
+        // what converts the hold into the booking on the way through.
+        reservation: reservation?.token || undefined,
       };
       const res = await fetch(many ? '/api/order' : '/api/book', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
@@ -1709,10 +1776,13 @@ function Details({ facilityType, category, club, slot, slots = [], currency, cou
         setOtpCode(''); setOtpMsg('');
       }
       else if (res.status === 409) {
-        // Slot was taken between viewing and booking - drop the stale cache so
-        // re-opening the date shows the truth, and ask them to pick again.
+        // Slot was taken between viewing and booking, or the reservation ran
+        // out. Either way the cached view of that date is now wrong, so drop
+        // it and ask them to pick again from the truth.
         chosen.forEach((c) => availInvalidate(club, facilityType, c.date));
-        setError(data?.detail || t('errors.slotTaken'));
+        setError(data?.code === 'hold_expired'
+          ? t('errors.holdExpired')
+          : (data?.detail || t('errors.slotTaken')));
       } else setError(data?.detail || t('errors.generic'));
     } catch {
       setError(t('errors.unreachable'));
@@ -1831,6 +1901,7 @@ function Details({ facilityType, category, club, slot, slots = [], currency, cou
   return (
     <div className="ck">
       <div className="ck__main">
+        <HoldBanner reservation={reservation} onPickAgain={onEditBooking} />
         {/* 1. Your details. Collapses to a single line once it is done with, so
             the payment step is what the page is actually about. */}
         <section className="ck__sec">
