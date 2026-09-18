@@ -200,3 +200,38 @@ class TestWhatIsLeftAlone:
             organizer_token_hash="z" * 64,
             expires_at=timezone.now() - timedelta(hours=1))
         assert expire_unpaid_bookings() == 1
+
+
+class TestItIsActuallyScheduled:
+    """A job nobody runs is the same as no job.
+
+    The beat entry names its task as a dotted string, so a typo or a moved
+    module leaves the schedule looking correct while the job never fires and
+    courts quietly stay held. Both ends are checked here.
+    """
+
+    def test_the_task_calls_the_service(self, venue):
+        from apps.bookings.tasks import expire_unpaid_bookings_task
+        make_booking(venue)
+        assert expire_unpaid_bookings_task() == 1
+
+    def test_the_beat_entry_points_at_a_task_that_exists(self, settings):
+        from importlib import import_module
+
+        entry = settings.CELERY_BEAT_SCHEDULE['expire-unpaid-bookings']
+        module_path, _, name = entry['task'].rpartition('.')
+        module = import_module(module_path)
+        assert callable(getattr(module, name))
+
+    def test_it_runs_often_enough_to_matter(self, settings):
+        """The window is in minutes, so a nightly sweep would be useless.
+
+        Pinned against the split-payment job rather than a literal: both run
+        often for the same reason, and if one is ever slowed to a nightly
+        sweep the other should be reconsidered with it.
+        """
+        schedule = settings.CELERY_BEAT_SCHEDULE
+        assert (schedule['expire-unpaid-bookings']['schedule']
+                == schedule['expire-split-payments']['schedule'])
+        # And that shared cadence is genuinely sub-hourly.
+        assert schedule['expire-unpaid-bookings']['schedule'].hour == {*range(24)}

@@ -365,6 +365,14 @@ CELERY_BEAT_SCHEDULE = {
         "task": "apps.payments.tasks.expire_split_payments_task",
         "schedule": crontab(minute="*/5"),
     },
+    # Same reasoning: an abandoned checkout holds a court, and the payment
+    # window is measured in minutes. Running every 5 means a released slot is
+    # back on sale within a few minutes of the window passing, which is the
+    # point of having a window at all.
+    "expire-unpaid-bookings": {
+        "task": "apps.bookings.tasks.expire_unpaid_bookings_task",
+        "schedule": crontab(minute="*/5"),
+    },
 }
 
 # ---------------------------------------------------------------------------
