@@ -215,13 +215,22 @@ class TestItIsActuallyScheduled:
         make_booking(venue)
         assert expire_unpaid_bookings_task() == 1
 
-    def test_the_beat_entry_points_at_a_task_that_exists(self, settings):
-        from importlib import import_module
+    def test_every_beat_entry_points_at_a_registered_task(self, settings):
+        """Checked against Celery's own registry, for all of them.
 
-        entry = settings.CELERY_BEAT_SCHEDULE['expire-unpaid-bookings']
-        module_path, _, name = entry['task'].rpartition('.')
-        module = import_module(module_path)
-        assert callable(getattr(module, name))
+        Importing the module by hand would pass for a function Celery never
+        registered, and a new `tasks.py` is only picked up by autodiscovery.
+        Every entry is checked rather than just this one: they all fail the
+        same silent way, and one broken schedule is as bad as another.
+        """
+        from config.celery import app
+
+        app.loader.import_default_modules()
+        missing = [name for name, entry in settings.CELERY_BEAT_SCHEDULE.items()
+                   if entry['task'] not in app.tasks]
+        assert missing == [], f'beat entries with no such task: {missing}'
+        assert ('apps.bookings.tasks.expire_unpaid_bookings_task'
+                in app.tasks), 'the booking expiry task was not autodiscovered'
 
     def test_it_runs_often_enough_to_matter(self, settings):
         """The window is in minutes, so a nightly sweep would be useless.
