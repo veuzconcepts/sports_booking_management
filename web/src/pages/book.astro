@@ -1,4 +1,5 @@
 ---
+import { fromAstro } from '../i18n/index.js';
 import BaseLayout from '../layouts/BaseLayout.astro';
 import Header from '../components/Header.astro';
 import BookingWizard from '../components/BookingWizard.jsx';
@@ -6,6 +7,9 @@ import CampaignPopup from '../components/CampaignPopup.jsx';
 import { getHome, getCatalogue, getClubs, getCampaigns } from '../lib/api.js';
 import '../styles/booking.css';
 import '../styles/campaign.css';
+import '../styles/payment.css';
+
+const { locale } = fromAstro(Astro);
 
 const [home, catalogue, clubData, campaignList] = await Promise.all([
   getHome(), getCatalogue(), getClubs(), getCampaigns({ placement: 'booking' }),
@@ -26,6 +30,7 @@ const placeholderLogo = home?.branding?.logo_dark || home?.branding?.logo_light 
     <div class="container">
       <BookingWizard
         client:load
+        locale={locale}
         categories={categories}
         facilityTypes={facilityTypes}
         clubs={clubs}
@@ -36,5 +41,5 @@ const placeholderLogo = home?.branding?.logo_dark || home?.branding?.logo_light 
       />
     </div>
   </section>
-  {campaigns.length > 0 && <CampaignPopup client:idle campaigns={campaigns} />}
+  {campaigns.length > 0 && <CampaignPopup client:idle campaigns={campaigns} locale={locale} />}
 </BaseLayout>

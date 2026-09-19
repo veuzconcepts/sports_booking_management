@@ -68,13 +68,24 @@ export const bookingsApi = {
     api.post(`/bookings/${id}/generate-recurrences/`, { occurrences }).then((r) => r.data),
 };
 
-/** Booking rules: when a slot may be booked, and when a customer may cancel.
- *  One organization default row plus an optional row per club. */
+/** Booking rules: when a slot may be booked, how many slots one booking may
+ *  hold, and when a customer may cancel. One organization default row, plus an
+ *  optional row per club and per facility. */
 export const bookingPoliciesApi = {
   list:   (params) => api.get('/bookings/policies/', { params }).then((r) => r.data),
   create: (data)   => api.post('/bookings/policies/', data).then((r) => r.data),
   update: (id, d)  => api.patch(`/bookings/policies/${id}/`, d).then((r) => r.data),
   remove: (id)     => api.delete(`/bookings/policies/${id}/`),
+
+  /** What applies at a scope once inheritance is resolved, whether or not a
+   *  row exists there. The editor uses it to show what "inherit" would give. */
+  effective: (params) => api.get('/bookings/policies/effective/', { params })
+    .then((r) => r.data),
+
+  /** Clear the slot-rule overrides under a scope so everything below it
+   *  follows that scope again. Omit the club to reach every club. */
+  clearOverrides: (club) => api.post('/bookings/policies/clear-overrides/',
+    club ? { club } : {}).then((r) => r.data),
 };
 
 /** The dates/times the policy allows, so a picker can bound itself. */

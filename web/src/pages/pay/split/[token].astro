@@ -1,0 +1,33 @@
+---
+import { fromAstro } from '../../../i18n/index.js';
+import BaseLayout from '../../../layouts/BaseLayout.astro';
+import Header from '../../../components/Header.astro';
+import { SharePay } from '../../../components/SplitPay.jsx';
+import { getHome } from '../../../lib/api.js';
+import '../../../styles/booking.css';
+import '../../../styles/payment.css';
+
+// A payment link is a bearer credential, so this page is rendered per request
+// and told never to be indexed or cached by an intermediary. The token is not
+// resolved here: the island fetches through the same-origin proxy, which keeps
+// the backend URL out of the browser and the token out of the SSR HTML.
+export const prerender = false;
+
+const { token } = Astro.params;
+const home = await getHome();
+const { locale, t } = fromAstro(Astro);
+
+Astro.response.headers.set('Cache-Control', 'no-store, private');
+Astro.response.headers.set('Referrer-Policy', 'no-referrer');
+---
+<BaseLayout
+  seo={{ meta_title: t('pay.contributingTitle'), robots: 'noindex, nofollow' }}
+  site={home?.organization || {}}
+>
+  <Header hideCta />
+  <section class="section section--flush-top">
+    <div class="container">
+      <SharePay client:load token={token} locale={locale} />
+    </div>
+  </section>
+</BaseLayout>

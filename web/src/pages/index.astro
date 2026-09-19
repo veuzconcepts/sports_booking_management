@@ -1,4 +1,5 @@
 ---
+import { fromAstro } from '../i18n/index.js';
 import BaseLayout from '../layouts/BaseLayout.astro';
 import Header from '../components/Header.astro';
 import HomeHero from '../components/HomeHero.astro';
@@ -33,6 +34,7 @@ const site = home?.organization || {};
 
 const banners = home?.banners || [];
 const steps = home?.process_steps || [];
+const { locale, t } = fromAstro(Astro);
 const categories = catalogue?.categories || [];
 const facilityTypes = catalogue?.facility_types || [];
 const clubs = clubList?.clubs || [];
@@ -71,8 +73,8 @@ const typeCount = (categoryId) =>
     <section class="section" id="sports">
       <div class="container">
         <div class="section-head">
-          <span class="eyebrow">{sec('services').eyebrow || 'Choose your sport'}</span>
-          <h2>{sec('services').title || 'What would you like to play?'}</h2>
+          <span class="eyebrow">{sec('services').eyebrow || t('home.sportsEyebrow')}</span>
+          <h2>{sec('services').title || t('home.sportsTitle')}</h2>
           {sec('services').description && <p class="muted">{sec('services').description}</p>}
         </div>
         <div class="sports">
@@ -101,13 +103,13 @@ const typeCount = (categoryId) =>
     <section class="section section--soft" id="availability">
       <div class="container">
         <div class="section-head">
-          <span class="eyebrow">{sec('availability').eyebrow || 'Live availability'}</span>
-          <h2>{sec('availability').title || 'See what is free right now'}</h2>
+          <span class="eyebrow">{sec('availability').eyebrow || t('home.availabilityEyebrow')}</span>
+          <h2>{sec('availability').title || t('home.availabilityTitle')}</h2>
           {sec('availability').description && (
             <p class="muted">{sec('availability').description}</p>
           )}
         </div>
-        <AvailabilityPreview client:visible clubs={clubs} facilityTypes={facilityTypes} />
+        <AvailabilityPreview client:visible clubs={clubs} facilityTypes={facilityTypes} locale={locale} />
       </div>
     </section>
   )}
@@ -117,11 +119,11 @@ const typeCount = (categoryId) =>
     <section class="section" id="clubs">
       <div class="container">
         <div class="section-head">
-          <span class="eyebrow">{sec('clubs').eyebrow || 'Our venues'}</span>
-          <h2>{sec('clubs').title || 'Find a club near you'}</h2>
+          <span class="eyebrow">{sec('clubs').eyebrow || t('home.clubsEyebrow')}</span>
+          <h2>{sec('clubs').title || t('home.clubsTitle')}</h2>
           {sec('clubs').description && <p class="muted">{sec('clubs').description}</p>}
         </div>
-        <ClubGrid clubs={clubs} sports={sports} />
+        <ClubGrid clubs={clubs} />
       </div>
     </section>
   )}
@@ -131,8 +133,8 @@ const typeCount = (categoryId) =>
     <section class="section section--soft" id="how">
       <div class="container">
         <div class="section-head">
-          <span class="eyebrow">{sec('how_it_works').eyebrow || 'How it works'}</span>
-          <h2>{sec('how_it_works').title || 'Booked in four steps'}</h2>
+          <span class="eyebrow">{sec('how_it_works').eyebrow || t('home.howEyebrow')}</span>
+          <h2>{sec('how_it_works').title || t('home.howTitle')}</h2>
         </div>
         <div class="steps2">
           {steps.map((step, i) => (
@@ -152,8 +154,8 @@ const typeCount = (categoryId) =>
     <section class="section" id="why">
       <div class="container">
         <div class="section-head">
-          <span class="eyebrow">{sec('why_choose_us').eyebrow || 'Why us'}</span>
-          <h2>{sec('why_choose_us').title || 'Your club, always within reach'}</h2>
+          <span class="eyebrow">{sec('why_choose_us').eyebrow || t('home.whyEyebrow')}</span>
+          <h2>{sec('why_choose_us').title || t('home.whyTitle')}</h2>
           {sec('why_choose_us').description && (
             <p class="muted">{sec('why_choose_us').description}</p>
           )}
@@ -182,8 +184,8 @@ const typeCount = (categoryId) =>
     <section class="section section--soft" id="reviews">
       <div class="container">
         <div class="section-head section-head--center">
-          <span class="eyebrow">{sec('testimonials').eyebrow || 'Our customers say'}</span>
-          <h2>{sec('testimonials').title || 'Trusted reviews'}</h2>
+          <span class="eyebrow">{sec('testimonials').eyebrow || t('home.reviewsEyebrow')}</span>
+          <h2>{sec('testimonials').title || t('home.reviewsTitle')}</h2>
         </div>
         <div class="grid cols-3">
           {testimonials.map((review) => (
@@ -264,7 +266,7 @@ const typeCount = (categoryId) =>
     </div>
   </section>
 
-  {campaigns.length > 0 && <CampaignPopup client:idle campaigns={campaigns} />}
+  {campaigns.length > 0 && <CampaignPopup client:idle campaigns={campaigns} locale={locale} />}
 
   <Footer footer={home?.footer} site={site} />
 </BaseLayout>

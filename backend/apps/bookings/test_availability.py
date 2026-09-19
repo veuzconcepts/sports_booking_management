@@ -379,3 +379,94 @@ def test_available_slots_does_not_scale_queries_with_slot_count(
     with django_assert_max_num_queries(8):
         slots = available_slots(THURSDAY, club=club, facility_type=facility_type)
     assert len(slots) == 16
+
+
+# --------------------------------------------------------------------------- #
+# A facility that keeps its own hours
+# --------------------------------------------------------------------------- #
+# Reported from the field: a club was created, one facility was given evening
+# hours, and the website then offered the club's whole daytime with every slot
+# labelled "Fully booked" while the evening it was actually open never appeared.
+# Two distinct faults: a closed facility was counted as a booked one, and the
+# slot grid came from the club rather than from the facilities that serve the
+# booking.
+EVENING = {"closed": False, "shifts": [{"open": "20:00", "close": "23:00"}]}
+
+
+@pytest.fixture
+def evening_only(db, org, club, venue, facility_type):
+    """The club is open 09:00-13:00; its only tennis court opens 20:00-23:00."""
+    org.booking_hours = {**(org.booking_hours or {}),
+                         "thu": {"closed": False,
+                                 "shifts": [{"open": "09:00", "close": "13:00"}]}}
+    org.save()
+    # Leave exactly one facility able to serve tennis, so the expectations below
+    # are about that facility's hours and nothing else.
+    venue["hall"].facility_types.set([])
+    venue["hall"].is_active = False
+    venue["hall"].save()
+    venue["spare"].is_active = False
+    venue["spare"].save()
+    court = venue["court"]
+    court.booking_hours = {"thu": EVENING}
+    court.save()
+    return court
+
+
+def test_hours_outside_the_facility_are_not_offered_at_all(evening_only, club, facility_type):
+    """A shut court is not a full one: those slots must not exist."""
+    slots = available_slots(THURSDAY, club=club, facility_type=facility_type)
+    times = [s["time"] for s in slots]
+    assert "09:00" not in times
+    assert "10:00" not in times
+    # And nothing that IS offered is offered as unavailable.
+    assert all(s["available"] > 0 for s in slots), slots
+
+
+def test_the_facility_own_evening_is_offered(evening_only, club, facility_type):
+    """The grid follows the facilities that serve the booking, not the club."""
+    slots = available_slots(THURSDAY, club=club, facility_type=facility_type)
+    times = [s["time"] for s in slots]
+    assert "20:00" in times
+    assert "21:00" in times
+    evening = next(s for s in slots if s["time"] == "20:00")
+    assert evening["available"] == 1
+    assert evening["capacity"] == 1
+
+
+def test_a_booking_outside_the_facility_hours_is_refused(evening_only, club, facility_type):
+    """The save path must agree with the grid, or the website hides a slot the
+    API would happily accept."""
+    assert not slot_is_available(THURSDAY, time(10, 0), club=club,
+                                 facility_type=facility_type)
+    assert slot_is_available(THURSDAY, time(20, 0), club=club,
+                             facility_type=facility_type)
+
+
+def test_a_second_court_on_club_hours_still_offers_the_morning(
+        evening_only, club, venue, facility_type):
+    """One court with its own hours must not shrink the whole venue: the grid is
+    the union of what the serving facilities keep."""
+    venue["hall"].facility_types.set([facility_type])
+    venue["hall"].is_active = True
+    venue["hall"].save()
+    slots = available_slots(THURSDAY, club=club, facility_type=facility_type)
+    by_time = {s["time"]: s for s in slots}
+    # Morning: only the hall is open, so capacity is one, not two.
+    assert by_time["09:00"]["capacity"] == 1
+    assert by_time["09:00"]["available"] == 1
+    # Evening: only the court is open.
+    assert by_time["20:00"]["capacity"] == 1
+    assert by_time["20:00"]["available"] == 1
+
+
+def test_a_genuinely_full_slot_still_reads_as_full(
+        evening_only, club, venue, facility_type, customer):
+    """The fix must not hide real bookings: a court that IS taken stays taken."""
+    _book(customer, club, facility_type, THURSDAY, time(20, 0),
+          facility=venue["court"])
+    slots = available_slots(THURSDAY, club=club, facility_type=facility_type)
+    by_time = {s["time"]: s for s in slots}
+    assert "20:00" not in by_time or by_time["20:00"]["available"] == 0
+    assert not slot_is_available(THURSDAY, time(20, 0), club=club,
+                                 facility_type=facility_type)

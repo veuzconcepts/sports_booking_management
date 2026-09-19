@@ -97,7 +97,13 @@ export default function ReportsPage() {
   })();
 
   return (
-    <>
+    // A docked side panel, not an overlay. With the assistant open the page
+    // becomes two columns and the report narrows to make room; with it closed
+    // the report has the whole width back. The panel used to be
+    // `position: fixed`, which floated it over the page and clipped its head
+    // under the top bar.
+    <div className={`rp-shell${aiOpen ? ' is-split' : ''}`}>
+      <div className="rp-main">
       <PageHeader
         title={t('reports')}
         subtitle={t('revenueBookingsStaffPerformance')}
@@ -311,11 +317,26 @@ export default function ReportsPage() {
         </>
       )}
 
-      <AiInsightsPanel
-        open={aiOpen}
-        onClose={() => setAiOpen(false)}
-        onOpenFullReport={(turn) => { setFullReport(turn); setAiOpen(false); }}
-      />
-    </>
+      </div>
+
+      {aiOpen && (
+        <div className="rp-side">
+          <AiInsightsPanel
+            scope={{
+              period: dateFrom || dateTo
+                ? [dateFrom, dateTo].filter(Boolean).join(' - ')
+                : t('insights.allDates'),
+              club: club
+                ? (clubs.rows.find((row) => String(row.id) === String(club))?.name
+                  || t('insights.oneClub'))
+                : t('allClubs'),
+            }}
+            open={aiOpen}
+            onClose={() => setAiOpen(false)}
+            onOpenFullReport={(turn) => { setFullReport(turn); setAiOpen(false); }}
+          />
+        </div>
+      )}
+    </div>
   );
 }

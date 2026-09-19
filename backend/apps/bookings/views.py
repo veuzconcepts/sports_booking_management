@@ -86,6 +86,8 @@ class BookingViewSet(GroupedListMixin, viewsets.ModelViewSet):
         .select_related(
             "customer", "customer__linked_user", "facility_category",
             "facility_type", "club", "facility", "assigned_to",
+            # So a list row can name its order without a query each.
+            "order",
         )
         .prefetch_related("add_ons", "status_history")
         # `can_delete` asks whether any money is attached. Answering that per row
@@ -736,7 +738,34 @@ class BookingViewSet(GroupedListMixin, viewsets.ModelViewSet):
                  .select_related("created_by")
                  .prefetch_related("refunds", "refunds__created_by", "refunds__credit_note")
                  .order_by("-created_at")), many=True, context=ctx).data
-        return Response({"invoices": invoices, "payments": payments})
+        # Who actually paid, when a booking was settled by several people. Kept
+        # behind payments.view because it is a money record, and stripped of the
+        # participants' contact details, which staff have no operational need for.
+        splits = []
+        if can_payments:
+            from apps.payments.models import BookingPaymentSplit
+            for split in (BookingPaymentSplit.objects.filter(booking=booking)
+                          .prefetch_related("shares", "shares__payment")
+                          .order_by("-created_at")):
+                splits.append({
+                    "id": split.id,
+                    "status": "expired" if split.is_expired else split.status,
+                    "currency": split.currency,
+                    "expires_at": split.expires_at,
+                    "allocated": str(split.amount_allocated),
+                    "paid": str(split.paid_total),
+                    "shares": [{
+                        "id": sh.id,
+                        "name": sh.display_name,
+                        "is_organizer": sh.is_organizer,
+                        "amount": str(sh.amount),
+                        "status": sh.status,
+                        "paid_at": sh.paid_at,
+                        "payment": sh.payment.reference if sh.payment_id else None,
+                    } for sh in split.shares.all()],
+                })
+        return Response({"invoices": invoices, "payments": payments,
+                         "splits": splits})
 
     @action(detail=True, methods=["post"])
     def cancel(self, request, pk=None):
@@ -1045,6 +1074,16 @@ class BookingViewSet(GroupedListMixin, viewsets.ModelViewSet):
                 {"detail": " ".join(reasons), "code": "availability",
                  "overridable": can_override}, status=status.HTTP_409_CONFLICT)
 
+        # Assigning a worker walks the booking forward through Confirmed, and the
+        # confirmation gate applies to that step exactly as it would to pressing
+        # Confirm. Asked BEFORE anything is written, so a refusal does not leave a
+        # worker assigned to a booking that never moved.
+        try:
+            booking_services.check_confirmable(booking)
+        except ValueError as exc:
+            return Response({"detail": str(exc), "code": "not_confirmable"},
+                            status=status.HTTP_409_CONFLICT)
+
         booking.assigned_to = worker
         if "facility" in ser.validated_data:
             booking.facility = facility
@@ -1130,9 +1169,9 @@ class BookingPolicyViewSet(viewsets.ModelViewSet):
     per-club override. Reads are open to signed-in staff (the booking form needs
     the window); changes require `settings.manage`."""
 
-    queryset = BookingPolicy.objects.select_related("club").all()
+    queryset = BookingPolicy.objects.select_related("club", "facility").all()
     serializer_class = BookingPolicySerializer
-    filterset_fields = ["club", "is_default"]
+    filterset_fields = ["club", "facility", "is_default"]
     ordering_fields = ["is_default", "club"]
 
     def get_permissions(self):
@@ -1146,10 +1185,125 @@ class BookingPolicyViewSet(viewsets.ModelViewSet):
         qs = super().get_queryset()
         club_ids = self.request.user.scoped_club_ids()
         if club_ids is not None:
-            qs = qs.filter(Q(club_id__in=club_ids) | Q(is_default=True))
+            # A facility row is in scope through the club that owns it.
+            qs = qs.filter(Q(club_id__in=club_ids)
+                           | Q(facility__club_id__in=club_ids)
+                           | Q(is_default=True))
         return qs
 
     def perform_destroy(self, instance):
         if instance.is_default:
             raise _Conflict("The organization default policy cannot be deleted.")
         instance.delete()
+
+    @action(detail=False, methods=["get"])
+    def effective(self, request):
+        """The multi-slot rules in force for a club or facility.
+
+        Answerable without a policy row existing at that level, which is the
+        normal case: most facilities inherit everything. The settings screen
+        asks this to show what a field would do if left empty.
+        """
+        from apps.clubs.models import Club
+        from apps.facilities.models import Facility
+
+        club = facility = None
+        facility_id = request.query_params.get("facility")
+        club_id = request.query_params.get("club")
+        if facility_id:
+            facility = Facility.objects.filter(pk=facility_id).select_related("club").first()
+            if facility is None:
+                return Response({"detail": "Facility not found."},
+                                status=status.HTTP_404_NOT_FOUND)
+            club = facility.club
+        elif club_id:
+            club = Club.objects.filter(pk=club_id).first()
+            if club is None:
+                return Response({"detail": "Club not found."},
+                                status=status.HTTP_404_NOT_FOUND)
+
+        # Scope check: a manager restricted to some clubs may not read another's.
+        club_ids = request.user.scoped_club_ids()
+        if club_ids is not None and club is not None and club.id not in club_ids:
+            return Response({"detail": "You don't have access to that club."},
+                            status=status.HTTP_403_FORBIDDEN)
+
+        rules = booking_services.resolve_slot_rules(club=club, facility=facility)
+        if facility is not None:
+            own = BookingPolicy.objects.filter(facility=facility).first()
+        elif club is not None:
+            own = BookingPolicy.objects.filter(club=club).first()
+        else:
+            # At the organization scope the row that applies is its own, and it
+            # is created on first access, so this scope always has one.
+            own = booking_services.resolve_policy()
+        return Response({
+            "rules": rules,
+            "has_own_policy": own is not None,
+            "policy": BookingPolicySerializer(own).data if own else None,
+            "overrides": self._override_count(request, club=club, facility=facility),
+        })
+
+    def _overrides_below(self, request, club=None, facility=None):
+        """Rows under a scope that state a multi-slot rule of their own.
+
+        These are what stops a change made here from reaching everything below
+        it, so the settings screen has to be able to name them and clear them.
+        """
+        if facility is not None:
+            return BookingPolicy.objects.none()   # nothing is more specific
+
+        stated = Q()
+        for field in booking_services.MULTI_SLOT_FIELDS:
+            stated |= Q(**{f"{field}__isnull": False})
+
+        qs = BookingPolicy.objects.filter(stated).exclude(is_default=True)
+        if club is not None:
+            qs = qs.filter(facility__club=club)
+        else:
+            club_ids = request.user.scoped_club_ids()
+            if club_ids is not None:
+                qs = qs.filter(Q(club_id__in=club_ids) | Q(facility__club_id__in=club_ids))
+        return qs.select_related("club", "facility")
+
+    def _override_count(self, request, club=None, facility=None):
+        rows = self._overrides_below(request, club=club, facility=facility)
+        return {
+            "clubs": rows.filter(club__isnull=False).count(),
+            "facilities": rows.filter(facility__isnull=False).count(),
+        }
+
+    @action(detail=False, methods=["post"], url_path="clear-overrides")
+    def clear_overrides(self, request):
+        """Make everything below a scope follow it again.
+
+        Only the multi-slot fields are cleared. A club that also sets its own
+        lead time or cancellation window keeps it: the operator asked for one
+        set of slot rules to apply, not for the row to be thrown away.
+        """
+        from apps.clubs.models import Club
+
+        club = None
+        club_id = request.data.get("club")
+        if club_id:
+            club = Club.objects.filter(pk=club_id).first()
+            if club is None:
+                return Response({"detail": "Club not found."},
+                                status=status.HTTP_404_NOT_FOUND)
+
+        club_ids = request.user.scoped_club_ids()
+        if club_ids is not None and club is not None and club.id not in club_ids:
+            return Response({"detail": "You don't have access to that club."},
+                            status=status.HTTP_403_FORBIDDEN)
+
+        rows = self._overrides_below(request, club=club)
+        affected = [row.scope_label for row in rows]
+        cleared = rows.update(**{f: None for f in booking_services.MULTI_SLOT_FIELDS})
+        if cleared:
+            log_event(
+                request,
+                "booking_policy_slot_overrides_cleared",
+                {"scope": club.name if club else "Organization default",
+                 "cleared": cleared, "affected": affected},
+            )
+        return Response({"cleared": cleared, "affected": affected})

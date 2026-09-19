@@ -27,6 +27,11 @@ class OrganizationSerializer(serializers.ModelSerializer):
             "address", "city", "country", "timezone", "time_format_24h",
             "slot_minutes", "booking_hours",
             "buffer_before_minutes", "buffer_after_minutes",
+            # Reservation, split and payment-method policy. A club may override
+            # any of these; see `schedule.resolve_booking_policy`.
+            "hold_unpaid_minutes", "hold_partly_paid_minutes", "hold_max_minutes",
+            "split_enabled", "split_hold_minutes", "split_max_shares",
+            "cash_enabled",
             "require_refund_approval",
             "allow_multiple_memberships",
             "summary", "description",

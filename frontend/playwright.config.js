@@ -6,7 +6,12 @@ import { defineConfig, devices } from '@playwright/test';
 export default defineConfig({
   testDir: './e2e',
   timeout: 30_000,
-  expect: { timeout: 7_000 },
+  // 7s was too tight for the tail of a 124-test run: two checks that pass
+  // 6/6 in isolation failed only in the full suite, both on an assertion
+  // timeout rather than a wrong value. Retries are deliberately left at 0:
+  // waiting longer for the right answer is not the same as accepting a
+  // second opinion, and a genuinely broken popover still never appears.
+  expect: { timeout: 15_000 },
   fullyParallel: false,
   retries: 0,
   reporter: [['list']],

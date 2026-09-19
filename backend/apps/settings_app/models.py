@@ -175,6 +175,45 @@ class Organization(models.Model):
     buffer_after_minutes = models.PositiveSmallIntegerField(
         default=0, help_text="Changeover time held after each booking.")
 
+    # --- Reservation holds ---------------------------------------------------
+    # How long a selected slot is protected while the customer pays. A booking
+    # is only Confirmed once it is paid, so until then the court is held by a
+    # reservation with a deadline rather than by the booking itself.
+    #
+    # Two periods because they protect different things: nobody has paid
+    # anything yet in the first, and real money is already collected in the
+    # second, which deserves longer.
+    hold_unpaid_minutes = models.PositiveSmallIntegerField(
+        default=10,
+        help_text="How long an unpaid reservation holds its slot, in minutes.")
+    hold_partly_paid_minutes = models.PositiveSmallIntegerField(
+        default=30,
+        help_text="How long a part-paid reservation holds its slot, in minutes.")
+    # The ceiling nothing may exceed. Without it, repeated small payments could
+    # keep extending a reservation and hold a valuable court indefinitely.
+    hold_max_minutes = models.PositiveSmallIntegerField(
+        default=120,
+        help_text="The longest any reservation may live, in minutes, however "
+                  "it is extended.")
+
+    # --- Split payment -------------------------------------------------------
+    split_enabled = models.BooleanField(
+        default=True, help_text="Offer splitting a booking between friends.")
+    split_hold_minutes = models.PositiveSmallIntegerField(
+        default=30,
+        help_text="How long a split arrangement has to collect the full amount, "
+                  "in minutes. Clamped to the maximum reservation lifetime: a "
+                  "payment link must never outlive the court it is paying for.")
+    split_max_shares = models.PositiveSmallIntegerField(
+        default=20, help_text="Most people one booking may be split between.")
+
+    # --- Payment methods -----------------------------------------------------
+    # Pay at the venue is a promise to hold a court for money that has not
+    # arrived, so a club that does not take cash must be able to switch it off
+    # rather than have every checkout offer it.
+    cash_enabled = models.BooleanField(
+        default=True, help_text="Offer paying at the venue in cash.")
+
     # Finance: when on, refunds (credit notes) need maker-checker approval before
     # the money is returned; when off, a refund request is processed immediately.
     require_refund_approval = models.BooleanField(default=True)

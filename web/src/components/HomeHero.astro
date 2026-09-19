@@ -1,4 +1,6 @@
 ---
+import { fromAstro } from '../i18n/index.js';
+const { t } = fromAstro(Astro);
 /**
  * The homepage hero and its quick booking search.
  *
@@ -55,7 +57,7 @@ const bookableCategoryIds = new Set(
 const sports = categories.filter((c) => bookableCategoryIds.has(c.id));
 const proof = stats.slice(0, 3);
 ---
-<section class="hero2" aria-label="Book a facility">
+<section class="hero2" aria-label={t('hero.bookFacility')}>
   <div class="container">
     <div class="hero2__grid">
       <div>
@@ -71,7 +73,7 @@ const proof = stats.slice(0, 3);
         </div>
 
         {slides.length > 1 && (
-          <div class="hero2__dots" role="tablist" aria-label="Hero slides">
+          <div class="hero2__dots" role="tablist" aria-label={t('hero.slides')}>
             {slides.map((_, i) => (
               <button type="button" class={`hero2__dot${i === 0 ? ' is-on' : ''}`}
                 data-hero-dot aria-label={`Show slide ${i + 1}`}
@@ -95,7 +97,7 @@ const proof = stats.slice(0, 3);
       <div class="hero2__media">
         {image
           ? <img src={image} alt="" loading="eager" fetchpriority="high" data-hero-img />
-          : <div class="hero2__media-empty">Add a hero image in Website &rsaquo; Banners</div>}
+          : <div class="hero2__media-empty">{t('hero.addImage')}</div>}
       </div>
     </div>
 
@@ -104,7 +106,7 @@ const proof = stats.slice(0, 3);
         <div class="qsearch__field">
           <label class="qsearch__label" for="qs-sport">Sport</label>
           <select class="qsearch__control" id="qs-sport" name="category" data-qs-sport>
-            <option value="">Any sport</option>
+            <option value="">{t('hero.anySport')}</option>
             {sports.map((c) => <option value={c.id}>{c.name}</option>)}
           </select>
         </div>
@@ -112,7 +114,7 @@ const proof = stats.slice(0, 3);
         <div class="qsearch__field">
           <label class="qsearch__label" for="qs-club">Club</label>
           <select class="qsearch__control" id="qs-club" name="club">
-            <option value="">Any club</option>
+            <option value="">{t('hero.anyClub')}</option>
             {clubs.map((c) => (
               <option value={c.id}>{c.city ? `${c.name} - ${c.city}` : c.name}</option>
             ))}
@@ -124,7 +126,7 @@ const proof = stats.slice(0, 3);
           <input class="qsearch__control" id="qs-date" name="d" type="date" data-qs-date />
         </div>
 
-        <button class="btn btn-primary qsearch__submit" type="submit">Search</button>
+        <button class="btn btn-primary qsearch__submit" type="submit">{t('hero.search')}</button>
       </div>
       <!-- Chosen from the sport on submit: the wizard needs a facility type,
            and offering the sport is the question a customer can actually

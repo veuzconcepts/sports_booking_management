@@ -1,4 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
+import { useTranslation } from 'react-i18next';
+
+import { I18n } from '../i18n/client.jsx';
 
 /**
  * A live look at what is actually free, on the homepage.
@@ -41,7 +44,12 @@ function label(time, is24) {
   return `${hour}:${String(m).padStart(2, '0')} ${suffix}`;
 }
 
-export default function AvailabilityPreview({ clubs = [], facilityTypes = [] }) {
+export default function AvailabilityPreview({ locale, ...props }) {
+  return <I18n locale={locale}><Availability {...props} /></I18n>;
+}
+
+function Availability({ clubs = [], facilityTypes = [] }) {
+  const { t } = useTranslation();
   const days = useMemo(() => nextDays(DAYS_SHOWN), []);
   const [club, setClub] = useState(clubs[0]?.id ? String(clubs[0].id) : '');
   const [type, setType] = useState(facilityTypes[0]?.id ? String(facilityTypes[0].id) : '');
@@ -111,7 +119,7 @@ export default function AvailabilityPreview({ clubs = [], facilityTypes = [] }) 
 
         {facilityTypes.length > 0 && (
           <>
-            <label className="sr-only" htmlFor="av-type">Facility</label>
+            <label className="sr-only" htmlFor="av-type">{t('availability.facility')}</label>
             <select className="avail__select" id="av-type" value={type}
               onChange={(e) => setType(e.target.value)}>
               {facilityTypes.map((t) => (
@@ -123,7 +131,7 @@ export default function AvailabilityPreview({ clubs = [], facilityTypes = [] }) 
       </div>
 
       <div className="avail__panel">
-        <div className="avail__days" role="group" aria-label="Choose a day">
+        <div className="avail__days" role="group" aria-label={t('availability.chooseDay')}>
           {days.map((day) => {
             const iso = isoDate(day);
             // The endpoint reports which weekdays the venue opens at all, so a
@@ -148,7 +156,7 @@ export default function AvailabilityPreview({ clubs = [], facilityTypes = [] }) 
           })}
         </div>
 
-        {state === 'loading' && <p className="avail__note">Checking availability…</p>}
+        {state === 'loading' && <p className="avail__note">{t('availability.checking')}</p>}
 
         {state === 'error' && (
           <p className="avail__note">
@@ -158,11 +166,11 @@ export default function AvailabilityPreview({ clubs = [], facilityTypes = [] }) 
         )}
 
         {state === 'ready' && data?.closed && (
-          <p className="avail__note">This club is closed on the day you picked.</p>
+          <p className="avail__note">{t('availability.clubClosed')}</p>
         )}
 
         {state === 'ready' && !data?.closed && slots.length === 0 && (
-          <p className="avail__note">Every slot is taken on this day. Try another date.</p>
+          <p className="avail__note">{t('availability.allTaken')}</p>
         )}
 
         {state === 'ready' && slots.length > 0 && (
@@ -177,7 +185,7 @@ export default function AvailabilityPreview({ clubs = [], facilityTypes = [] }) 
         )}
 
         <a className="btn btn-primary" href={bookingHref(null)} style={{ justifySelf: 'start' }}>
-          See all times
+          {t('availability.seeAll')}
         </a>
       </div>
     </div>

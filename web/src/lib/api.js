@@ -38,7 +38,31 @@ export const getAvailability = ({ club, date, facilityType }) => {
   return getJSON(`/website/public/availability/?${qs.toString()}`);
 };
 
+/** Which DATES can be booked over a range, so the calendar can grey out a day
+ *  before the customer clicks it. The backend answers with the same engine
+ *  the booking itself uses; this is only a UX optimisation. */
+export const getAvailabilityCalendar = ({ club, from, to, facilityType }) => {
+  const qs = new URLSearchParams({ club: String(club), from, to });
+  if (facilityType) qs.set('facility_type', String(facilityType));
+  return getJSON(`/website/public/availability/calendar/?${qs.toString()}`);
+};
+
 /** POST JSON to the public API; returns { ok, status, data }. */
+async function sendJSON(method, path, body) {
+  try {
+    const res = await fetch(`${API_BASE}${path}`, {
+      method,
+      headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+      ...(body === undefined ? {} : { body: JSON.stringify(body) }),
+    });
+    let data = null;
+    try { data = await res.json(); } catch { /* empty body */ }
+    return { ok: res.ok, status: res.status, data };
+  } catch {
+    return { ok: false, status: 0, data: null };
+  }
+}
+
 async function postJSON(path, body) {
   try {
     const res = await fetch(`${API_BASE}${path}`, {
@@ -56,6 +80,27 @@ async function postJSON(path, body) {
 
 /** Create a booking in Operations from the public site. */
 export const createBooking = (payload) => postJSON('/website/public/bookings/', payload);
+
+/** Create a MULTI-SLOT booking: one order, one booking per slot. */
+export const createOrder = (payload) => postJSON('/website/public/orders/', payload);
+
+/**
+ * Hold the chosen courts while the customer checks out.
+ *
+ * Returns the reservation's token once, plus a server-issued deadline. The
+ * token is what the booking request is later spent against, and what lets a
+ * refresh find the same reservation instead of claiming a second one.
+ */
+export const createReservation = (payload) =>
+  postJSON('/website/public/reservations/', payload);
+
+/** How long is left on a reservation, asked of the server rather than the clock. */
+export const getReservation = (token) =>
+  getJSON(`/website/public/reservations/${encodeURIComponent(token)}/`);
+
+/** Give the courts back now instead of at the deadline. */
+export const releaseReservation = (token) =>
+  sendJSON('DELETE', `/website/public/reservations/${encodeURIComponent(token)}/`);
 
 /** Website booking contact rules (email/phone required + unique). */
 export const getBookingConfig = () => getJSON('/website/public/booking-config/');
@@ -86,6 +131,43 @@ export const getCampaigns = ({ placement = 'home', club, signedIn = false } = {}
 /** Count an impression, dismissal or CTA click. Anonymous, and never awaited. */
 export const recordCampaignEvent = (payload) =>
   postJSON('/website/public/campaign-event/', payload);
+
+/**
+ * What payment methods the checkout may offer.
+ *
+ * The backend decides: it knows whether a provider is configured and whether
+ * the demo adapter is genuinely active, and it only ever sends test card
+ * numbers while it is. The site must never assume card payment works.
+ *
+ * `club` matters because taking cash at the desk and splitting a bill are the
+ * club's decisions and a club may differ from the organization default. Asking
+ * without one gets the organization-wide answer.
+ */
+export const getPaymentConfig = (club) => getJSON(
+  club ? `/website/public/payment-config/?club=${encodeURIComponent(club)}`
+    : '/website/public/payment-config/');
+
+/** The minimal booking summary and assigned amount behind one share link. */
+export const getSplitShare = (token) =>
+  getJSON(`/website/public/split/${encodeURIComponent(token)}/`);
+
+/**
+ * Pay one share. The amount is NOT sent: the backend decides what this link
+ * owes, so nothing the browser reports can change what is charged.
+ */
+export const paySplitShare = (token, body) =>
+  postJSON(`/website/public/split/${encodeURIComponent(token)}/`, body);
+
+/** Payment progress for the organizer's own management link. */
+export const getSplitManage = (token) =>
+  getJSON(`/website/public/split/manage/${encodeURIComponent(token)}/`);
+
+/** An organizer action on their own split (pay remaining, cancel a share, ...). */
+export const splitManageAction = (token, body) =>
+  postJSON(`/website/public/split/manage/${encodeURIComponent(token)}/`, body);
+
+/** Settle a booking from the confirmation screen, or retry a declined card. */
+export const payBooking = (payload) => postJSON('/website/public/booking-pay/', payload);
 
 /** Format a money amount with the catalogue currency code. */
 export function money(amount, currency) {

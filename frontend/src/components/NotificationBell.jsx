@@ -90,13 +90,13 @@ export function NotificationBell() {
               { key: 'all', label: t('common:state.all') },
               { key: 'unread', label: `Unread${unread ? ` (${unread})` : ''}` },
               { key: 'read', label: t('read') },
-            ].map((t) => (
-              <button key={t.key} type="button" onClick={() => setFilter(t.key)} style={{
+            ].map((tab) => (
+              <button key={tab.key} type="button" onClick={() => setFilter(tab.key)} style={{
                 fontSize: 12, fontWeight: 600, padding: '3px 10px', borderRadius: 999, cursor: 'pointer',
                 border: '1px solid var(--color-border,#e5e7eb)',
-                background: filter === t.key ? 'var(--color-primary,#2563eb)' : 'transparent',
-                color: filter === t.key ? '#fff' : 'var(--color-text-muted)',
-              }}>{t.label}</button>
+                background: filter === tab.key ? 'var(--color-primary,#2563eb)' : 'transparent',
+                color: filter === tab.key ? '#fff' : 'var(--color-text-muted)',
+              }}>{tab.label}</button>
             ))}
           </div>
           {visible.length === 0 ? (

@@ -14,6 +14,8 @@ import { PaymentSuccessModal } from '../../components/PaymentSuccessModal.jsx';
 import { RefundModal } from '../../components/RefundModal.jsx';
 import { ConfirmDialog } from '../../components/ConfirmDialog.jsx';
 import { CompletionPaymentWizard } from '../../components/CompletionPaymentWizard.jsx';
+import { SplitPaymentPanel } from './SplitPaymentPanel.jsx';
+import { OrderPanel } from './OrderPanel.jsx';
 import { Modal } from '../../components/Modal.jsx';
 import { FormField } from '../../components/FormField.jsx';
 import { Select2 } from '../../components/Select2.jsx';
@@ -68,7 +70,7 @@ export default function BookingDetailPage() {
   const [assignOpen, setAssignOpen] = useState(false);
   const [busy, setBusy] = useState(false);
   const [promoInput, setPromoInput] = useState('');
-  const [finance, setFinance] = useState({ invoices: [], payments: [] });
+  const [finance, setFinance] = useState({ invoices: [], payments: [], splits: [] });
   const [refundFor, setRefundFor] = useState(null);
   const [successInvoice, setSuccessInvoice] = useState(null);
   const [dup, setDup] = useState(null);   // duplicate prefill payload (null = closed)
@@ -107,7 +109,7 @@ export default function BookingDetailPage() {
         if (fresh) setSuccessInvoice(fresh);
       }
       paid.forEach((i) => seenPaidRef.current.add(i.id));
-      setFinance({ invoices, payments: data.payments || [] });
+      setFinance({ invoices, payments: data.payments || [], splits: data.splits || [] });
     } catch { /* ignore */ }
   }, [id, hasPerm]);
 
@@ -443,6 +445,13 @@ export default function BookingDetailPage() {
             </div>
           </div>
 
+          {booking.order_summary?.slot_count > 1 && (
+            <>
+              <div style={{ height: 16 }} />
+              <OrderPanel order={booking.order_summary} />
+            </>
+          )}
+
           <div style={{ height: 16 }} />
 
           <div className="card">
@@ -611,6 +620,9 @@ export default function BookingDetailPage() {
                     onDownloadReceipt={(inv) => inv.receipt && downloadDoc(() => receiptsApi.download(inv.receipt.id), inv.receipt.number)}
                     onDownloadCreditNote={(cn) => downloadDoc(() => creditNotesApi.download(cn.id), cn.number)}
                   />
+                  {/* Who actually paid. Only rendered when the customer split
+                      the booking, so an ordinary booking reads exactly as before. */}
+                  <SplitPaymentPanel splits={finance.splits} currency={booking.currency} />
                 </div>
               )}
 

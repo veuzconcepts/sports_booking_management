@@ -1,5 +1,8 @@
 ---
+import { fromAstro } from '../i18n/index.js';
 import { getBranding } from '../lib/api.js';
+
+const { t } = fromAstro(Astro);
 
 const { footer = {}, site = {} } = Astro.props;
 const branding = await getBranding();
@@ -35,7 +38,7 @@ const year = new Date().getFullYear();
       ))}
 
       <div class="footer__col footer__contact">
-        <h4>Contact</h4>
+        <h4>{t('footer.contact')}</h4>
         {site?.phone && <p>{site.phone}</p>}
         {site?.email && <p>{site.email}</p>}
         {site?.address && <p class="muted">{site.address}{site.city ? `, ${site.city}` : ''}</p>}

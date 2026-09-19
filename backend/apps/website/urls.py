@@ -8,11 +8,13 @@ from .views import (
     FooterConfigViewSet,
     MediaAssetViewSet,
     ProcessStepViewSet,
+    PublicAvailabilityCalendarView,
     PublicAvailabilityView,
     PublicCampaignEventView,
     PublicCampaignsView,
     PublicBookingConfigView,
     PublicBookingCreateView,
+    PublicOrderCreateView,
     PublicBrandingView,
     PublicClubsView,
     PublicContactPrecheckView,
@@ -26,6 +28,16 @@ from .views import (
     TestimonialViewSet,
     WebsiteCampaignViewSet,
     WhyChooseUsPointViewSet,
+)
+from .reservation_views import (
+    PublicReservationCreateView,
+    PublicReservationView,
+)
+from .split_views import (
+    PublicBookingPayView,
+    PublicPaymentConfigView,
+    PublicSplitManageView,
+    PublicSplitShareView,
 )
 
 router = DefaultRouter()
@@ -47,12 +59,29 @@ urlpatterns = [
     path("public/catalogue/", PublicCatalogueView.as_view(), name="website-public-catalogue"),
     path("public/clubs/", PublicClubsView.as_view(), name="website-public-clubs"),
     path("public/availability/", PublicAvailabilityView.as_view(), name="website-public-availability"),
+    path("public/availability/calendar/", PublicAvailabilityCalendarView.as_view(),
+         name="website-public-availability-calendar"),
     path("public/bookings/", PublicBookingCreateView.as_view(), name="website-public-booking-create"),
+    path("public/orders/", PublicOrderCreateView.as_view(), name="website-public-order-create"),
     path("public/branding/", PublicBrandingView.as_view(), name="website-public-branding"),
     path("public/booking-config/", PublicBookingConfigView.as_view(), name="website-public-booking-config"),
     path("public/contact-precheck/", PublicContactPrecheckView.as_view(), name="website-public-contact-precheck"),
     path("public/contact-verify/", PublicContactVerifyView.as_view(), name="website-public-contact-verify"),
     path("public/quote/", PublicQuoteView.as_view(), name="website-public-quote"),
+    path("public/payment-config/", PublicPaymentConfigView.as_view(),
+         name="website-public-payment-config"),
+    path("public/booking-pay/", PublicBookingPayView.as_view(),
+         name="website-public-booking-pay"),
+    path("public/reservations/", PublicReservationCreateView.as_view(),
+         name="website-public-reservation-create"),
+    # Bearer-token routes. The token in the path IS the authorisation, so these
+    # deliberately carry no booking or customer id.
+    path("public/reservations/<str:token>/", PublicReservationView.as_view(),
+         name="website-public-reservation"),
+    path("public/split/<str:token>/", PublicSplitShareView.as_view(),
+         name="website-public-split-share"),
+    path("public/split/manage/<str:token>/", PublicSplitManageView.as_view(),
+         name="website-public-split-manage"),
     path("public/campaigns/", PublicCampaignsView.as_view(), name="website-public-campaigns"),
     path("public/campaign-event/", PublicCampaignEventView.as_view(),
          name="website-public-campaign-event"),

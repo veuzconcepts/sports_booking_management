@@ -131,7 +131,7 @@
     "currency": "العملة",
     "customer": "العميل",
     "facility": "المرفق",
-    "facilityType": "نوع المرفق",
+    "facilityType": "النشاط",
     "payment": "الدفع",
     "reference": "المرجع",
     "source": "المصدر",
@@ -189,12 +189,12 @@
   "emptyTitle": "لا توجد حجوزات بعد",
   "existingCustomer": "عميل حالي",
   "existingCustomerUpdatedTheirInformation": "حدّث العميل الحالي بياناته",
-  "facilityCategory": "فئة المرفق *",
-  "facilityType": "نوع المرفق *",
+  "facilityCategory": "فئة النشاط *",
+  "facilityType": "النشاط *",
   "filters": {
     "bookingDate": "تاريخ الحجز",
     "club": "النادي",
-    "facilityType": "نوع المرفق",
+    "facilityType": "النشاط",
     "paymentStatus": "حالة الدفع",
     "source": "المصدر",
     "status": "الحالة"
@@ -209,7 +209,7 @@
     "club": "النادي",
     "customer": "العميل",
     "facility": "المرفق",
-    "facilityType": "نوع المرفق",
+    "facilityType": "النشاط",
     "paymentStatus": "حالة الدفع",
     "source": "المصدر",
     "status": "الحالة"
@@ -241,8 +241,11 @@
   "optionalEnterCodeClickApply": "اختياري - أدخل رمزاً واضغط «تطبيق» للتحقق منه وتطبيق الخصم.",
   "optionalExtrasBooking": "إضافات اختيارية لهذا الحجز.",
   "optionalWalk": "اختياري للحجز الحضوري.",
+  "orderExplains": "الطلب {{reference}}: تم حجز {{count}} أوقات معا في عملية دفع واحدة.",
+  "orderTotal": "إجمالي الطلب",
   "other": "أخرى",
   "paid": "مدفوع",
+  "partOfOrder": "جزء من حجز متعدد الأوقات",
   "partiallyPaid": "مدفوع جزئياً",
   "payment": "الدفع",
   "paymentMethod": "طريقة الدفع",
@@ -292,6 +295,32 @@
   "skipAssignment": "تخطي الإسناد",
   "source": "المصدر",
   "specialInstructions": "تعليمات خاصة",
+  "split": {
+    "allocated": "المخصص",
+    "amount": "المبلغ",
+    "collected": "المحصّل",
+    "expires": "انتهاء الروابط",
+    "guest": "ضيف",
+    "organizer": "المنظّم",
+    "participant": "المشارك",
+    "payment": "الدفعة",
+    "shareStatus": {
+      "cancelled": "ملغى",
+      "expired": "منتهي",
+      "failed": "فشل",
+      "paid": "مدفوع",
+      "pending": "قيد الانتظار"
+    },
+    "state": "الحالة",
+    "status": {
+      "active": "بانتظار الدفع",
+      "cancelled": "ملغى",
+      "completed": "مدفوع بالكامل",
+      "expired": "منتهي"
+    },
+    "tableCaption": "من دفع كل جزء من هذا الحجز",
+    "title": "الدفع المقسّم"
+  },
   "staffMember": "الموظف",
   "staffOnlyNotShownCustomer": "للموظفين فقط؛ لا تُعرض للعميل.",
   "status": {

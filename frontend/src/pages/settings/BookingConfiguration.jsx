@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
-import { Save, Globe, ShieldCheck, Store, Plus, Trash2, Timer } from 'lucide-react';
+import { Save, Globe, ShieldCheck, Store, Plus, Trash2, Timer, SlidersHorizontal }
+  from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import toast from 'react-hot-toast';
 
@@ -12,6 +13,8 @@ import { ConfirmDialog } from '../../components/ConfirmDialog.jsx';
 import { bookingConfigApi } from '../../services/settingsService.js';
 import { bookingPoliciesApi } from '../../services/bookingsService.js';
 import { SpecialDates } from '../../components/SpecialDates.jsx';
+import { BookingRulesModal } from './BookingRulesModal.jsx';
+import { ReservationSettings } from './ReservationSettings.jsx';
 import { clubsApi } from '../../services/clubsService.js';
 import { apiErrorMessage } from '../../utils/apiError.js';
 
@@ -121,6 +124,8 @@ export default function BookingConfiguration() {
 
           <BookingRulesSection canManage={canManage} />
 
+          <ReservationSettings canManage={canManage} />
+
           <SpecialDates canManage={canManage} />
         </>
       )}
@@ -150,11 +155,17 @@ function BookingRulesSection({ canManage }) {
   const [savingId, setSavingId] = useState(null);
   const [newClub, setNewClub] = useState('');
   const [confirmDelete, setConfirmDelete] = useState(null);
+  // Which row's slot rules are open. The organization row edits "all clubs",
+  // a club row edits that club, and each inherits from the one above it.
+  const [slotRulesFor, setSlotRulesFor] = useState(null);
 
   const load = useCallback(() => {
     setLoading(true);
     bookingPoliciesApi.list({ page_size: 100 })
-      .then((d) => setRows(d.results || d))
+      // Facility rows also live in this table, but they are edited from the
+      // facility itself. Listing them here would offer the club-level fields
+      // on a scope that does not own them.
+      .then((d) => setRows((d.results || d).filter((row) => !row.facility)))
       .catch(() => setRows([]))
       .finally(() => setLoading(false));
   }, []);
@@ -224,7 +235,9 @@ function BookingRulesSection({ canManage }) {
         These bind self-service bookings from your website. Staff bookings are
         exempt unless you turn on <strong>{t('applyStaffBookings')}</strong> - so
         reception can always take a walk-in for the next ten minutes. A club with
-        its own rules ignores the organization default entirely.
+        its own rules ignores the organization default entirely. Slot rules are
+        the exception: they inherit one setting at a time, so a club or facility
+        overrides only what it actually states.
       </p>
 
       {loading ? <p className="muted">Loading…</p> : (
@@ -236,10 +249,16 @@ function BookingRulesSection({ canManage }) {
             }}>
               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
                 <h4 style={{ margin: 0, fontSize: 14.5 }}>{row.scope}</h4>
-                {!row.is_default && canManage && (
-                  <button className="icon-btn" title={t('removeTheseClubRules')}
-                    onClick={() => setConfirmDelete(row)}><Trash2 size={15} /></button>
-                )}
+                <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                  <button className="btn btn-secondary btn-sm"
+                    onClick={() => setSlotRulesFor(row)}>
+                    <SlidersHorizontal size={14} /> {t('slotRules')}
+                  </button>
+                  {!row.is_default && canManage && (
+                    <button className="icon-btn" title={t('removeTheseClubRules')}
+                      onClick={() => setConfirmDelete(row)}><Trash2 size={15} /></button>
+                  )}
+                </span>
               </div>
               <div style={{ display: 'grid', gap: 12,
                             gridTemplateColumns: 'repeat(auto-fit, minmax(210px, 1fr))' }}>
@@ -301,6 +320,18 @@ function BookingRulesSection({ canManage }) {
       onConfirm={() => removeOverride(confirmDelete)}
       onClose={() => setConfirmDelete(null)}
     />
+
+    {/* Guarded on the row, not on derived state: the modal's children are
+        evaluated before it can decide it is closed. */}
+    {slotRulesFor && (
+      <BookingRulesModal
+        scope={slotRulesFor.is_default
+          ? { organization: true }
+          : { club: { id: slotRulesFor.club, name: slotRulesFor.scope } }}
+        onClose={() => setSlotRulesFor(null)}
+        onSaved={load}
+      />
+    )}
     </>
   );
 }

@@ -194,6 +194,37 @@ Every booking entry point must use the same backend availability engine and reva
 
 Do not trust a slot simply because it appeared available earlier.
 
+## Availability-Aware Calendar
+
+Customer booking calendars must not present a date as selectable unless the
+authoritative backend availability engine confirms that at least one valid
+booking option exists for that date under the current booking rules.
+
+Do not require customers to click dates just to discover there are no slots.
+
+Use efficient date-range availability summaries, preserve final backend
+revalidation, and avoid duplicate availability logic.
+
+## Calendar Offer and Time Classification Standard
+
+Customer booking calendars may display compact offer indicators only when the
+backend confirms a customer-visible promotion is applicable to that booking
+context.
+
+Offer indicators are informational. They must never create availability and
+must never perform a pricing calculation in the frontend: availability is
+resolved first, the offer second, and both the label and the price come from
+the backend.
+
+Business-hour periods may be classified as Normal, Hot or Cold using the
+existing schedule architecture, stored on the shift so the classification
+inherits and is replaced exactly as the hours are. The classification may be
+used by pricing, reporting and customer UI, but must not change pricing unless
+an explicit pricing rule names the period it applies to.
+
+Reuse the existing schedule, pricing, promotion and availability engines. Do
+not create duplicate logic.
+
 # 13. Concurrency and Transaction Safety
 
 Use transactions for operations that must succeed or fail together, especially:
@@ -205,6 +236,58 @@ Use transactions for operations that must succeed or fail together, especially:
 
 Prevent double booking and race conditions. Revalidate availability before final creation and use locking/constraints where appropriate.
 
+## Booking Workflow Integrity
+
+All booking entry points, including the customer website, admin, manual
+booking, reschedule, multi-slot and API flows, must use the same authoritative
+backend availability, pricing, entitlement and payment rules.
+
+A confirmed or otherwise slot-blocking booking must make that exclusive slot
+unavailable to all other bookings until it is validly cancelled, expired or
+released.
+
+Never rely on frontend availability. Revalidate and protect slots atomically
+before booking confirmation.
+
+Allocation reads which facilities are free and then writes a booking. Those
+two steps must be one step as far as any other booking is concerned. Row locks
+do not achieve that, because the thing being protected is the ABSENCE of a
+conflicting row: the club/day advisory lock in `allocate_facility` is what
+serialises it, and the partial unique index on (facility, date, start) is the
+backstop, not the protection.
+
+Prevent double booking, duplicate payment, duplicate entitlement consumption,
+duplicate loyalty posting and duplicate notifications through transactions,
+concurrency protection and idempotency.
+
+Pricing, promo, offers, holidays, subscriptions, packages, loyalty, add-ons,
+tax and finance must be integrated into the same booking lifecycle and must
+not operate as isolated parallel logic.
+### Slot occupancy, payment window and discount order
+
+Three rules that were previously implicit and are now fixed.
+
+**What occupies a slot** is `SLOT_BLOCKING_STATUSES` in `apps.bookings.models`,
+and nothing else. It is wider than `ACTIVE_STATUSES`: a completed or closed
+booking still held that court for its period, so marking a booking complete
+early must not hand the court to somebody else while it is in use. Cancelled
+and no-show release the slot. Availability, allocation and the database
+constraint all read that one set.
+
+**An unpaid booking is released only when it is certainly abandoned.** A
+website checkout that chose to pay online, took no money, has no live split
+arrangement, is still in the opening status and is past
+`BOOKING_PAYMENT_WINDOW_MINUTES` is cancelled by
+`expire_unpaid_bookings`. A pay-at-venue booking, a part-paid booking, an
+admin or walk-in booking, and a booking whose payment method was never
+recorded are never released by the clock. Not knowing is a reason to leave a
+booking alone, not a reason to cancel somebody's court.
+
+**Discounts compose in one order**: catalogue price, then automatic pricing
+rules (offers), then the promo code on the already-discounted subtotal, then
+loyalty, then VAT. Offers and promo codes stack; neither replaces the other,
+and the total can never go below zero.
+
 # 14. Date, Time, and Money
 
 Use timezone-aware datetimes. Do not treat browser time as authoritative.
@@ -212,6 +295,80 @@ Use timezone-aware datetimes. Do not treat browser time as authoritative.
 Use configured Organization/Club timezone where applicable. Handle overnight schedules, date boundaries, UTC conversion, and DST where relevant.
 
 Never use floating-point arithmetic for money. Use Decimal/proper monetary fields and consistent rounding, tax, discount, refund, and currency handling.
+
+## Payment Integrity
+
+Booking totals, paid amounts and outstanding balances are backend-authoritative.
+
+Split payments may divide a valid final payable amount between multiple payment transactions but must never create a second booking total, bypass availability, bypass pricing, or allow overpayment.
+
+All payment actions must be idempotent, concurrency-safe, permission/scope validated and integrated with the existing payment/refund architecture.
+
+Never store or log CVV or raw sensitive card details.
+
+Demo payment behavior must never operate in production.
+
+### Split payment: confirmed financial policy
+
+These two rules were undefined until they were decided explicitly. Do not change
+them, and do not add automated financial behavior around them, without asking.
+
+**Expiry is inert.** When a split payment deadline passes with only part of the
+balance collected, the payment links stop working and nothing else happens. No
+refund is issued, no booking is cancelled, no slot is released, no status
+changes. A human resolves a part-paid booking using the existing cancellation
+and credit note tools.
+
+**Refunds follow the payer.** A booking settled by several people is refunded
+per participant, each against their own payment, through the normal credit note
+flow and honouring `Organization.require_refund_approval`. Cancelling such a
+booking does not refund anybody automatically, and the full amount is never
+returned to the organizer alone. Every share therefore has to keep its payer,
+its amount and its payment reference, and each share's payment must raise its
+own invoice.
+
+## Multi-Slot Booking Integrity
+
+A multi-slot checkout is ONE `BookingOrder` and one ordinary `Booking` per
+slot. It is not a new booking type and not a second booking engine.
+
+Every slot goes through the existing availability engine, the existing
+`BookingCreateSerializer`, the existing pricing and the existing
+`(facility, date, time)` uniqueness guarantee. Creation is atomic: if any slot
+fails, the whole order unwinds.
+
+The order holds no money. Each booking keeps its own authoritative price
+snapshot, because slots can be priced differently and refunding one slot must
+return what that slot actually cost. Order totals are summed from the bookings,
+never stored.
+
+How many slots may be booked, whether they may span dates and whether they must
+run back to back are resolved by the backend from the Organization, Club and
+Facility chain, one setting at a time. The browser never works this out.
+
+The website books an ACTIVITY at a club, not a named facility, so the offer is
+the most permissive of what the eligible facilities allow. The allocation is
+then re-checked against each facility's own rules after the allocator has run,
+inside the same transaction, so a permissive court can never be used to
+overfill one that caps itself.
+
+A promo is validated, redeemed and capped ONCE per order, then allocated across
+the slots in proportion to price.
+
+### Multi-slot payment and refunds: confirmed policy
+
+These were decided explicitly. Do not change them without asking.
+
+**A split share is an amount of the order, not a set of slots.** Paying a share
+spreads that amount across the slots in proportion to what each still owes, so
+one share may raise several invoices. Every payment records its payer, so
+refunds still follow the payer.
+
+**Cancelling one slot of a paid order refunds nothing automatically.** The slot
+is cancelled and the money stays where it is. A human issues a credit note
+through the existing flow, honouring `Organization.require_refund_approval`.
+This matches the precedent set for split expiry being inert: money never moves
+without a person deciding.
 
 # 15. APIs, Queries, and Performance
 
@@ -553,7 +710,99 @@ switched off stops appearing at once.
 Do not create duplicate promotion, CMS, popup, preview or analytics systems when
 existing infrastructure can be reused.
 
-# 38. Final Quality Check
+# 38. Reservation Holds and Payment Methods
+
+A court is claimed by a `BookingHold` while the customer pays, not by an unpaid
+booking row. The hold owns the deadline; the booking owns the commerce. When
+payment lands the hold CONVERTS and the confirmed booking takes over blocking
+the slot; when the clock runs out the hold EXPIRES and the court is free again.
+
+A hold is all or nothing. Reserving two of three chosen slots and reporting
+failure would lock a court for a booking that is not going to happen.
+
+Acquisition and allocation take the SAME club/day advisory lock, so a hold and
+a booking can never be handed the same court. Availability, allocation and the
+range summary all subtract live holds.
+
+Expiry is read, never assumed. The sweep runs every few minutes, so rows sit
+ACTIVE past their deadline in between. Every read asks the clock as well as the
+status.
+
+## Confirmation requires the money, for one case only
+
+A website checkout that chose to pay online and has collected nothing may not
+become Confirmed. That is the same condition `expire_unpaid_bookings` uses to
+release a slot, read from one predicate, `services.awaiting_online_payment`, so
+the two can never disagree about a booking.
+
+Nothing else is gated. Pay-at-venue, admin and walk-in bookings, part-paid,
+covered and zero-value bookings, and anything whose payment method was never
+recorded all confirm as before. Staff committing a court in person is a
+decision, not an oversight. A gate that refuses too much is not the safer gate.
+
+Assigning a worker walks a booking through Confirmed, so it asks the same gate,
+BEFORE it writes anything.
+
+## Spending a reservation
+
+The checkout sends its reservation token with the booking. Two things follow
+from that and neither is optional.
+
+The customer's OWN hold must not block their own booking, so `exclude_hold_id`
+is threaded explicitly from `create_public_booking` and `create_public_order`
+down through `validate_selection`, `slot_is_available`, the
+`BookingCreateSerializer` context and `allocate_facility`. It travels in the
+serializer CONTEXT, never the payload, so a caller cannot ask to ignore
+somebody else's hold.
+
+A token may only be spent on slots it actually holds (`reservations.covers`).
+Otherwise a token for 7pm could be used to book 8pm, and converting it would
+quietly give away the 7pm court.
+
+Conversion happens inside the booking transaction, after the booking exists
+and is already blocking the slot, so there is no instant at which the court
+looks free and a rollback takes the conversion with it.
+
+A booking with no token still works exactly as before. Rubbish in the field
+does not: silently ignoring an unreadable token would book a court that was
+never held.
+
+## The countdown
+
+`expires_at` is issued by the server and always sent with `server_time`. The
+browser anchors its countdown on the difference between the two, because a
+device whose clock is twenty minutes fast would otherwise declare a live
+reservation dead.
+
+The token is kept in `sessionStorage` under a signature of what was reserved,
+and the signature ignores the order slots were clicked in. A reload on the
+payment step re-reads the existing reservation rather than claiming a second
+one, which would be refused by the customer's own hold and would look exactly
+like somebody else taking the slot.
+
+Leaving the checkout releases the courts at once instead of making the next
+customer wait out a timer nobody is watching.
+
+## Timeouts and payment methods are settings, not constants
+
+`hold_unpaid_minutes`, `hold_partly_paid_minutes`, `hold_max_minutes`,
+`split_enabled`, `split_hold_minutes`, `split_max_shares` and `cash_enabled`
+live on the Organization, and a Club may override any of them one at a time. A
+null club value inherits. `settings_app.schedule.resolve_booking_policy` is the
+only place that chain is resolved; nothing reads the fields directly.
+
+`split_hold_minutes` is clamped to `hold_max_minutes`, because payment links
+that outlive the reservation would keep collecting for a court already resold.
+
+Pay at venue is offered only where `cash_enabled`. The website hides the tile
+and the server refuses the method, from the same
+`gateway.checkout_payment_options` payload, so a customer is never refused for
+something the page said was fine. A checkout that names no method gets the
+club's default rather than cash: a cash booking is deliberately exempt from the
+expiry sweep, so recording one where cash is not accepted would hold a court
+that nobody could ever pay for.
+
+# 39. Final Quality Check
 
 Before considering a task complete, confirm:
 - Existing code was inspected first.
