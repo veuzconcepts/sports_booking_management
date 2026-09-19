@@ -213,6 +213,12 @@ class Organization(models.Model):
     # rather than have every checkout offer it.
     cash_enabled = models.BooleanField(
         default=True, help_text="Offer paying at the venue in cash.")
+    # Display only. The court is held either way; this decides whether the
+    # customer is shown the clock. Some clubs would rather not put a timer in
+    # front of somebody entering their card details.
+    show_hold_countdown = models.BooleanField(
+        default=True,
+        help_text="Show customers how long their reservation has left.")
 
     # Finance: when on, refunds (credit notes) need maker-checker approval before
     # the money is returned; when off, a refund request is processed immediately.

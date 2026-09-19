@@ -498,15 +498,46 @@
 .bw__success-grid { display: grid; grid-template-columns: 1fr 1fr; }
 .bw__sx-item { display: flex; gap: 12px; padding: 18px 20px; border-bottom: 1px solid var(--line); min-width: 0; }
 .bw__sx-item:nth-child(odd) { border-inline-end: 1px solid var(--line); }
+/* Three details leave a fourth cell empty, which drew as a bordered blank box
+   beside the last one. The odd one out takes the full width instead. */
+.bw__sx-item:last-child:nth-child(odd) { grid-column: 1 / -1; border-inline-end: 0; }
 .bw__sx-ic { width: 38px; height: 38px; border-radius: 11px; display: grid; place-items: center; background: var(--soft-accent); color: var(--indigo-600); flex-shrink: 0; }
 .bw__sx-item > div { display: flex; flex-direction: column; min-width: 0; }
 .bw__sx-item > div > span { font-size: .74rem; color: var(--muted); font-weight: 600; }
 .bw__sx-item > div > strong { color: var(--ink); font-size: .95rem; overflow: hidden; text-overflow: ellipsis; }
 .bw__sx-item > div > em { font-style: normal; color: var(--muted); font-size: .82rem; }
-.bw__success-foot { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 16px 20px; background: var(--bg-soft); }
+.bw__success-foot { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 12px; padding: 16px 20px; background: var(--bg-soft); }
 .bw__success-fk { display: block; font-size: .74rem; color: var(--muted); font-weight: 600; }
 .bw__success-total { font-size: 1.4rem; font-weight: 800; background: var(--price-grad); -webkit-background-clip: text; background-clip: text; color: transparent; }
-.bw__success-pay { display: inline-flex; align-items: center; gap: 7px; font-size: .85rem; color: var(--muted); font-weight: 600; }
+/* The payment badge on the confirmation card.
+   Every property here is deliberate. `.is-paid` is a GLOBAL class in
+   payment.css that sets a background and nothing else: the padding and the
+   pill shape belong to `.bw__handoff-state, .sp__state`, so this element
+   inherited a green block with no padding at all. And the icons are inline
+   SVGs with no intrinsic size, so the card glyph grew to fill the row and
+   squeezed "Paid . Visa ....4242" into three stacked words. */
+.bw__success-pay {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  padding: 7px 12px;
+  border-radius: 999px;
+  /* The foot itself is --bg-soft, so a soft-on-soft chip would be invisible.
+     A state class in payment.css overrides this background; the border keeps
+     the neutral "pay at the venue" case readable either way. */
+  background: var(--surface);
+  border: 1px solid var(--line);
+  font-size: .85rem;
+  color: var(--muted);
+  font-weight: 600;
+  line-height: 1.3;
+}
+/* An unsized inline SVG is the whole reason the row blew up. */
+.bw__success-pay svg { width: 18px; height: 18px; flex: 0 0 auto; }
+/* One flex item, so the label wraps as a phrase rather than a word at a time.
+   `--4242` must not be split from its brand. */
+.bw__success-payt { min-width: 0; }
 /* App promo on the confirmation screen */
 .bw__app { position: relative; overflow: hidden; margin-top: 24px; text-align: start; border-radius: 20px; padding: 24px; color: #fff; background: linear-gradient(135deg, var(--navy-700), var(--indigo)); box-shadow: 0 18px 44px rgba(33, 27, 78, .28); display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 18px; animation: bwUp .55s ease 1.0s both; }
 .bw__app-glow { position: absolute; inset-inline-end: -40px; top: -50px; width: 200px; height: 200px; border-radius: 50%; background: radial-gradient(circle, rgba(255, 193, 0, .35), transparent 70%); pointer-events: none; }

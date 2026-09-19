@@ -192,8 +192,15 @@ REST_FRAMEWORK = {
         "register": config("THROTTLE_REGISTER", default="5/min"),
         "password": config("THROTTLE_PASSWORD", default="5/min"),
         "customer_auth": config("THROTTLE_CUSTOMER_AUTH", default="6/min"),
-        # Public website booking creation — limit abuse / mass-booking from one IP.
+        # Public website booking creation - limit abuse / mass-booking from one IP.
         "public_booking": config("THROTTLE_PUBLIC_BOOKING", default="12/hour"),
+        # Reservation holds are claimed far more often than bookings are made:
+        # once on reaching checkout, and again every time the customer changes
+        # their times. Sharing the booking bucket meant ordinary browsing used
+        # up the allowance and then refused the booking itself, which is the
+        # opposite of what a booking throttle is for. Abuse is already bounded
+        # here by the courts actually being free and by the hold expiring.
+        "public_reservation": config("THROTTLE_PUBLIC_RESERVATION", default="60/hour"),
     },
     # Throttle client identity: number of trusted proxies in front of the app.
     # 0 (default) = key on REMOTE_ADDR and IGNORE X-Forwarded-For, so a client

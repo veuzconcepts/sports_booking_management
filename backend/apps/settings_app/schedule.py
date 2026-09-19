@@ -876,7 +876,7 @@ BOOKING_POLICY_FIELDS = (
     "split_enabled",
     "split_hold_minutes",
     "split_max_shares",
-    "cash_enabled",
+    "cash_enabled", "show_hold_countdown",
 )
 
 

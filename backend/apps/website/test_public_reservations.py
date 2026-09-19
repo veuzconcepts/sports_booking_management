@@ -341,3 +341,163 @@ class TestMultiSlotCheckout:
         }, format="json")
         assert response.status_code == 409
         assert response.data["code"] == "hold_mismatch"
+
+
+class TestThrottling:
+    """Reservations must not eat the booking allowance.
+
+    Claiming happens on reaching checkout and again on every change of mind,
+    so putting it on the booking scope meant ordinary browsing exhausted the
+    allowance and the BOOKING was then refused for the rest of the hour. The
+    customer saw "Request was throttled. Expected available in 2615 seconds."
+    where the countdown should have been.
+    """
+
+    def test_reservations_have_their_own_scope(self):
+        from apps.website.reservation_views import PublicReservationCreateView
+
+        scope = PublicReservationCreateView.throttle_scope
+        assert scope == "public_reservation", scope
+        assert scope != "public_booking"
+
+    def test_the_reservation_allowance_is_larger_than_the_booking_one(self, settings):
+        def per_hour(rate):
+            count, _, period = rate.partition("/")
+            factor = {"min": 60, "hour": 1, "day": 1 / 24}[period.rstrip("s")]
+            return int(count) * factor
+
+        rates = settings.REST_FRAMEWORK["DEFAULT_THROTTLE_RATES"]
+        assert per_hour(rates["public_reservation"]) > per_hour(rates["public_booking"])
+
+    def test_reading_and_releasing_are_never_throttled(self):
+        """A refused release leaves a court locked until its deadline.
+
+        Rate limiting the operation that FREES a resource protects nobody and
+        costs the club a slot it could have sold.
+        """
+        from apps.website.reservation_views import PublicReservationView
+
+        assert PublicReservationView.throttle_scope is None
+
+    def test_claiming_many_times_does_not_block_booking(self, api, venue, multi):
+        """The failure as the customer met it, end to end."""
+        day = a_date().isoformat()
+        for hour in range(8, 20):        # comfortably past the 12/hour booking rate
+            response = api.post(RESERVATIONS, {
+                "club": venue["club"].id,
+                "facility_type": venue["activity"].id,
+                "slots": [{"date": day, "time": f"{hour:02d}:00"}],
+            }, format="json")
+            assert response.status_code != 429, (
+                f"throttled after {hour - 8} reservations: {response.data}")
+
+        booked = api.post(BOOKINGS, booking_body(venue, time="21:00"), format="json")
+        assert booked.status_code == 201, booked.data
+
+
+class TestTheCountdownCanBeHidden:
+    """A club may prefer not to put a clock in front of a card form.
+
+    Display only. The court is held exactly the same either way, which is the
+    property worth protecting: a setting that quietly stopped holding courts
+    would reintroduce the double booking this whole feature exists to prevent.
+    """
+
+    def test_the_countdown_is_shown_by_default(self, api, venue):
+        assert reserve(api, venue, ["19:00"]).data["show_countdown"] is True
+
+    def test_a_club_can_hide_it(self, api, venue):
+        venue["club"].show_hold_countdown = False
+        venue["club"].save()
+        assert reserve(api, venue, ["19:00"]).data["show_countdown"] is False
+
+    def test_the_organization_default_applies_when_the_club_says_nothing(
+            self, api, venue):
+        from apps.settings_app.models import Organization
+        org = Organization.get_solo()
+        org.show_hold_countdown = False
+        org.save()
+        assert venue["club"].show_hold_countdown is None
+        assert reserve(api, venue, ["19:00"]).data["show_countdown"] is False
+
+    def test_a_club_can_show_it_while_the_organization_hides_it(self, api, venue):
+        from apps.settings_app.models import Organization
+        org = Organization.get_solo()
+        org.show_hold_countdown = False
+        org.save()
+        venue["club"].show_hold_countdown = True
+        venue["club"].save()
+        assert reserve(api, venue, ["19:00"]).data["show_countdown"] is True
+
+    def test_hiding_it_still_holds_the_court(self, api, venue):
+        """The whole point. Presentation must not change behaviour."""
+        venue["club"].show_hold_countdown = False
+        venue["club"].save()
+        assert reserve(api, venue, ["19:00"]).status_code == 201
+        assert reserve(api, venue, ["19:00"]).status_code == 409
+
+    def test_reading_it_back_reports_the_same_answer(self, api, venue):
+        venue["club"].show_hold_countdown = False
+        venue["club"].save()
+        token = reserve(api, venue, ["19:00"]).data["token"]
+        assert api.get(f"{RESERVATIONS}{token}/").data["show_countdown"] is False
+
+
+AVAILABILITY = "/api/v1/website/public/availability/"
+
+
+class TestTheWireCarriesTheHeldCount:
+    """The payload the BROWSER receives, not the dict the engine builds.
+
+    `available_slots` grew a `held` count and `public_availability` rebuilt
+    every slot from an explicit list of keys, which quietly dropped it. The
+    rule in the website was correct and never fired, because the field it
+    reads was never sent. A test of the rule alone passed throughout.
+    """
+
+    def ask(self, api, venue, on=None):
+        return api.get(AVAILABILITY, {
+            "club": venue["club"].id,
+            "facility_type": venue["activity"].id,
+            "date": (on or a_date()).isoformat(),
+        })
+
+    def slot(self, response, at="19:00"):
+        return next(s for s in response.data["slots"] if s["time"] == at)
+
+    def test_every_slot_reports_a_held_count(self, api, venue):
+        response = self.ask(api, venue)
+        assert response.status_code == 200, response.data
+        assert all("held" in s for s in response.data["slots"])
+
+    def test_a_free_slot_is_held_by_nobody(self, api, venue):
+        assert self.slot(self.ask(api, venue))["held"] == 0
+
+    def test_a_reserved_slot_is_reported_as_held_not_merely_unavailable(
+            self, api, venue):
+        """The customer-visible difference: withdrawn, not "fully booked"."""
+        reserve(api, venue, ["19:00"])
+        slot = self.slot(self.ask(api, venue))
+        assert slot["available"] == 0
+        assert slot["held"] == 1
+
+    def test_a_booked_slot_is_unavailable_but_not_held(self, api, venue):
+        from apps.bookings.models import Booking, BookingStatus
+
+        Booking.objects.create(
+            club=venue["club"], facility=venue["court"],
+            facility_type=venue["activity"], scheduled_date=a_date(),
+            scheduled_time=__import__("datetime").time(19, 0),
+            end_time=__import__("datetime").time(20, 0), duration_minutes=60,
+            status=BookingStatus.CONFIRMED, currency="SAR",
+            total_amount=Decimal("100.000"))
+        slot = self.slot(self.ask(api, venue))
+        assert slot["available"] == 0
+        assert slot["held"] == 0
+
+    def test_releasing_puts_the_slot_back_on_the_wire_as_free(self, api, venue):
+        token = reserve(api, venue, ["19:00"]).data["token"]
+        api.delete(f"{RESERVATIONS}{token}/")
+        slot = self.slot(self.ask(api, venue))
+        assert slot["available"] >= 1
+        assert slot["held"] == 0

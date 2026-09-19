@@ -905,7 +905,8 @@ await esbuild.build({
   external: ['react'],
   logLevel: 'silent',
 });
-const { formatCountdown, signatureOf } = await import(pathToFileURL(holdPath).href);
+const holdModule = await import(pathToFileURL(holdPath).href);
+const { formatCountdown, signatureOf } = holdModule;
 
 check('the countdown reads as minutes and seconds', () => {
   assert(formatCountdown(600) === '10:00', formatCountdown(600));
@@ -977,6 +978,188 @@ check('the expired reservation reads in Arabic too', () => {
       onPickAgain() {} }), 'ar');
   return assert(html.includes(RESOURCES.ar.hold.pickAgain), html.slice(0, 300));
 });
+
+
+// --------------------------------------------------------------------------- //
+console.log('\nSwitching language mid-booking:');
+
+const headerSource = readFileSync('src/components/Header.astro', 'utf8');
+
+check('the language links are recomputed from the live URL', () => {
+  // The hrefs are rendered on the server from the URL the server saw. The
+  // wizard then rewrites the URL with replaceState as the customer moves
+  // through it, so a server-rendered link sends them back to a bare /book and
+  // the whole selection is lost. Switching language landed the customer back
+  // at the start of the wizard.
+  assert(headerSource.includes('langs__opt'), 'the language links were renamed');
+  assert(headerSource.includes('window.location.href'),
+    'the language link still uses only the server-rendered href');
+  return assert(headerSource.includes("searchParams.set('lang'"),
+    'the rebuilt link does not carry the language');
+});
+
+check('the plain href survives for a visitor without JavaScript', () =>
+  assert(headerSource.includes('href={entry.href}'),
+    'the no-JS fallback link was removed'));
+
+check('a modified click is left to the browser', () =>
+  // Ctrl-click and middle-click open a new tab. Hijacking those would break
+  // opening the other language beside this one.
+  assert(headerSource.includes('event.metaKey') && headerSource.includes('event.button !== 0'),
+    'the handler swallows new-tab clicks'));
+
+check('an abandoned reservation is dropped before a new one is claimed', () => {
+  // Reserve 8pm, wander off, come back wanting 8pm AND 9pm: the old hold is
+  // still on the 8pm court, and refusing the customer their own court reads
+  // exactly like somebody else having taken it.
+  const source = readFileSync('src/lib/useReservation.js', 'utf8');
+  const release = source.indexOf('await release(stored.token)');
+  const claim = source.indexOf("await fetch('/api/reserve'");
+  assert(release > 0 && claim > 0, 'the release or the claim moved');
+  return assert(release < claim, 'a stale reservation is left blocking the new one');
+});
+
+
+check('the countdown survives a language switch', () => {
+  // Two symptoms, one cause. Losing the URL sent the customer back to the
+  // start of the wizard AND took the countdown with it, because there is no
+  // countdown outside the payment step. With the URL preserved the wizard
+  // reopens on payment, and the reservation is recovered by its signature,
+  // so the timer resumes at whatever is actually left rather than restarting.
+  const club = { id: 3 };
+  const activity = { id: 7 };
+  const chosen = [
+    { date: '2026-09-18', time: '20:00', end: '20:45' },
+    { date: '2026-09-18', time: '21:00', end: '21:45' },
+  ];
+  const throughTheUrl = wizard.parseSlotsParam(wizard.formatSlotsParam(chosen));
+  assert(throughTheUrl.length === chosen.length,
+    `the URL carried ${throughTheUrl.length} of ${chosen.length} times`);
+  return assert(
+    signatureOf(club, activity, chosen) === signatureOf(club, activity, throughTheUrl),
+    'a reload would claim a second reservation instead of resuming the first');
+});
+
+
+check('a reservation that could not be made says so', () => {
+  // This was silent. The courts were not held, the banner rendered nothing,
+  // and the customer filled in the whole form before being refused at the Pay
+  // button. A one-court club with the customer's own earlier hold still on it
+  // hits this every time.
+  const html = renderHold({
+    secondsLeft: null, expired: false, pending: false,
+    error: '21:00 is no longer available. Please choose another slot.',
+  });
+  assert(html.includes('role="alert"'), 'the failure was not announced');
+  assert(html.includes('21:00'), 'the reason was swallowed');
+  return assert(html.includes(RESOURCES.en.hold.pickAgain), 'no way back to the calendar');
+});
+
+check('claiming shows something rather than popping in later', () => {
+  const html = renderHold({ secondsLeft: null, expired: false, pending: true });
+  return assert(html.includes(RESOURCES.en.hold.holding), html.slice(0, 200));
+});
+
+check('a reservation that could not be attempted stays quiet', () => {
+  // No error means the request itself failed, not that the slot is gone. The
+  // backend revalidates before it writes, so inventing a warning here would
+  // frighten people for nothing.
+  const html = renderHold({ secondsLeft: null, expired: false, pending: false, error: '' });
+  return assert(html === '', html.slice(0, 200));
+});
+
+
+check('a page load does not throw away the reservation it is about to restore', () => {
+  // The wizard renders at step one while it reads the URL, so the checkout is
+  // briefly "not open" on EVERY load. Treating that as having left released
+  // the reservation before the restore reached the payment step: the
+  // countdown restarted at ten minutes and the court went back on sale in
+  // between. Switching language hit this every single time.
+  const { shouldReleaseOnLeave } = holdModule;
+  assert(shouldReleaseOnLeave(false, false) === false,
+    'a fresh page load released a reservation it had never opened');
+  assert(shouldReleaseOnLeave(true, false) === false, 'released while still open');
+  assert(shouldReleaseOnLeave(true, true) === false, 'released while still open');
+  return assert(shouldReleaseOnLeave(false, true) === true,
+    'genuinely leaving the checkout no longer frees the court');
+});
+
+check('the hook uses that rule rather than repeating it', () => {
+  const source = readFileSync('src/lib/useReservation.js', 'utf8');
+  return assert(source.includes('shouldReleaseOnLeave(active, wasActive.current)'),
+    'the effect has its own copy of the rule, which can drift from the test');
+});
+
+
+check('a club that hides the countdown gets no timer', () => {
+  const html = renderHold({
+    secondsLeft: 540, expired: false, pending: false, showCountdown: false });
+  return assert(html === '', html.slice(0, 200));
+});
+
+check('hiding the countdown still warns when the reservation runs out', () => {
+  // Otherwise the customer meets an unexplained refusal at the Pay button.
+  const html = renderHold({
+    secondsLeft: 0, expired: true, pending: false, showCountdown: false });
+  assert(html.includes('role="alert"'), 'expiry was silenced along with the clock');
+  return assert(html.includes(RESOURCES.en.hold.pickAgain), 'no way back');
+});
+
+check('hiding the countdown still reports a refusal', () => {
+  const html = renderHold({
+    secondsLeft: null, expired: false, pending: false, showCountdown: false,
+    error: '21:00 is no longer available. Please choose another slot.' });
+  return assert(html.includes('21:00'), html.slice(0, 200));
+});
+
+check('a payload that says nothing about the setting still shows the timer', () =>
+  assert(renderHold({ secondsLeft: 540, expired: false }).includes('9:00'),
+    'an older payload lost its countdown'));
+
+
+check('an expired reservation is not silently restarted by a refresh', () => {
+  // Measured before the fix: refresh did GET -> DELETE -> POST 201 and handed
+  // out a fresh window. A customer who only has to press F5 to get another
+  // ten minutes can hold a Saturday evening court all afternoon, and the
+  // "Pick your times again" message on screen becomes a lie.
+  const source = readFileSync('src/lib/useReservation.js', 'utf8');
+  assert(source.includes('stored.finished'),
+    'nothing remembers that this selection already ran out');
+  const marker = source.indexOf('stored?.signature === signature && stored.finished');
+  const claim = source.indexOf("await fetch('/api/reserve'");
+  assert(marker > 0 && claim > 0, 'the guard or the claim moved');
+  return assert(marker < claim, 'the expiry guard runs after the claim, so it cannot stop it');
+});
+
+check('leaving the checkout clears the expiry mark', () => {
+  // Otherwise "Pick times again" leads to a dead page: the mark is sticky by
+  // design, so the explicit act of leaving has to be what resets it.
+  const source = readFileSync('src/lib/useReservation.js', 'utf8');
+  return assert(source.includes('if (stored) release(stored.token)'),
+    'leaving only clears storage when a token is left, so an expired mark sticks for ever');
+});
+
+
+check('a slot somebody is mid-checkout on is withdrawn, not called booked', () => {
+  // "Fully booked" was a lie: nobody had booked it, somebody was paying for
+  // it, and it could be free again in minutes.
+  const { slotIsVisible } = wizard;
+  return assert(slotIsVisible({ available: 0, held: 1 }) === false,
+    'a held slot was shown as fully booked');
+});
+
+check('a genuinely booked slot keeps its place and its label', () =>
+  // That one is not coming back today, so hiding it would only puzzle people.
+  assert(wizard.slotIsVisible({ available: 0, held: 0 }) === true,
+    'a real booking vanished from the list'));
+
+check('a slot with a court still free is shown even if another is held', () =>
+  assert(wizard.slotIsVisible({ available: 1, held: 1 }) === true,
+    'a bookable slot was hidden'));
+
+check('a payload with no held count behaves as it always did', () =>
+  assert(wizard.slotIsVisible({ available: 0 }) === true,
+    'an older backend lost its fully-booked rows'));
 
 
 rmSync(workDir, { recursive: true, force: true });

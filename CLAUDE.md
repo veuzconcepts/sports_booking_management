@@ -743,6 +743,52 @@ decision, not an oversight. A gate that refuses too much is not the safer gate.
 Assigning a worker walks a booking through Confirmed, so it asks the same gate,
 BEFORE it writes anything.
 
+## A held slot is not a booked slot
+
+Availability merges holds and bookings, because both make a court
+unavailable. The slot payload keeps them apart: `held` is how many courts a
+live reservation is holding, and a court that is both booked and held counts
+as booked, since that is the state a clock running out will not change.
+
+The website WITHDRAWS a slot that is only held rather than labelling it.
+"Fully booked" is untrue when nobody has booked it, and the slot may be free
+again within minutes: a customer who reads "booked" writes that time off, one
+who sees nothing picks another. A genuinely booked slot keeps its place and
+its label, because that one is not coming back today.
+
+An expired reservation is sticky per selection. A refresh must not silently
+start a new window, or the deadline means nothing to anybody willing to press
+F5. The mark clears when the customer leaves the checkout, which is the
+explicit act the "Pick times again" message asks for.
+
+## The countdown is presentation, the hold is not
+
+`show_hold_countdown` (Organization, overridable per club) decides whether the
+customer sees the clock. It changes NOTHING else: the court is held for the
+same length of time either way. A setting that quietly stopped holding courts
+would reintroduce the double booking this whole feature exists to prevent.
+
+Hiding it still shows the expiry and refusal messages. A customer whose
+reservation ran out has to be told something, or they meet an unexplained
+refusal at the Pay button.
+
+Reservations have their OWN throttle scope, `public_reservation`. They are
+claimed far more often than bookings are made, so sharing `public_booking`
+meant ordinary browsing exhausted the allowance and the booking itself was
+then refused. Reading and releasing a reservation are not throttled at all:
+rate limiting the operation that FREES a court leaves it locked until its
+deadline, which costs the club a slot it could have sold.
+
+Only a 409 from the reservation endpoint is shown to the customer. A throttle,
+a server error or a dropped connection is our problem, not theirs, and
+checkout still works because the backend revalidates before it writes.
+
+Leaving the checkout releases the courts, but "leaving" is a TRANSITION. Every
+page load renders the wizard at its first step while it reads the URL, so an
+unguarded check releases the reservation on mount, before the restore reaches
+the payment step. That is what made a language switch restart the countdown at
+ten minutes and put the court back on sale in between.
+
 ## Spending a reservation
 
 The checkout sends its reservation token with the booking. Two things follow

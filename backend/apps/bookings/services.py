@@ -365,9 +365,13 @@ def available_slots(on_date, club=None, facility_type=None, facility=None) -> li
     if not candidates:
         return []
 
-    # A court claimed by a live reservation is as unavailable as a booked one.
-    bookings = (_day_bookings(on_date, club=club)
-                + _day_holds(on_date, club=club))
+    # A court claimed by a live reservation is as unavailable as a booked one,
+    # but it is NOT the same thing, and the two are kept apart here so the slot
+    # list can say which it is. Telling a customer a court is "fully booked"
+    # when somebody is merely part way through paying for it is untrue, and it
+    # becomes true or false again within minutes.
+    bookings = _day_bookings(on_date, club=club)
+    holds = _day_holds(on_date, club=club)
     blocks = _day_blocks(on_date, club=club)
 
     # Every eligible facility's OWN operating day.
@@ -387,11 +391,12 @@ def available_slots(on_date, club=None, facility_type=None, facility=None) -> li
                              if f.id in distinct else shared_day)
 
     return _build_slots(on_date, day=day, own_day=own_day, bookings=bookings,
-                        blocks=blocks, interval=interval, duration=duration)
+                        holds=holds, blocks=blocks, interval=interval,
+                        duration=duration)
 
 
 def _build_slots(on_date, *, day, own_day, bookings, blocks, interval, duration,
-                 now=None):
+                 holds=None, now=None):
     """The slot grid for one date, from data the caller has already loaded.
 
     Separated from `available_slots` so a whole month can be summarised
@@ -455,13 +460,24 @@ def _build_slots(on_date, *, day, own_day, bookings, blocks, interval, duration,
                     bookings, blocks, slot_start, slot_end,
                     buffer_before=day.buffer_before, buffer_after=day.buffer_after,
                 ) & open_ids
+                # Courts a live reservation is holding, and nothing else. A
+                # court that is BOTH booked and held counts as booked: that is
+                # the state that will not change when a clock runs out.
+                reserved = _taken_ids(
+                    holds or [], [], slot_start, slot_end,
+                    buffer_before=day.buffer_before, buffer_after=day.buffer_after,
+                ) & open_ids - taken
                 capacity = len(open_ids)
-                booked = len(taken)
+                booked = len(taken | reserved)
                 slots.append({
                     "time": label,
                     "end": slot_end.strftime("%H:%M"),
                     "capacity": capacity,
                     "booked": booked,
+                    # How many of those are somebody mid-checkout rather than a
+                    # settled booking. The website uses this to avoid calling a
+                    # slot "fully booked" when it is only being paid for.
+                    "held": len(reserved),
                     "available": max(0, capacity - booked),
                     # Classification only. It never changes a price by itself;
                     # a pricing rule has to ask for it.
@@ -617,8 +633,8 @@ def date_availability_summary(first, last, *, club=None, facility_type=None,
                        for f in candidates}
             slots = _build_slots(
                 cursor, day=day, own_day=own_day,
-                bookings=(bookings_by_date.get(cursor, [])
-                          + holds_by_date.get(cursor, [])),
+                bookings=bookings_by_date.get(cursor, []),
+                holds=holds_by_date.get(cursor, []),
                 blocks=_blocks_on(blocks, cursor),
                 interval=day.slot_minutes or SLOT_MINUTES,
                 duration=duration or day.slot_minutes or SLOT_MINUTES,
@@ -764,6 +780,10 @@ def public_availability(on_date, club=None, facility_type=None, facility=None) -
         hour, minute = (int(part) for part in s["time"].split(":"))
         slots.append({
             "time": s["time"], "end": s["end"], "available": s["available"],
+            # How many courts a live reservation is holding. Without it the
+            # website cannot tell "booked" from "somebody is paying for it",
+            # and every unavailable slot reads as fully booked.
+            "held": s.get("held", 0),
             "period": s.get("period", "normal"),
             "offer": pricing.slot_offer(
                 on_date, time(hour, minute), offer_rules,

@@ -332,3 +332,58 @@ class TestGivingTheCourtBack:
         assert free_at(venue) is False
         booking.refresh_from_db()
         assert booking.status == BookingStatus.CONFIRMED
+
+
+class TestAHeldSlotIsNotCalledBooked:
+    """"Fully booked" and "somebody is paying for it" are different facts.
+
+    They look identical in an availability payload that merges holds into
+    bookings, and the website then told customers a court was booked when
+    nobody had booked it and it might well be free again in minutes.
+    """
+
+    def slot_at(self, venue, at="19:00"):
+        return next(s for s in available_slots(
+            soon(), club=venue["club"], facility_type=venue["activity"])
+            if s["time"] == at)
+
+    def book_it(self, venue):
+        from apps.bookings.models import Booking
+        return Booking.objects.create(
+            customer=venue["customer"], club=venue["club"],
+            facility_type=venue["activity"], facility=venue["court"],
+            scheduled_date=soon(), scheduled_time=time(19, 0),
+            end_time=time(20, 0), status=BookingStatus.CONFIRMED,
+            currency="SAR", total_amount=Decimal("100.000"))
+
+    def test_a_held_slot_says_how_many_courts_are_held(self, venue):
+        take(venue, "19:00")
+        slot = self.slot_at(venue)
+        assert slot["available"] == 0
+        assert slot["held"] == 1
+
+    def test_a_genuinely_booked_slot_reports_no_holds(self, venue):
+        """So the two can be told apart from the payload alone."""
+        self.book_it(venue)
+        slot = self.slot_at(venue)
+        assert slot["available"] == 0
+        assert slot["held"] == 0
+
+    def test_a_free_slot_reports_no_holds(self, venue):
+        slot = self.slot_at(venue)
+        assert slot["available"] >= 1
+        assert slot["held"] == 0
+
+    def test_a_court_both_booked_and_held_counts_as_booked(self, venue):
+        """The state that will not change when a clock runs out wins."""
+        self.book_it(venue)
+        slot = self.slot_at(venue)
+        assert slot["booked"] == 1
+        assert slot["held"] == 0
+
+    def test_the_slot_is_free_again_once_the_reservation_ends(self, venue):
+        hold, _token = take(venue, "19:00")
+        reservations.release(hold)
+        slot = self.slot_at(venue)
+        assert slot["available"] >= 1
+        assert slot["held"] == 0

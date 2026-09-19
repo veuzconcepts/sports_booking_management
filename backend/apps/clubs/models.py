@@ -66,6 +66,9 @@ class Club(models.Model):
     cash_enabled = models.BooleanField(
         null=True, blank=True,
         help_text="Offer paying at the venue. Empty inherits the organization.")
+    show_hold_countdown = models.BooleanField(
+        null=True, blank=True,
+        help_text="Show the reservation countdown. Empty inherits the organization.")
 
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)

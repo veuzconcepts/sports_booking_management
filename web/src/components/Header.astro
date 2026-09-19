@@ -74,6 +74,35 @@ const languages = LOCALES.map((entry) => ({
       btn.setAttribute('aria-pressed', String(next === 'light'));
     });
   })();
+
+  // Keep the language links pointing at the page as it is NOW.
+  //
+  // The hrefs above are built on the server from the URL the server saw. The
+  // booking wizard then rewrites the URL as the customer moves through it,
+  // using history.replaceState, which those server-rendered links know nothing
+  // about. Switching language therefore threw away the club, the activity, the
+  // add-ons and the chosen time, and dropped the customer back at the start of
+  // the wizard.
+  //
+  // Recomputed on click rather than on load, because replaceState fires no
+  // event and the URL keeps changing underneath us. The href stays as it was
+  // so the link still works with JavaScript off, which is the whole reason
+  // these are plain links and not a script.
+  (function () {
+    var opts = document.querySelectorAll('.langs__opt');
+    if (!opts.length) return;
+    Array.prototype.forEach.call(opts, function (link) {
+      link.addEventListener('click', function (event) {
+        var code = link.getAttribute('hreflang');
+        if (!code || event.defaultPrevented || event.metaKey || event.ctrlKey
+            || event.shiftKey || event.button !== 0) return;
+        event.preventDefault();
+        var here = new URL(window.location.href);
+        here.searchParams.set('lang', code);
+        window.location.assign(here.pathname + here.search + here.hash);
+      });
+    });
+  })();
 </script>
 
 <style>

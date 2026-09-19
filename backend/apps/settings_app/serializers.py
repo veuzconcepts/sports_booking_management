@@ -31,7 +31,7 @@ class OrganizationSerializer(serializers.ModelSerializer):
             # any of these; see `schedule.resolve_booking_policy`.
             "hold_unpaid_minutes", "hold_partly_paid_minutes", "hold_max_minutes",
             "split_enabled", "split_hold_minutes", "split_max_shares",
-            "cash_enabled",
+            "cash_enabled", "show_hold_countdown",
             "require_refund_approval",
             "allow_multiple_memberships",
             "summary", "description",

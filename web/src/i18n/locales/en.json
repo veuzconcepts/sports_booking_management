@@ -255,6 +255,7 @@
     "dateTime": "Date and time",
     "club": "Club",
     "paid": "Paid",
+    "card": "Card",
     "splitInProgress": "Split payment in progress",
     "notCompleted": "Payment not completed",
     "cash": "Cash, pay on completion",
@@ -341,6 +342,7 @@
     "remaining": "{{time}} left to complete your booking",
     "soon": "Only {{time}} left",
     "expired": "Your reservation has ended. Pick your times again to continue.",
+    "holding": "Holding your courts...",
     "pickAgain": "Pick times again"
   },
   "hero": {

@@ -24,7 +24,7 @@ class ClubSerializer(serializers.ModelSerializer):
             # deliberately nullable rather than defaulted here.
             "hold_unpaid_minutes", "hold_partly_paid_minutes", "hold_max_minutes",
             "split_enabled", "split_hold_minutes", "split_max_shares",
-            "cash_enabled",
+            "cash_enabled", "show_hold_countdown",
             "effective_booking_policy",
             "schedule_source", "effective_schedule",
             "facilities", "facility_count",

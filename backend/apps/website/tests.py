@@ -204,8 +204,14 @@ def test_public_availability_for_a_club(api, bookable, club, facilities):
     assert body["closed"] is False
     # `period` is the peak/off-peak classification of the shift the slot
     # falls in; `offer` is the customer-visible discount covering it, or
-    # None. Both are informational and neither affects availability.
-    assert all({"time", "end", "available", "period", "offer"} == set(s)
+    # None. `held` is how many courts a live reservation is holding, which is
+    # what lets the website withdraw a slot somebody is mid-checkout on rather
+    # than calling it fully booked. All three are informational and none of
+    # them affects availability.
+    #
+    # An exact set, not a subset: this payload is public, and a field added
+    # here is a field every visitor receives for ever.
+    assert all({"time", "end", "available", "held", "period", "offer"} == set(s)
                for s in body["slots"])
 
 

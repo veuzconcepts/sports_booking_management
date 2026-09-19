@@ -940,6 +940,23 @@ const sameSlot = (a, b) => a.date === b.date && a.time === b.time;
 const sortSlots = (list) => [...list].sort((a, b) => (a.date === b.date
   ? a.time.localeCompare(b.time) : a.date.localeCompare(b.date)));
 
+/**
+ * Should this time appear in the list at all?
+ *
+ * A slot nobody has booked, that somebody is merely part way through paying
+ * for, is withdrawn rather than labelled. Calling it "fully booked" is untrue,
+ * and it may well be free again within minutes: a customer who reads "booked"
+ * writes that time off for good, whereas one who sees nothing simply picks
+ * another and may find it back on the next visit.
+ *
+ * A slot that is genuinely booked keeps its place and its label, because that
+ * one is not coming back today. A payload with no `held` (an older backend)
+ * behaves exactly as it always did.
+ */
+export function slotIsVisible(slot) {
+  return slot.available > 0 || !(slot.held > 0);
+}
+
 export function Schedule({ facilityType, category, club, currency, initialDate = null,
                    addons = [], values = [], onChange, onContinue }) {
   const { t, i18n } = useTranslation();
@@ -1091,6 +1108,10 @@ export function Schedule({ facilityType, category, club, currency, initialDate =
   // can arrive empty. That is not "no times today", it is "not any more", and
   // the snapshot must be dropped so the date greys out.
   const dayFree = (data?.slots || []).some((s) => s.available > 0);
+  // Held-but-not-booked slots are withdrawn from the list. `held` is the
+  // backend's count of courts a live reservation is holding for this slot;
+  // an older payload without it behaves exactly as before.
+  const visibleSlots = (data?.slots || []).filter(slotIsVisible);
   const wentStale = Boolean(data && !loading && !data.closed
     && !dayFree && days?.[date]?.available);
 
@@ -1300,6 +1321,12 @@ export function Schedule({ facilityType, category, club, currency, initialDate =
         )}
       </div>
 
+      {/* A slot nobody has booked, that somebody is merely part way through
+          paying for, is withdrawn rather than labelled. Calling it "fully
+          booked" was untrue, and it may well be free again in a few minutes:
+          a customer who reads "booked" writes that time off, and one who sees
+          nothing simply picks another. A slot that is genuinely booked keeps
+          its label, because that one is not coming back today. */}
       {/* RIGHT - times for the selected date */}
       <div className="bw__cal-times">
         <div className="bw__cal-timehead">{longDate(date, locale)}</div>
@@ -1309,7 +1336,7 @@ export function Schedule({ facilityType, category, club, currency, initialDate =
               : wentStale ? (
                 <p className="bw__cal-none">{t('wizard.when.noLongerAvailable')}</p>
               )
-              : data?.slots?.length ? data.slots.map((s) => {
+              : visibleSlots.length ? visibleSlots.map((s) => {
                 const off = s.available <= 0;
                 const sel = isPicked(s.time);
                 const tone = off ? ' is-off' : ' is-cool';
@@ -1422,9 +1449,41 @@ export function Schedule({ facilityType, category, club, currency, initialDate =
  */
 export function HoldBanner({ reservation, onPickAgain }) {
   const { t } = useTranslation();
-  if (!reservation || reservation.secondsLeft === null) return null;
+  if (!reservation) return null;
 
-  const { secondsLeft, expired } = reservation;
+  const { secondsLeft, expired, pending, error, showCountdown } = reservation;
+
+  // The courts could not be held and the server said why, which almost always
+  // means somebody has taken one of these times. Saying so here is the whole
+  // point: the alternative is the customer filling in their details, pressing
+  // Pay, and being refused at the last step. Silence used to be the outcome of
+  // every failure, so the checkout simply had no timer and no explanation.
+  if (error) {
+    return (
+      <div className="ck__hold ck__hold--over" role="alert">
+        <span className="ck__hold-tx">{error}</span>
+        <button type="button" className="ck__hold-btn" onClick={onPickAgain}>
+          {t('hold.pickAgain')}
+        </button>
+      </div>
+    );
+  }
+
+  // Claiming takes a round trip. Holding the space stops the banner popping
+  // in and shoving the form down as the customer starts typing.
+  if (pending && secondsLeft === null) {
+    return (
+      <div className="ck__hold" role="status">
+        <span className="ck__hold-tx">{t('hold.holding')}</span>
+      </div>
+    );
+  }
+
+  // No reservation and no error: the request could not be made at all. The
+  // backend revalidates availability before it writes anything, so checkout
+  // still works and inventing a warning would only frighten people.
+  if (secondsLeft === null) return null;
+
   if (expired) {
     return (
       <div className="ck__hold ck__hold--over" role="alert">
@@ -1435,6 +1494,13 @@ export function HoldBanner({ reservation, onPickAgain }) {
       </div>
     );
   }
+
+  // A club may switch the clock off: some would rather not put a timer in
+  // front of somebody entering their card details. The court is still held
+  // and the expiry message above still appears, because a customer whose
+  // reservation ran out has to be told SOMETHING rather than meeting an
+  // unexplained refusal at the Pay button. Only the ticking number goes.
+  if (showCountdown === false) return null;
 
   const urgent = secondsLeft <= 60;
   const time = formatCountdown(secondsLeft);
@@ -2267,29 +2333,55 @@ function PaidBadge({ payment, currency }) {
   const { t } = useTranslation();
   const outcome = payment || {};
   if (outcome.status === 'paid') {
+    // The card line is one text node rather than a bare string beside the
+    // icon: as two flex items the label could be squeezed a word at a time
+    // into a narrow column, which is how "Paid . visa ....4242" ended up
+    // stacked on three lines.
+    const brand = outcome.card_brand
+      ? outcome.card_brand.charAt(0).toUpperCase() + outcome.card_brand.slice(1)
+      : t('success.card');
     return (
       <span className="bw__success-pay is-paid">
-        <CardIconSm /> {t('success.paid')}
-        {outcome.card_last4 ? ` · ${outcome.card_brand || 'card'} ····${outcome.card_last4}` : ''}
+        <CardIconSm aria-hidden="true" />
+        <span className="bw__success-payt">
+          {t('success.paid')}
+          {outcome.card_last4 ? ` · ${brand} ····${outcome.card_last4}` : ''}
+        </span>
       </span>
     );
   }
   if (outcome.status === 'started') {
-    return <span className="bw__success-pay is-split"><SplitIcon /> {t('success.splitInProgress')}</span>;
+    return (
+      <span className="bw__success-pay is-split">
+        <SplitIcon aria-hidden="true" />
+        <span className="bw__success-payt">{t('success.splitInProgress')}</span>
+      </span>
+    );
   }
   if (outcome.status === 'partial') {
     // Some slots were charged and some were not. Calling this "failed" would
     // invite a second payment for times that are already settled.
     return (
       <span className="bw__success-pay is-failed">
-        {t('success.partlyPaid', { paid: outcome.slots_paid, total: outcome.slots_total })}
+        <span className="bw__success-payt">
+          {t('success.partlyPaid', { paid: outcome.slots_paid, total: outcome.slots_total })}
+        </span>
       </span>
     );
   }
   if (outcome.status === 'failed' || outcome.status === 'unavailable') {
-    return <span className="bw__success-pay is-failed">{t('success.notCompleted')}</span>;
+    return (
+      <span className="bw__success-pay is-failed">
+        <span className="bw__success-payt">{t('success.notCompleted')}</span>
+      </span>
+    );
   }
-  return <span className="bw__success-pay"><CashIcon /> {t('success.cash')}</span>;
+  return (
+    <span className="bw__success-pay">
+      <CashIcon aria-hidden="true" />
+      <span className="bw__success-payt">{t('success.cash')}</span>
+    </span>
+  );
 }
 
 const CardIconSm = (p) => (

@@ -50,6 +50,18 @@ function writeStored(value) {
   } catch { /* the reservation still works, it just will not survive a reload */ }
 }
 
+/**
+ * Should leaving this render give the courts back?
+ *
+ * Only on a real transition out of the checkout. Being inactive is not the
+ * same as having left: a page load renders the wizard at its first step while
+ * it reads the URL, and treating that as "left" discards a reservation the
+ * customer is still in the middle of.
+ */
+export function shouldReleaseOnLeave(active, hasBeenActive) {
+  return !active && hasBeenActive;
+}
+
 /** Seconds left, measured against the server's clock rather than the device's. */
 function remaining(expiresAt, skewMs) {
   const end = Date.parse(expiresAt);
@@ -65,16 +77,22 @@ export function useReservation({ club, facilityType, slots, active }) {
   const signature = signatureOf(club, facilityType, slots);
   const [state, setState] = useState({
     token: '', expiresAt: '', skewMs: 0, error: '', pending: false,
+    // The club's choice, not the browser's. Defaults to showing, so a payload
+    // that predates the setting behaves as it always did.
+    showCountdown: true,
   });
   const [secondsLeft, setSecondsLeft] = useState(null);
   const [attempt, setAttempt] = useState(0);
   // What we last acted on, so a re-render does not re-claim.
   const claimedFor = useRef('');
+  // Whether the checkout has actually been open in this page's life.
+  const wasActive = useRef(false);
 
   const forget = useCallback(() => {
     writeStored(null);
     claimedFor.current = '';
-    setState({ token: '', expiresAt: '', skewMs: 0, error: '', pending: false });
+    setState({ token: '', expiresAt: '', skewMs: 0, error: '', pending: false,
+      showCountdown: true });
     setSecondsLeft(null);
   }, []);
 
@@ -97,6 +115,20 @@ export function useReservation({ club, facilityType, slots, active }) {
 
     (async () => {
       const stored = readStored();
+
+      // This exact selection has already run out once. Do NOT quietly start a
+      // new window: the whole point of a deadline is that it ends, and a
+      // customer who only has to press F5 to get another ten minutes can hold
+      // a Saturday evening court all afternoon. They are shown the ended
+      // message until they do what it asks and choose again.
+      if (stored?.signature === signature && stored.finished) {
+        setState({
+          token: '', expiresAt: stored.expiresAt || '', skewMs: 0,
+          error: '', pending: false, showCountdown: true,
+        });
+        return;
+      }
+
       // A reload, or a second visit to this step with the same times.
       if (stored?.token && stored.signature === signature) {
         try {
@@ -108,12 +140,30 @@ export function useReservation({ club, facilityType, slots, active }) {
               token: stored.token, expiresAt: data.expires_at,
               skewMs: Date.parse(data.server_time) - Date.now(),
               error: '', pending: false,
+              showCountdown: data.show_countdown !== false,
+            });
+            return;
+          }
+          // It ended while the page was closed. Same rule: say so rather than
+          // claiming again behind the customer's back.
+          if (res.ok && data?.expires_at) {
+            writeStored({ signature, expiresAt: data.expires_at, finished: true });
+            if (!live) return;
+            setState({
+              token: '', expiresAt: data.expires_at, skewMs: 0,
+              error: '', pending: false, showCountdown: true,
             });
             return;
           }
         } catch { /* fall through and claim a fresh one */ }
-        // Stale or finished: drop it before claiming, so the old reservation
-        // cannot go on blocking the court we are about to ask for.
+      }
+      if (stored?.token) {
+        // Either it is finished, or it is for times the customer has since
+        // changed their mind about. Both have to go BEFORE we claim, and the
+        // second one matters most: somebody who reserved 8pm, wandered off and
+        // came back wanting 8pm and 9pm would otherwise be refused the 8pm
+        // court by their own abandoned reservation, which reads exactly like
+        // somebody else having taken it.
         await release(stored.token);
         if (!live) return;
       }
@@ -136,12 +186,22 @@ export function useReservation({ club, facilityType, slots, active }) {
             token: data.token, expiresAt: data.expires_at,
             skewMs: Date.parse(data.server_time) - Date.now(),
             error: '', pending: false,
+            showCountdown: data.show_countdown !== false,
           });
         } else {
           claimedFor.current = '';
+          // Only a genuine slot conflict is the customer's problem, and only
+          // that message is worth showing: it names the time they need to
+          // change. Anything else (throttled, server error, bad request) is
+          // OUR problem. Checkout still works because the backend revalidates
+          // availability before it writes, so showing "Request was throttled.
+          // Expected available in 2615 seconds." would alarm somebody about a
+          // booking that is going to go through perfectly well.
+          const theirProblem = res.status === 409;
           setState({
             token: '', expiresAt: '', skewMs: 0, pending: false,
-            error: data?.detail || '',
+            error: theirProblem ? (data?.detail || '') : '',
+            showCountdown: true,
           });
         }
       } catch {
@@ -150,7 +210,8 @@ export function useReservation({ club, facilityType, slots, active }) {
         // A reservation we could not make is not a reason to block checkout:
         // the backend revalidates availability before it writes anything, so
         // the worst case is the old behaviour of finding out at the last step.
-        setState({ token: '', expiresAt: '', skewMs: 0, pending: false, error: '' });
+        setState({ token: '', expiresAt: '', skewMs: 0, pending: false, error: '',
+          showCountdown: true });
       }
     })();
 
@@ -159,12 +220,34 @@ export function useReservation({ club, facilityType, slots, active }) {
 
   // Leaving the checkout gives the courts back rather than making the next
   // customer wait out a timer nobody is watching.
+  //
+  // "Leaving" is a TRANSITION, not simply being elsewhere, and the difference
+  // is the whole bug this guard exists for. Every page load starts the wizard
+  // at step one while it reads the URL, so an unguarded version released the
+  // reservation on mount, before the restore had moved to the payment step. A
+  // language switch therefore threw the reservation away and claimed a fresh
+  // one: the countdown restarted at ten minutes, and the court went back on
+  // sale for the moment in between.
   useEffect(() => {
-    if (active) return undefined;
+    if (active) { wasActive.current = true; return undefined; }
+    if (!shouldReleaseOnLeave(active, wasActive.current)) return undefined;
+    wasActive.current = false;
+    // Clears the stored entry whether or not there is still a token to give
+    // back, which is what lets "Pick times again" actually start over: the
+    // expired mark above is deliberately sticky until the customer leaves.
     const stored = readStored();
-    if (stored?.token) release(stored.token);
+    if (stored) release(stored.token);
     return undefined;
   }, [active, release]);
+
+  // Remember that this selection ran out, so a refresh cannot restart it.
+  useEffect(() => {
+    if (secondsLeft !== 0 || !state.expiresAt) return;
+    const stored = readStored();
+    if (stored?.signature === signature) {
+      writeStored({ signature, expiresAt: state.expiresAt, finished: true });
+    }
+  }, [secondsLeft, state.expiresAt, signature]);
 
   // The ticking half. One interval, reading the anchored deadline.
   useEffect(() => {
@@ -177,6 +260,7 @@ export function useReservation({ club, facilityType, slots, active }) {
 
   return {
     token: state.token,
+    showCountdown: state.showCountdown,
     secondsLeft,
     expired: secondsLeft === 0 && !!state.expiresAt,
     pending: state.pending,

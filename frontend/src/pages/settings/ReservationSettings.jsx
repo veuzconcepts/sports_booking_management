@@ -41,10 +41,21 @@ const SPLIT_FIELDS = [
     hint: 'How many friends one bill may be divided between.' },
 ];
 
+// The switches, in the order they appear. `cash_enabled` changes what the
+// checkout will accept; `show_hold_countdown` only changes what it shows.
+const TOGGLES = [
+  { key: 'cash_enabled', label: 'Accept payment at the venue' },
+  { key: 'split_enabled', label: 'Allow a booking to be split between several people' },
+  { key: 'show_hold_countdown',
+    label: 'Show customers the reservation countdown',
+    description: 'The court is held either way. Switch this off to hide the timer '
+      + 'from the checkout. A customer whose reservation runs out is still told.' },
+];
+
 const ALL_KEYS = [
   ...MINUTE_FIELDS.map((f) => f.key),
   ...SPLIT_FIELDS.map((f) => f.key),
-  'split_enabled', 'cash_enabled',
+  ...TOGGLES.map((toggle) => toggle.key),
 ];
 
 /** A number field the user may clear. '' is a real answer at club scope. */
@@ -105,8 +116,7 @@ export function ReservationSettings({ canManage }) {
     try {
       const payload = Object.fromEntries(
         [...MINUTE_FIELDS, ...SPLIT_FIELDS].map((f) => [f.key, Number(org[f.key]) || 1]));
-      payload.split_enabled = !!org.split_enabled;
-      payload.cash_enabled = !!org.cash_enabled;
+      TOGGLES.forEach((toggle) => { payload[toggle.key] = !!org[toggle.key]; });
       // Only these fields. The endpoint is partial, and sending the whole
       // profile back would post the branding image URLs as if they were new
       // uploads.
@@ -127,8 +137,7 @@ export function ReservationSettings({ canManage }) {
         [...MINUTE_FIELDS, ...SPLIT_FIELDS].map((f) => [
           f.key, row[f.key] === '' || row[f.key] === null || row[f.key] === undefined
             ? null : Number(row[f.key])]));
-      payload.split_enabled = row.split_enabled ?? null;
-      payload.cash_enabled = row.cash_enabled ?? null;
+      TOGGLES.forEach((toggle) => { payload[toggle.key] = row[toggle.key] ?? null; });
       const saved = await clubsApi.update(row.id, payload);
       setRows((prev) => prev.map((r) => (r.id === row.id ? saved : r)));
       toast.success(`${row.name} saved.`);
@@ -195,18 +204,16 @@ export function ReservationSettings({ canManage }) {
               ))}
             </div>
             <div style={{ display: 'grid', gap: 4, margin: '10px 0 14px' }}>
-              <Toggle
-                label="Accept payment at the venue"
-                checked={!!org.cash_enabled}
-                disabled={!canManage}
-                onChange={(e) => setOrgField('cash_enabled', e.target.checked)}
-              />
-              <Toggle
-                label="Allow a booking to be split between several people"
-                checked={!!org.split_enabled}
-                disabled={!canManage}
-                onChange={(e) => setOrgField('split_enabled', e.target.checked)}
-              />
+              {TOGGLES.map((toggle) => (
+                <Toggle
+                  key={toggle.key}
+                  label={toggle.label}
+                  description={toggle.description}
+                  checked={!!org[toggle.key]}
+                  disabled={!canManage}
+                  onChange={(e) => setOrgField(toggle.key, e.target.checked)}
+                />
+              ))}
             </div>
             {org.split_enabled && (
               <div className="form-grid form-grid--2">
@@ -262,18 +269,16 @@ export function ReservationSettings({ canManage }) {
                   ))}
                 </div>
                 <div style={{ display: 'grid', gap: 4, margin: '10px 0 0' }}>
-                  <Toggle
-                    label="Accept payment at the venue"
-                    checked={row.cash_enabled ?? !!inherited.cash_enabled}
-                    disabled={!canManage}
-                    onChange={(e) => setRowField(row.id, 'cash_enabled', e.target.checked)}
-                  />
-                  <Toggle
-                    label="Allow a booking to be split between several people"
-                    checked={row.split_enabled ?? !!inherited.split_enabled}
-                    disabled={!canManage}
-                    onChange={(e) => setRowField(row.id, 'split_enabled', e.target.checked)}
-                  />
+                  {TOGGLES.map((toggle) => (
+                    <Toggle
+                      key={toggle.key}
+                      label={toggle.label}
+                      description={toggle.description}
+                      checked={row[toggle.key] ?? !!inherited[toggle.key]}
+                      disabled={!canManage}
+                      onChange={(e) => setRowField(row.id, toggle.key, e.target.checked)}
+                    />
+                  ))}
                 </div>
                 {canManage && (
                   <button className="btn btn-secondary" style={{ marginTop: 14 }}
