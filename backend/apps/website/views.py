@@ -18,6 +18,7 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from apps.auditlogs.services import log_event
+from apps.settings_app.media import public_file_url
 
 from .models import (
     Banner,
@@ -232,7 +233,7 @@ def branding_payload(request):
 
     def url(field):
         try:
-            return request.build_absolute_uri(field.url) if field else None
+            return public_file_url(field, request)
         except ValueError:
             return None
 

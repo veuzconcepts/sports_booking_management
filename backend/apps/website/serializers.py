@@ -11,6 +11,7 @@ from django.utils import timezone
 
 from apps.settings_app import schedule as sched
 from rest_framework import serializers
+from apps.settings_app.media import public_file_url
 
 from .models import (
     Banner,
@@ -32,9 +33,7 @@ def media_repr(asset, request=None):
     """Compact, front-end-ready representation of a MediaAsset: absolute URL + alt."""
     if not asset or not getattr(asset, "file", None):
         return None
-    url = asset.file.url
-    if request is not None:
-        url = request.build_absolute_uri(url)
+    url = public_file_url(asset.file, request)
     return {"id": asset.id, "url": url, "alt": asset.alt_text, "kind": asset.kind}
 
 
@@ -59,8 +58,7 @@ class MediaAssetSerializer(serializers.ModelSerializer):
     def get_url(self, obj):
         if not obj.file:
             return None
-        request = self.context.get("request")
-        return request.build_absolute_uri(obj.file.url) if request else obj.file.url
+        return public_file_url(obj.file, self.context.get("request"))
 
 
 class SiteSectionSerializer(_Base):
@@ -215,9 +213,8 @@ class SEOSettingSerializer(serializers.ModelSerializer):
 # re-authors this data; it reads it live, honouring the operational flags.
 # --------------------------------------------------------------------------- #
 def _abs_image(field, request):
-    if not field:
-        return None
-    return request.build_absolute_uri(field.url) if request is not None else field.url
+    """Kept as the name the serializers below already use."""
+    return public_file_url(field, request)
 
 
 class PublicCategorySerializer(serializers.Serializer):

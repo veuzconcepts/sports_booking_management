@@ -18,6 +18,8 @@ from .models import (
     COMPLETED_STATUSES,
     PAID_PAYMENT_STATUSES,
     RecurrenceRule,
+    BookingHold,
+    BookingHoldSlot,
 )
 
 PROMO_MASK = "****"
@@ -753,3 +755,60 @@ class CompleteBookingSerializer(serializers.Serializer):
     reference = serializers.CharField(required=False, allow_blank=True, max_length=120)
     paid_at = serializers.DateTimeField(required=False)
     notes = serializers.CharField(required=False, allow_blank=True, max_length=500)
+
+
+class BookingHoldSlotSerializer(serializers.ModelSerializer):
+    """One court, one interval, inside a reservation."""
+
+    facility_name = serializers.CharField(source="facility.name", read_only=True,
+                                          default=None)
+
+    class Meta:
+        model = BookingHoldSlot
+        fields = ("id", "facility", "facility_name", "scheduled_date",
+                  "scheduled_time", "end_time")
+
+
+class BookingHoldSerializer(serializers.ModelSerializer):
+    """A reservation, as operations staff need to see it.
+
+    Read-only, and deliberately narrow. `token_hash` is absent and must stay
+    absent: it is the digest of a bearer token, and a listing that leaked it
+    would hand anybody who can read the page the ability to pay for, or give
+    away, somebody else's reservation.
+
+    `seconds_remaining` and `is_live` are computed from the clock rather than
+    the status, for the same reason every other read path does it: the sweep
+    runs every few minutes, so rows sit ACTIVE past their deadline in between
+    and a listing that believed the status would show courts as held that are
+    already back on sale.
+    """
+
+    club_name = serializers.CharField(source="club.name", read_only=True, default=None)
+    facility_type_name = serializers.CharField(
+        source="facility_type.name", read_only=True, default=None)
+    customer_name = serializers.CharField(
+        source="customer.full_name", read_only=True, default=None)
+    created_by_name = serializers.CharField(
+        source="created_by.full_name", read_only=True, default=None)
+    booking_reference = serializers.CharField(
+        source="booking.reference", read_only=True, default=None)
+    order_reference = serializers.CharField(
+        source="order.reference", read_only=True, default=None)
+    slots = BookingHoldSlotSerializer(many=True, read_only=True)
+    seconds_remaining = serializers.IntegerField(read_only=True)
+    is_live = serializers.BooleanField(read_only=True)
+
+    class Meta:
+        model = BookingHold
+        fields = (
+            "id", "reference", "status", "is_live",
+            "club", "club_name", "facility_type", "facility_type_name",
+            "customer", "customer_name", "source",
+            "created_by", "created_by_name",
+            "booking", "booking_reference", "order", "order_reference",
+            "slots",
+            "expires_at", "max_expires_at", "extended_at", "seconds_remaining",
+            "created_at", "ended_at",
+        )
+        read_only_fields = fields

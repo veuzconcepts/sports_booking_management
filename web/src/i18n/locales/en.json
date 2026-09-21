@@ -341,7 +341,7 @@
     "heading": "Your courts are held",
     "remaining": "{{time}} left to complete your booking",
     "soon": "Only {{time}} left",
-    "expired": "Your reservation has ended. Pick your times again to continue.",
+    "expired": "This time is no longer held for you, so somebody else could take it. Pay now to secure it, or pick another time.",
     "holding": "Holding your courts...",
     "pickAgain": "Pick times again"
   },

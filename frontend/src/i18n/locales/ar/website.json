@@ -212,6 +212,7 @@
   "packages": "الباقات",
   "pagePath": "مسار الصفحة",
   "path": "المسار",
+  "setWebsiteUrl": "تعيين عنوان الموقع",
   "previewWebsite": "معاينة الموقع",
   "primaryButtonLabel": "نص الزر الرئيسي",
   "primaryButtonUrl": "رابط الزر الرئيسي",

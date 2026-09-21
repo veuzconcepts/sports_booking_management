@@ -4,6 +4,7 @@ from decimal import Decimal
 
 from django.utils import timezone
 from rest_framework import serializers
+from apps.settings_app.media import public_file_url
 
 from rest_framework.validators import UniqueValidator
 
@@ -259,11 +260,7 @@ class MembershipSerializer(serializers.ModelSerializer):
 
 
 def _abs_pdf_url(obj, context) -> str | None:
-    if not obj.pdf:
-        return None
-    request = context.get("request")
-    url = obj.pdf.url
-    return request.build_absolute_uri(url) if request else url
+    return public_file_url(obj.pdf, context.get("request"))
 
 
 class ReceiptSerializer(serializers.ModelSerializer):

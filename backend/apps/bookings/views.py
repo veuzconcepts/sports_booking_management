@@ -6,7 +6,8 @@ from decimal import Decimal
 from django.contrib.auth import get_user_model
 from django.db import transaction
 from django.db.models import ProtectedError, Q
-from rest_framework import permissions, status, viewsets
+from django.utils import timezone
+from rest_framework import mixins, permissions, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.exceptions import APIException, PermissionDenied, ValidationError
 from rest_framework.response import Response
@@ -23,11 +24,12 @@ from . import services as booking_services
 from .filters import BookingFilter
 from .models import (
     ACTIVE_STATUSES, BOOKING_DELETION_REASONS, COMPLETED_STATUSES, PAID_PAYMENT_STATUSES,
-    Booking, BookingPolicy, BookingStatus,
+    Booking, BookingHold, BookingPolicy, BookingStatus, HoldStatus,
 )
-from .permissions import BookingObjectPermission
+from .permissions import BookingHoldPermission, BookingObjectPermission
 from .serializers import (
     AssignSerializer,
+    BookingHoldSerializer,
     BookingCreateSerializer,
     BookingPolicySerializer,
     BookingSerializer,
@@ -1342,3 +1344,71 @@ class BookingPolicyViewSet(viewsets.ModelViewSet):
                  "cleared": cleared, "affected": affected},
             )
         return Response({"cleared": cleared, "affected": affected})
+
+
+class BookingHoldViewSet(mixins.ListModelMixin, mixins.RetrieveModelMixin,
+                         viewsets.GenericViewSet):
+    """Reservations, for the people who have to explain them.
+
+    A reservation leaves no booking row, so until now a held court was visible
+    to staff only as a slot they could not book. When a customer rings to say
+    their checkout is stuck, or a court looks unavailable for no apparent
+    reason, this is the screen that answers it, and the one place a stuck
+    reservation can be let go without waiting out its clock.
+
+    Read-only apart from `release`. Nothing here creates or extends a
+    reservation: those belong to the checkout that owns the deadline.
+    """
+
+    serializer_class = BookingHoldSerializer
+    queryset = (
+        BookingHold.objects
+        .select_related("club", "facility_type", "customer", "created_by",
+                        "booking", "order")
+        .prefetch_related("slots__facility")
+        .all()
+    )
+    filterset_fields = ["status", "club", "facility_type", "source"]
+    search_fields = ["reference", "customer__full_name", "club__name"]
+    ordering_fields = ["created_at", "expires_at", "status"]
+    ordering = ["-created_at"]
+
+    def get_permissions(self):
+        return [permissions.IsAuthenticated(), BookingHoldPermission()]
+
+    def get_queryset(self):
+        qs = super().get_queryset()
+        # `?live=true` asks the CLOCK, not the status: between sweeps the table
+        # holds rows still marked active that have already run out, and a
+        # listing that showed those would have staff chasing courts that are
+        # back on sale.
+        live = str(self.request.query_params.get("live") or "").lower()
+        if live in ("1", "true", "yes"):
+            qs = qs.filter(status=HoldStatus.ACTIVE,
+                           expires_at__gt=timezone.now())
+        elif live in ("0", "false", "no"):
+            qs = qs.exclude(status=HoldStatus.ACTIVE,
+                            expires_at__gt=timezone.now())
+        return qs
+
+    @action(detail=True, methods=["post"])
+    def release(self, request, pk=None):
+        """Give the courts back now instead of at the deadline.
+
+        The reason this screen exists. Idempotent, because a reservation that
+        has already ended is already released and saying so twice is not an
+        error.
+        """
+        from apps.bookings import reservations
+
+        hold = self.get_object()
+        if not request.user.has_perm_code("bookings.edit"):
+            return Response({"detail": access.denial_message("bookings", "edit")},
+                            status=status.HTTP_403_FORBIDDEN)
+        if hold.status != HoldStatus.ACTIVE:
+            return Response(self.get_serializer(hold).data)
+
+        reservations.release(hold)
+        hold.refresh_from_db()
+        log_event(request, "reservation_released", {"reference": hold.reference})
+        return Response(self.get_serializer(hold).data)

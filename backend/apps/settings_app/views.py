@@ -4,6 +4,7 @@ from django.shortcuts import get_object_or_404
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import extend_schema
 from rest_framework import permissions, status, viewsets
+from apps.settings_app.media import public_file_url
 from rest_framework.decorators import action
 from rest_framework.exceptions import APIException, ValidationError
 from rest_framework.permissions import AllowAny
@@ -592,7 +593,7 @@ class PublicThemeView(APIView):
         def url(image):
             if not image:
                 return None
-            return request.build_absolute_uri(image.url) if request else image.url
+            return public_file_url(image, request)
 
         return Response({
             "name": org.name or "",

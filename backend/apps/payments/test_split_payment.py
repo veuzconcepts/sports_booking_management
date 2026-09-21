@@ -399,8 +399,13 @@ class TestPayShare:
 @pytest.mark.usefixtures("demo_mode")
 class TestExpiry:
     def test_expiry_collects_nothing_and_refunds_nothing(self, booking):
-        """The financial policy for a part-paid expired split is undefined in
-        this project, so expiry must be inert: links die, money does not move."""
+        """Expiry is inert, and that is a decision rather than a gap.
+
+        Money already collected stays collected and is refunded by a person
+        using the existing cancellation and credit note tools, honouring
+        `Organization.require_refund_approval`. Nothing here moves money,
+        cancels a booking or releases a slot: the links simply stop working.
+        """
         from django.utils import timezone
         from datetime import timedelta
 

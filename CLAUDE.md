@@ -319,6 +319,11 @@ refund is issued, no booking is cancelled, no slot is released, no status
 changes. A human resolves a part-paid booking using the existing cancellation
 and credit note tools.
 
+Money already collected is refunded MANUALLY by an administrator through the
+credit note flow, honouring `Organization.require_refund_approval`. Never
+automatically, and never as a side effect of the deadline passing. This was
+asked and answered explicitly; it is not an unfinished corner.
+
 **Refunds follow the payer.** A booking settled by several people is refunded
 per participant, each against their own payment, through the normal credit note
 flow and honouring `Organization.require_refund_approval`. Cancelling such a
@@ -806,6 +811,19 @@ An expired reservation is sticky per selection. A refresh must not silently
 start a new window, or the deadline means nothing to anybody willing to press
 F5. The mark clears when the customer leaves the checkout, which is the
 explicit act the "Pick times again" message asks for.
+
+**A lapsed reservation does not block the payment.** If the slot is still
+free, the customer finishes and gets the booking. A reservation protects the
+court while they pay; once it has lapsed that protection is gone, and it was
+never a punishment. Refusing somebody standing there with their card out, for
+a court nobody else wants, loses the club a booking for no reason. This was
+asked and answered explicitly.
+
+What the checkout must NOT do is spend the dead token: it drops it and books
+normally. Converting a lapsed reservation would claim a court on the strength
+of a claim that has expired, so the endpoint still refuses an expired token
+with `hold_expired`. Losing the race is a real outcome of this policy and is
+reported plainly when somebody else took the slot meanwhile.
 
 ## The countdown is presentation, the hold is not
 

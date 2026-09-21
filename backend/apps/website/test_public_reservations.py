@@ -12,14 +12,15 @@ enforced when read, because a countdown that trusted the device clock would
 let a phone twenty minutes fast declare a perfectly good reservation dead.
 """
 
-from datetime import timedelta
+from datetime import time, timedelta
 from decimal import Decimal
 
 import pytest
 from django.utils import timezone
 
 from apps.bookings.models import (
-    Booking, BookingHold, BookingOrder, HoldStatus,
+    SLOT_BLOCKING_STATUSES, Booking, BookingHold, BookingOrder,
+    BookingStatus, HoldStatus,
 )
 
 pytestmark = pytest.mark.django_db
@@ -501,3 +502,231 @@ class TestTheWireCarriesTheHeldCount:
         slot = self.slot(self.ask(api, venue))
         assert slot["available"] >= 1
         assert slot["held"] == 0
+
+
+class TestPayingAfterTheReservationRanOut:
+    """Confirmed policy: if the slot is still free, let them finish.
+
+    A reservation is protection against somebody else taking the court while
+    the customer pays. Once it has lapsed that protection is simply gone; it
+    is not a punishment. Refusing a customer who is standing there with their
+    card out, for a court nobody else wants, would lose the club a booking for
+    no reason.
+
+    So the checkout drops the dead token and books normally. What it must NOT
+    do is spend the dead token, because converting an expired reservation
+    would claim a court on the strength of a claim that has lapsed.
+    """
+
+    def test_the_slot_can_still_be_booked_once_the_reservation_lapses(
+            self, api, venue):
+        token = reserve(api, venue, ["19:00"]).data["token"]
+        hold = BookingHold.objects.get()
+        hold.expires_at = timezone.now() - timedelta(minutes=1)
+        hold.save(update_fields=["expires_at"])
+
+        # No reservation field: exactly what the browser sends once the
+        # countdown has run out and the stored token has been dropped.
+        response = api.post(BOOKINGS, booking_body(venue), format="json")
+        assert response.status_code == 201, response.data
+        assert token                                    # it existed, and is now moot
+
+    def test_the_court_is_properly_taken_by_that_booking(self, api, venue):
+        reserve(api, venue, ["19:00"])
+        hold = BookingHold.objects.get()
+        hold.expires_at = timezone.now() - timedelta(minutes=1)
+        hold.save(update_fields=["expires_at"])
+        api.post(BOOKINGS, booking_body(venue), format="json")
+
+        # A second customer is refused, so this is a real booking rather than
+        # one that slipped through an expired gap.
+        assert reserve(api, venue, ["19:00"]).status_code == 409
+
+    def test_somebody_else_may_have_taken_it_first(self, api, venue):
+        """The other half of letting a lapsed reservation go: it is a race
+        the customer can lose, and losing it has to be said plainly."""
+        reserve(api, venue, ["19:00"])
+        hold = BookingHold.objects.get()
+        hold.expires_at = timezone.now() - timedelta(minutes=1)
+        hold.save(update_fields=["expires_at"])
+
+        rival = reserve(api, venue, ["19:00"])          # claims the freed court
+        assert rival.status_code == 201
+
+        response = api.post(BOOKINGS, booking_body(venue), format="json")
+        assert response.status_code == 409, response.data
+
+    def test_the_dead_token_itself_is_still_refused(self, api, venue):
+        """Dropping the token is the checkout's job. Spending it is not
+        allowed, because converting a lapsed reservation would claim a court
+        on a claim that has expired."""
+        token = reserve(api, venue, ["19:00"]).data["token"]
+        hold = BookingHold.objects.get()
+        hold.expires_at = timezone.now() - timedelta(minutes=1)
+        hold.save(update_fields=["expires_at"])
+
+        response = api.post(BOOKINGS, booking_body(venue, reservation=token),
+                            format="json")
+        assert response.status_code == 409
+        assert response.data["code"] == "hold_expired"
+
+
+class TestOneCustomerCannotTakeAnothersHeldCourt:
+    """The hard boundary on letting a lapsed reservation still pay.
+
+    "If the slot is free, let them finish" must never become "let them finish
+    regardless". The moment somebody ELSE is holding that court, inside their
+    own window, the first customer is refused. Two people paying for one court
+    is the failure this whole feature exists to prevent, and a lapsed
+    reservation must not become a back door into it.
+
+    Every entry point is checked, because one that forgot would be a real
+    double booking rather than a cosmetic bug.
+    """
+
+    def steal(self, api, venue, times=("19:00",)):
+        """Let a first reservation lapse, then have a second customer take it."""
+        reserve(api, venue, list(times))
+        for hold in BookingHold.objects.all():
+            hold.expires_at = timezone.now() - timedelta(minutes=1)
+            hold.save(update_fields=["expires_at"])
+        rival = reserve(api, venue, list(times))
+        assert rival.status_code == 201, rival.data
+        return rival.data["token"]
+
+    def test_the_single_booking_endpoint_refuses(self, api, venue):
+        self.steal(api, venue)
+        response = api.post(BOOKINGS, booking_body(venue), format="json")
+        assert response.status_code == 409, response.data
+        assert not Booking.objects.exists()
+
+    def test_the_order_endpoint_refuses(self, api, venue, multi):
+        """The multi-slot path allocates through the same engine, and has to
+        be held to the same rule."""
+        self.steal(api, venue, ("19:00", "20:00"))
+        day = a_date().isoformat()
+        response = api.post(ORDERS, {
+            "club": venue["club"].id,
+            "facility_type": venue["activity"].id,
+            "slots": [{"date": day, "time": "19:00"}, {"date": day, "time": "20:00"}],
+            "name": "Second Player", "email": "second@nadena.sa",
+            "phone": "+966500000055",
+        }, format="json")
+        assert response.status_code == 409, response.data
+        assert not BookingOrder.objects.exists()
+        assert not Booking.objects.exists()
+
+    def test_an_order_is_refused_whole_when_one_slot_is_held(self, api, venue, multi):
+        """All or nothing: the free slot must not be booked on its own,
+        leaving the customer half a purchase they did not ask for."""
+        reserve(api, venue, ["20:00"])                  # somebody holds 20:00 only
+        day = a_date().isoformat()
+        response = api.post(ORDERS, {
+            "club": venue["club"].id,
+            "facility_type": venue["activity"].id,
+            "slots": [{"date": day, "time": "19:00"}, {"date": day, "time": "20:00"}],
+            "name": "Second Player", "email": "second@nadena.sa",
+            "phone": "+966500000055",
+        }, format="json")
+        assert response.status_code == 409, response.data
+        assert not Booking.objects.exists()
+
+    def test_the_admin_is_refused_too(self, api, venue, auth_api):
+        """Staff go through `allocate_facility`, which reads the same holds."""
+        self.steal(api, venue)
+        response = auth_api.post("/api/v1/bookings/", {
+            "club": venue["club"].id,
+            "facility_type": venue["activity"].id,
+            "scheduled_date": a_date().isoformat(),
+            "scheduled_time": "19:00",
+            "booking_type": "walk_in",
+            "walk_in_name": "Desk Customer",
+        }, format="json")
+        assert response.status_code == 400, response.data
+        assert not Booking.objects.exists()
+
+    def test_the_holder_can_still_complete_their_own_booking(self, api, venue):
+        """The other side of the boundary: refusing everyone would be just as
+        wrong. The customer who actually holds the court finishes normally."""
+        token = self.steal(api, venue)
+        response = api.post(BOOKINGS, booking_body(venue, reservation=token),
+                            format="json")
+        assert response.status_code == 201, response.data
+
+
+class TestABookedCourtCannotBeBookedAgain:
+    """No bypass. A booked court is gone, by every route in.
+
+    The reservation work added a deliberate hole in availability: a checkout
+    passes its own token so its own hold stops reporting its own slot as
+    taken. That exclusion must reach holds and NOTHING else. If it ever
+    widened to bookings, a customer holding a court could be handed one that
+    was already sold, and two people would turn up for it.
+    """
+
+    def already_booked(self, venue, at=time(19, 0)):
+        return Booking.objects.create(
+            customer=None, club=venue["club"], facility=venue["court"],
+            facility_type=venue["activity"], scheduled_date=a_date(),
+            scheduled_time=at, end_time=time(at.hour + 1, 0),
+            duration_minutes=60, status=BookingStatus.CONFIRMED,
+            booking_type="walk_in", walk_in_name="First Customer",
+            currency="SAR", total_amount=Decimal("100.000"))
+
+    def test_the_website_refuses(self, api, venue):
+        self.already_booked(venue)
+        response = api.post(BOOKINGS, booking_body(venue), format="json")
+        assert response.status_code == 409, response.data
+
+    def test_a_live_reservation_does_not_override_a_booking(self, api, venue):
+        """The one that matters. Holding a court is not a claim on a court
+        somebody has already bought, and the token that hides your own hold
+        must not hide anybody's booking."""
+        token = reserve(api, venue, ["19:00"]).data["token"]
+        self.already_booked(venue)              # sold from another channel
+
+        response = api.post(BOOKINGS, booking_body(venue, reservation=token),
+                            format="json")
+        assert response.status_code == 409, response.data
+        assert Booking.objects.filter(
+            scheduled_time=time(19, 0),
+            status__in=SLOT_BLOCKING_STATUSES).count() == 1
+
+    def test_an_order_cannot_override_a_booking_either(self, api, venue, multi):
+        token = reserve(api, venue, ["19:00", "20:00"]).data["token"]
+        self.already_booked(venue, at=time(20, 0))
+        day = a_date().isoformat()
+
+        response = api.post(ORDERS, {
+            "club": venue["club"].id,
+            "facility_type": venue["activity"].id,
+            "slots": [{"date": day, "time": "19:00"}, {"date": day, "time": "20:00"}],
+            "name": "Second Player", "email": "second@nadena.sa",
+            "phone": "+966500000066", "reservation": token,
+        }, format="json")
+        assert response.status_code == 409, response.data
+        assert not BookingOrder.objects.exists()
+
+    def test_the_admin_refuses_too(self, auth_api, venue):
+        self.already_booked(venue)
+        response = auth_api.post("/api/v1/bookings/", {
+            "club": venue["club"].id,
+            "facility_type": venue["activity"].id,
+            "scheduled_date": a_date().isoformat(),
+            "scheduled_time": "19:00",
+            "booking_type": "walk_in", "walk_in_name": "Desk Customer",
+        }, format="json")
+        assert response.status_code == 400, response.data
+        assert Booking.objects.count() == 1
+
+    def test_the_slot_never_reports_itself_as_free(self, api, venue):
+        """Availability and the checkout must agree; a slot that reads free
+        and then refuses is how a customer ends up blaming the club."""
+        self.already_booked(venue)
+        slot = next(s for s in api.get(AVAILABILITY, {
+            "club": venue["club"].id,
+            "facility_type": venue["activity"].id,
+            "date": a_date().isoformat(),
+        }).data["slots"] if s["time"] == "19:00")
+        assert slot["available"] == 0
+        assert slot["held"] == 0                # booked, not merely held

@@ -212,6 +212,7 @@
   "packages": "Packages",
   "pagePath": "Page path",
   "path": "Path",
+  "setWebsiteUrl": "Set website address",
   "previewWebsite": "Preview Website",
   "primaryButtonLabel": "Primary button label",
   "primaryButtonUrl": "Primary button URL",

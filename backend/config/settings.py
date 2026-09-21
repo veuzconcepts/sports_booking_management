@@ -430,6 +430,16 @@ SPLIT_PAYMENT_MAX_SHARES = config("SPLIT_PAYMENT_MAX_SHARES", default=20, cast=i
 # Public base URL used to build shareable payment links (the customer website).
 PUBLIC_WEBSITE_URL = config("PUBLIC_WEBSITE_URL", default="http://localhost:4321")
 
+# Where a BROWSER can reach this backend, used to build URLs for stored files.
+#
+# Not the same question as "where did this request come from". The customer
+# site renders on the server, so Astro calls Django over the loopback address
+# and every image URL built from that request pointed at 127.0.0.1, which no
+# visitor can load. Set this to the public origin, e.g. https://api.example.com
+# Leave it empty and file URLs fall back to the incoming request, which is
+# right for a developer running everything on one machine.
+PUBLIC_BACKEND_URL = config("PUBLIC_BACKEND_URL", default="")
+
 # Google Maps / Places / Geocoding — environment-driven, never hardcoded. The
 # frontend uses VITE_GOOGLE_MAPS_API_KEY (Maps JS + Places) to place clubs on a
 # map. These server-side keys are placeholders for future server-side geocoding.

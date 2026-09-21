@@ -16,9 +16,20 @@ from apps.facilities.models import Facility
 from apps.settings_app import schedule as sched
 from apps.settings_app.models import Organization, ScheduleException
 
-# A fixed Monday and the rest of that week, so weekday-specific rules are not
-# at the mercy of the day the suite happens to run.
-MONDAY = date(2026, 9, 21)
+# A Monday and the rest of that week, so weekday-specific rules are not at the
+# mercy of the day the suite happens to run.
+#
+# Computed rather than written down. It used to be `date(2026, 9, 21)`, which
+# held that guarantee right up until the suite was run ON 21 September 2026: a
+# slot list drops times that have already passed, so every morning assertion
+# in this file failed for one day and no other. A date that is always the NEXT
+# Monday is still a Monday, and is never today.
+def _next_monday(today=None):
+    day = today or date.today()
+    return day + timedelta(days=(7 - day.weekday()) or 7)
+
+
+MONDAY = _next_monday()
 TUESDAY = MONDAY + timedelta(days=1)
 FRIDAY = MONDAY + timedelta(days=4)
 SATURDAY = MONDAY + timedelta(days=5)
