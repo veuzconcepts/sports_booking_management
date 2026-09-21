@@ -11,6 +11,7 @@ from apps.payments.models import PaymentMethod as PaymentMethodChoices
 
 from .models import (
     Booking,
+    BookingOrder,
     BookingPolicy,
     BookingSource,
     BookingStatus,
@@ -823,3 +824,89 @@ class BookingHoldSerializer(serializers.ModelSerializer):
             "created_at", "ended_at",
         )
         read_only_fields = fields
+
+
+class BookingOrderSerializer(serializers.ModelSerializer):
+    """One checkout, in full, for the screen that explains it.
+
+    A multi-slot order is N ordinary bookings, which is what keeps the
+    calendar, capacity, refunds and the double-booking index working. The cost
+    of that choice is that no single screen showed the checkout as one thing:
+    staff saw three near-identical rows sharing a reference and had to open
+    each in turn to find out what had been paid.
+
+    Money is summed from the bookings here exactly as it is on the model. The
+    order stores no total of its own, so there is nothing that can drift.
+    """
+
+    customer_name = serializers.CharField(
+        source="customer.full_name", read_only=True, default=None)
+    customer_email = serializers.CharField(
+        source="customer.email", read_only=True, default=None)
+    customer_mobile = serializers.CharField(
+        source="customer.mobile_number", read_only=True, default=None)
+    club_name = serializers.CharField(source="club.name", read_only=True, default=None)
+    facility_type_name = serializers.CharField(
+        source="facility_type.name", read_only=True, default=None)
+    created_by_name = serializers.CharField(
+        source="created_by.full_name", read_only=True, default=None)
+    source_display = serializers.CharField(
+        source="get_source_display", read_only=True)
+
+    slot_count = serializers.IntegerField(read_only=True)
+    total_amount = serializers.DecimalField(
+        max_digits=13, decimal_places=3, read_only=True)
+    total_duration_minutes = serializers.IntegerField(read_only=True)
+    amount_paid = serializers.SerializerMethodField()
+    outstanding = serializers.SerializerMethodField()
+    slots = serializers.SerializerMethodField()
+
+    class Meta:
+        model = BookingOrder
+        fields = (
+            "id", "reference", "currency", "source", "source_display",
+            "customer", "customer_name", "customer_email", "customer_mobile",
+            "club", "club_name", "facility_type", "facility_type_name",
+            "created_by", "created_by_name", "created_at",
+            "slot_count", "total_amount", "total_duration_minutes",
+            "amount_paid", "outstanding", "slots",
+        )
+        read_only_fields = fields
+
+    def get_amount_paid(self, obj) -> str:
+        from apps.bookings.services import booking_amount_paid
+        return str(sum((booking_amount_paid(b) for b in obj.live_bookings),
+                       Decimal("0")))
+
+    def get_outstanding(self, obj) -> str:
+        from apps.bookings.services import booking_outstanding
+        return str(sum((booking_outstanding(b) for b in obj.live_bookings),
+                       Decimal("0")))
+
+    def get_slots(self, obj) -> list:
+        """Every slot, cancelled ones included.
+
+        `live_bookings` drives the MONEY, because a cancelled slot is not owed
+        for. It must not drive the LIST: a slot that was cancelled is the
+        thing somebody has opened this screen to ask about.
+        """
+        from apps.bookings.services import booking_amount_paid, booking_outstanding
+
+        rows = obj.bookings.select_related("facility", "assigned_to").order_by(
+            "scheduled_date", "scheduled_time")
+        return [{
+            "id": row.id,
+            "reference": row.reference,
+            "scheduled_date": row.scheduled_date.isoformat() if row.scheduled_date else "",
+            "scheduled_time": row.scheduled_time.strftime("%H:%M") if row.scheduled_time else "",
+            "end_time": row.end_time.strftime("%H:%M") if row.end_time else "",
+            "duration_minutes": row.duration_minutes,
+            "facility_name": row.facility.name if row.facility_id else None,
+            "assigned_to_name": (row.assigned_to.full_name
+                                 if row.assigned_to_id else None),
+            "status": row.status,
+            "payment_status": row.payment_status,
+            "total_amount": str(row.total_amount),
+            "amount_paid": str(booking_amount_paid(row)),
+            "outstanding": str(booking_outstanding(row)),
+        } for row in rows]

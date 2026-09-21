@@ -35,6 +35,13 @@ export const bookingsApi = {
   // Consolidated financial history: { invoices[], payments[] (with nested refunds[]) }.
   finance: (id) => api.get(`/bookings/${id}/finance/`).then((r) => r.data),
 
+  // ISSUES a fresh split-payment link for one unpaid share. It does not reveal
+  // the existing one: raw tokens are never stored, only their digests, so the
+  // link the customer was given cannot be looked up by anybody. Minting a new
+  // one invalidates the previous link, which the caller must make plain.
+  splitShareLink: (id, share) =>
+    api.post(`/bookings/${id}/split-share-link/`, { share }).then((r) => r.data),
+
   transition: (id, status, note) =>
     api.post(`/bookings/${id}/transition/`, { status, note }).then((r) => r.data),
   cancel: (id, note) =>
@@ -205,3 +212,36 @@ export const NEXT_STATUSES = {
   cancelled:   [],
   no_show:     [],
 };
+
+// --------------------------------------------------------------------------
+// Reservations (BookingHold)
+// --------------------------------------------------------------------------
+// A reservation is the claim a checkout puts on a court while the customer
+// pays. It lives under /bookings/ because it is the same domain, and it is
+// READ-ONLY apart from `release`: nothing here may create or extend a
+// reservation, because the checkout owns the deadline.
+export const reservationsApi = {
+  list:    (params) => api.get('/bookings/reservations/', { params }).then((r) => r.data),
+  get:     (id)     => api.get(`/bookings/reservations/${id}/`).then((r) => r.data),
+  // Gives the courts back now instead of at the deadline. Idempotent server
+  // side, so a double click is not an error.
+  release: (id)     => api.post(`/bookings/reservations/${id}/release/`).then((r) => r.data),
+};
+
+// --------------------------------------------------------------------------
+// Multi-slot orders
+// --------------------------------------------------------------------------
+// Retrieve-only. An order owns no money and no status of its own: everything
+// about it is summed from its bookings, and the way to change any of it is to
+// act on the slot it belongs to.
+export const ordersApi = {
+  get: (id) => api.get(`/bookings/orders/${id}/`).then((r) => r.data),
+};
+
+export const HOLD_STATUS_VALUES = [
+  'active', 'converted', 'released', 'expired', 'cancelled',
+];
+
+export const holdStatuses = (t) => HOLD_STATUS_VALUES.map((value) => ({
+  value, label: t(`bookings:reservations.status.${value}`),
+}));

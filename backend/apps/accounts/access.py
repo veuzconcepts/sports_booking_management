@@ -28,6 +28,7 @@ ACTION_LABELS = {
     "credit": "Request Refund",
     "credit_approve": "Approve Refund",
     "cancel_invoice": "Cancel invoice",
+    "view_payer_contacts": "View Payer Contacts",
     "export": "Export",
     "manage": "Manage",
     "activity": "Activity Log",
@@ -62,7 +63,11 @@ MODULES = [
                                   "transfer", "transfer_approve", "transfer_cancel",
                                   "club_history", "reassign"]),
     ("invoicing", "Invoices", ["view", "add", "credit", "credit_approve", "cancel_invoice"]),
-    ("payments", "Payments", ["view", "add", "delete"]),
+    # `view_payer_contacts` reveals the email and phone of the OTHER people who
+    # settled a split booking. They are a third party's contact details sitting
+    # on somebody else's booking, so seeing who paid what (`view`) is separated
+    # from being able to contact them.
+    ("payments", "Payments", ["view", "add", "delete", "view_payer_contacts"]),
     # Subscriptions (membership plans + customer memberships) — a first-class
     # module with its own capabilities, no longer folded under Payments.
     ("subscriptions", "Subscriptions", ["view", "add", "edit", "delete", "assign",
@@ -129,6 +134,7 @@ _DENIAL_VERBS = {
     "credit": "request refunds for",
     "credit_approve": "approve refunds for",
     "cancel_invoice": "cancel",
+    "view_payer_contacts": "view the contact details of the people who paid for",
     "export": "export",
     "manage": "manage",
     "activity": "view the activity log for",
@@ -175,7 +181,8 @@ ALL_PERMISSIONS = frozenset(PERMISSIONS)
 # (excluded even from Admin's "all"). They must be granted explicitly per role.
 # super_admin is the system owner and always holds every permission.
 OPT_IN_PERMISSIONS = frozenset({"invoicing.cancel_invoice", "payments.delete",
-                                "bookings.skip_assignment"})
+                                "bookings.skip_assignment",
+                                "payments.view_payer_contacts"})
 
 
 def module_structure() -> list[dict]:

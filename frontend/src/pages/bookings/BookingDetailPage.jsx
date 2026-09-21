@@ -83,6 +83,10 @@ export default function BookingDetailPage() {
   const [completeOpen, setCompleteOpen] = useState(false);
   const [billOpen, setBillOpen] = useState(false);          // Invoice & Receipt wizard
   const [confirmGenerate, setConfirmGenerate] = useState(false);
+  // { split, share } awaiting confirmation, then the id being issued.
+  const [linkFor, setLinkFor] = useState(null);
+  const [issuingShare, setIssuingShare] = useState(null);
+  const [issuedLink, setIssuedLink] = useState(null);
   const seenPaidRef = useRef(new Set());
   const financeInitedRef = useRef(false);
 
@@ -116,6 +120,37 @@ export default function BookingDetailPage() {
 
   useEffect(load, [load]);
   useEffect(() => { loadFinance(); }, [loadFinance]);
+
+  /**
+   * Issue a fresh payment link for one unpaid share and put it on the clipboard.
+   *
+   * The clipboard write can fail (an insecure origin, a browser that refuses
+   * without a user gesture it recognises), and a link that exists but was not
+   * copied must not be reported as copied: the old link has already stopped
+   * working by then, so a silent failure would leave the share unreachable.
+   * The URL is shown either way.
+   */
+  async function issueShareLink(target) {
+    if (!target) return;
+    setIssuingShare(target.share.id);
+    try {
+      const issued = await bookingsApi.splitShareLink(id, target.share.id);
+      let copied = false;
+      try {
+        await navigator.clipboard.writeText(issued.url);
+        copied = true;
+      } catch {
+        copied = false;
+      }
+      setLinkFor(null);
+      setIssuedLink({ ...issued, copied });
+      loadFinance();
+    } catch (e) {
+      toast.error(apiErrorMessage(e, t('split.issueLinkFailed')));
+    } finally {
+      setIssuingShare(null);
+    }
+  }
 
   async function doTransition(status) {
     setBusy(true);
@@ -458,7 +493,7 @@ export default function BookingDetailPage() {
           {booking.order_summary?.slot_count > 1 && (
             <>
               <div style={{ height: 16 }} />
-              <OrderPanel order={booking.order_summary} />
+              <OrderPanel order={booking.order_summary} orderId={booking.order} />
             </>
           )}
 
@@ -632,7 +667,14 @@ export default function BookingDetailPage() {
                   />
                   {/* Who actually paid. Only rendered when the customer split
                       the booking, so an ordinary booking reads exactly as before. */}
-                  <SplitPaymentPanel splits={finance.splits} currency={booking.currency} />
+                  <SplitPaymentPanel
+                    splits={finance.splits}
+                    currency={booking.currency}
+                    issuingShare={issuingShare}
+                    onIssueLink={hasPerm('payments.add')
+                      ? (split, share) => setLinkFor({ split, share })
+                      : undefined}
+                  />
                 </div>
               )}
 
@@ -848,6 +890,48 @@ export default function BookingDetailPage() {
 
       {/* Manual "Generate Invoice" - confirm first (booking not yet completed),
           then the same Invoice & Receipt wizard captures payment up front. */}
+      {/* Shown once. The raw token is never stored, so this is the only moment
+          anybody can read it; closing without copying means issuing another. */}
+      <Modal
+        open={Boolean(issuedLink)}
+        onClose={() => setIssuedLink(null)}
+        title={t('split.issuedLinkTitle')}
+        size="sm"
+        footer={
+          <button className="btn btn-primary" type="button"
+            onClick={() => setIssuedLink(null)}>{t('common:actions.close')}</button>
+        }
+      >
+        <p style={{ marginTop: 0, fontSize: 13.5 }}>
+          {issuedLink?.copied
+            ? t('split.issuedLinkCopied', { name: issuedLink?.name })
+            : t('split.issuedLinkNotCopied', { name: issuedLink?.name })}
+        </p>
+        <p style={{
+          fontSize: 12.5, wordBreak: 'break-all', margin: 0, padding: '10px 12px',
+          borderRadius: 8, background: 'var(--color-surface-2)',
+          fontFamily: 'var(--font-mono, monospace)',
+        }}>
+          {issuedLink?.url}
+        </p>
+      </Modal>
+
+      {/* Issuing a link invalidates the one the customer already has, which is
+          the point when a link has leaked and a trap when reception is only
+          being helpful. So it is said out loud before it happens. */}
+      <ConfirmDialog
+        open={Boolean(linkFor)}
+        title={t('split.issueLinkTitle')}
+        message={t('split.issueLinkWarning', {
+          name: linkFor?.share?.is_organizer
+            ? t('split.organizer')
+            : (linkFor?.share?.name || t('split.guest')),
+        })}
+        confirmLabel={t('split.issueLink')}
+        busy={Boolean(issuingShare)}
+        onConfirm={() => issueShareLink(linkFor)}
+        onClose={() => { if (!issuingShare) setLinkFor(null); }}
+      />
       <ConfirmDialog
         open={confirmGenerate}
         title={t('generateInvoiceNow')}

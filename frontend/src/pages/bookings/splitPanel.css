@@ -109,3 +109,12 @@
     grid-column: 1 / -1;
   }
 }
+
+/* A payer's own contact, under their name. Only rendered for a reader with
+   `payments.view_payer_contacts`; see SplitPaymentPanel. */
+.split-panel__contact {
+  margin-top: 2px;
+  font-size: 12px;
+  color: var(--color-text-muted);
+  word-break: break-word;
+}

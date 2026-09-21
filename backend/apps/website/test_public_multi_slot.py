@@ -374,12 +374,14 @@ class TestSplittingAnOrder:
         assert summary["slot_count"] == 2
         assert len(summary["slots"]) == 2
 
-    def test_one_share_spreads_across_the_slots(self, api, venue):
-        """Confirmed policy: a share is an amount of the order.
+    def test_one_share_settles_one_whole_slot(self, api, venue):
+        """Confirmed policy: a share is an amount of the order, and it settles
+        WHOLE SLOTS, earliest first.
 
-        Paying half of a two-slot order therefore pays half of each slot, and
-        each part raises its own invoice, so a later per-slot refund returns
-        what that slot's payers actually put in.
+        Paying half of a two-slot order therefore clears the first slot
+        outright rather than paying half of each. One payment, one invoice, one
+        payer on that slot, and the slot confirms itself; the second slot is
+        untouched and still owes its full price.
         """
         allow_org()
         body = api.post(ORDERS, self._split_payload(venue), format="json").json()
@@ -392,15 +394,20 @@ class TestSplittingAnOrder:
             format="json")
         assert resp.status_code == 200, resp.content
 
+        from apps.bookings.services import booking_amount_paid, booking_outstanding
+
         order = BookingOrder.objects.get()
-        # Both slots received part of the one share.
-        assert Payment.objects.count() == 2
-        assert Invoice.objects.count() == 2
+        # One share, one payment, one invoice - not one of each per slot.
+        assert Payment.objects.count() == 1
+        assert Invoice.objects.count() == 1
         paid = sum((p.amount for p in Payment.objects.all()), Decimal("0"))
         assert paid == order.total_amount / 2
+
+        slots = list(order.bookings.order_by("scheduled_date", "scheduled_time"))
+        assert booking_outstanding(slots[0]) == 0
+        assert booking_outstanding(slots[1]) == slots[1].total_amount
         # And no slot was overpaid.
-        from apps.bookings.services import booking_amount_paid
-        for booking in order.bookings.all():
+        for booking in slots:
             assert booking_amount_paid(booking) <= booking.total_amount
 
     def test_the_split_closes_once_the_order_owes_nothing(self, api, venue):

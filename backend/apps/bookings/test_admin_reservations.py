@@ -216,3 +216,79 @@ class TestReleasingOne:
         hold = hold_for(venue)
         assert auth_api.patch(f"{RESERVATIONS}{hold.id}/",
                               {"status": "released"}, format="json").status_code == 405
+
+
+# --------------------------------------------------------------------------- #
+# Whose reservations they are
+# --------------------------------------------------------------------------- #
+class TestClubScoping:
+    """A reservation names a customer and the courts they are holding, so it
+    obeys the same club boundary every other booking record does.
+
+    This listing had none until it was given a screen. Nobody could reach it
+    without one, but "unreachable" is not a boundary: the moment the page went
+    into the sidebar, a manager at one club could read, and release, courts at
+    another.
+    """
+
+    @staticmethod
+    def _other_club_hold():
+        from apps.clubs.models import Club
+        from apps.facilities.models import Facility, FacilityType
+
+        other = Club.objects.create(name="Far Club", code="FAR", is_active=True)
+        activity = FacilityType.objects.create(
+            name="Squash Court", price=Decimal("80.000"), duration_minutes=60,
+            is_active=True)
+        court = Facility.objects.create(name="Squash 1", club=other, is_active=True)
+        court.facility_types.add(activity)
+        hold, _token = reservations.acquire(
+            club=other, facility_type=activity, slots=[(soon(), time(19, 0))])
+        return other, hold
+
+    @staticmethod
+    def _manager_for(api, make_user, club):
+        from apps.accounts.models import Role
+
+        manager = make_user("desk@example.com", role=Role.MANAGER)
+        manager.assigned_clubs.set([club])
+        api.force_authenticate(user=manager)
+        return manager
+
+    def test_a_manager_sees_only_their_own_club(self, api, venue, make_user):
+        mine = hold_for(venue)
+        _other_club, theirs = self._other_club_hold()
+        self._manager_for(api, make_user, venue["club"])
+
+        rows = api.get(RESERVATIONS).data["results"]
+        references = {row["reference"] for row in rows}
+        assert mine.reference in references
+        assert theirs.reference not in references
+
+    def test_another_club_reservation_is_not_readable_by_id(
+            self, api, venue, make_user):
+        """Out of the listing is not enough: the detail route must refuse it
+        too, or the reference from anywhere else is a key to the record."""
+        _other_club, theirs = self._other_club_hold()
+        self._manager_for(api, make_user, venue["club"])
+
+        assert api.get(f"{RESERVATIONS}{theirs.id}/").status_code == 404
+
+    def test_a_manager_cannot_release_another_club_court(
+            self, api, venue, make_user):
+        """The damaging half. Releasing puts a court back on sale and refuses
+        the customer who is paying for it, at a club this user does not run."""
+        _other_club, theirs = self._other_club_hold()
+        self._manager_for(api, make_user, venue["club"])
+
+        assert api.post(f"{RESERVATIONS}{theirs.id}/release/").status_code == 404
+        theirs.refresh_from_db()
+        assert theirs.status == HoldStatus.ACTIVE
+
+    def test_an_admin_still_sees_every_club(self, auth_api, venue):
+        """Scoping narrows the restricted, it does not blind the unrestricted."""
+        mine = hold_for(venue)
+        _other_club, theirs = self._other_club_hold()
+
+        references = {row["reference"] for row in auth_api.get(RESERVATIONS).data["results"]}
+        assert {mine.reference, theirs.reference} <= references

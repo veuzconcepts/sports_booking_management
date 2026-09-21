@@ -20,6 +20,8 @@ const FacilitiesPage = lazy(() => import('./pages/facilities/FacilitiesPage.jsx'
 const ClubsPage = lazy(() => import('./pages/settings/ClubsAndFacilities.jsx'));
 const BookingsListPage = lazy(() => import('./pages/bookings/BookingsListPage.jsx'));
 const BookingDetailPage = lazy(() => import('./pages/bookings/BookingDetailPage.jsx'));
+const ReservationsListPage = lazy(() => import('./pages/bookings/ReservationsListPage.jsx'));
+const OrderDetailPage = lazy(() => import('./pages/bookings/OrderDetailPage.jsx'));
 const StaffListPage = lazy(() => import('./pages/staff/StaffListPage.jsx'));
 const StaffDetailPage = lazy(() => import('./pages/staff/StaffDetailPage.jsx'));
 const PaymentsPage = lazy(() => import('./pages/payments/PaymentsPage.jsx'));
@@ -98,6 +100,8 @@ export default function App() {
         {/* Bookings */}
         <Route path="/bookings"      element={<BookingsListPage />} />
         <Route path="/bookings/:id"  element={<BookingDetailPage />} />
+        <Route path="/reservations"  element={<ProtectedRoute perm="bookings.view"><ReservationsListPage /></ProtectedRoute>} />
+        <Route path="/orders/:id"    element={<ProtectedRoute perm="bookings.view"><OrderDetailPage /></ProtectedRoute>} />
 
         {/* Staff & finance */}
         <Route path="/staff"      element={<StaffListPage />} />

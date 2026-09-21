@@ -9,15 +9,25 @@ import './splitPanel.css';
 /**
  * Who actually paid, when a booking was settled by several people.
  *
- * Read-only on purpose. A split is arranged and managed by the customer through
- * their own secure links; staff need to SEE the breakdown (for a refund, a
- * dispute, or a question at the counter) but there is no reason for an admin to
- * reach into somebody's arrangement, and every way of doing so would be another
- * path to money moving without the customer's knowledge.
+ * Read-only apart from issuing a payment link. A split is arranged and managed
+ * by the customer through their own secure links; staff need to SEE the
+ * breakdown (for a refund, a dispute, or a question at the counter), and there
+ * is no reason for an admin to reach into somebody's arrangement beyond that,
+ * because every other way of doing so would be another path to money moving
+ * without the customer's knowledge.
+ *
+ * Issuing a link is the exception because the customer can lose theirs and
+ * nobody, including us, can look it up: only digests are stored. Minting a
+ * fresh one is the honest recovery, and it invalidates the old link, which the
+ * caller has to say out loud before doing it.
  *
  * It also answers the question a refund raises: a booking paid by four people
  * may need four refunds, and this is where the operator sees which payment
  * belongs to whom before raising a credit note.
+ *
+ * On a multi-slot order the arrangement belongs to the ORDER, so every slot of
+ * that order shows the same breakdown. Staff open a slot, not an order, and
+ * the slot used to say nothing at all about who was paying for it.
  */
 const SPLIT_TONE = {
   completed: 'success',
@@ -34,7 +44,10 @@ const SHARE_TONE = {
   cancelled: 'muted',
 };
 
-export function SplitPaymentPanel({ splits, currency }) {
+/** Shares a fresh link can still be issued for. A paid one is finished. */
+const OPEN_SHARE_STATUSES = new Set(['pending', 'failed']);
+
+export function SplitPaymentPanel({ splits, currency, onIssueLink, issuingShare }) {
   const { t } = useTranslation('bookings');
   if (!splits || splits.length === 0) return null;
 
@@ -74,6 +87,7 @@ export function SplitPaymentPanel({ splits, currency }) {
                 <th scope="col">{t('split.amount')}</th>
                 <th scope="col">{t('split.state')}</th>
                 <th scope="col">{t('split.payment')}</th>
+                {onIssueLink && <th scope="col">{t('split.link')}</th>}
               </tr>
             </thead>
             <tbody>
@@ -81,6 +95,16 @@ export function SplitPaymentPanel({ splits, currency }) {
                 <tr key={share.id}>
                   <td>
                     {share.is_organizer ? t('split.organizer') : (share.name || t('split.guest'))}
+                    {/* Only present when the reader holds
+                        `payments.view_payer_contacts`. The backend omits the
+                        keys entirely rather than blanking them, so an absent
+                        permission never looks like a payer who gave no
+                        details. */}
+                    {(share.email || share.phone) && (
+                      <div className="split-panel__contact">
+                        {share.email || share.phone}
+                      </div>
+                    )}
                   </td>
                   <td>{formatMoney(share.amount, split.currency || currency)}</td>
                   <td>
@@ -94,6 +118,24 @@ export function SplitPaymentPanel({ splits, currency }) {
                       ? <code className="split-panel__ref">{share.payment}</code>
                       : <span className="muted">-</span>}
                   </td>
+                  {/* Issuing a link, not revealing one. Raw tokens are never
+                      stored, so the link the customer was given cannot be
+                      looked up; a fresh one is the only recovery, and it stops
+                      the previous link working. */}
+                  {onIssueLink && (
+                    <td>
+                      {split.status === 'active'
+                        && OPEN_SHARE_STATUSES.has(share.status) ? (
+                          <button type="button" className="btn btn-secondary btn-sm"
+                            disabled={issuingShare === share.id}
+                            onClick={() => onIssueLink(split, share)}>
+                            {issuingShare === share.id
+                              ? t('split.issuing')
+                              : t('split.issueLink')}
+                          </button>
+                        ) : <span className="muted">-</span>}
+                    </td>
+                  )}
                 </tr>
               ))}
             </tbody>

@@ -1,8 +1,13 @@
-"""Spreading one payment across the slots of a multi-slot order.
+"""Landing one payment on the slots of a multi-slot order.
 
 `allocate_across` is the only place a single share becomes several payments, so
 it is tested on its own: an error here would not crash anything, it would just
 quietly charge the wrong slot the wrong amount.
+
+Confirmed policy is that a share settles WHOLE SLOTS, earliest first, rather
+than taking a slice of each. Spreading proportionally was also arithmetically
+correct, but three friends settling three slots produced nine payments and
+nine invoices, and left every slot part paid until the last person paid.
 
 The invariant that matters in every case is the same one: the parts must add
 back to exactly the amount charged, and no part may exceed what its slot still
@@ -41,34 +46,54 @@ def total_of(allocation):
     return sum((part for _booking, part in allocation), Decimal("0"))
 
 
-def test_an_even_split_across_even_slots():
-    slots = [FakeSlot(100), FakeSlot(100)]
-    allocation = allocate_across(slots, Decimal("100"), "SAR")
-    assert total_of(allocation) == Decimal("100")
-    assert [part for _b, part in allocation] == [Decimal("50.00"), Decimal("50.00")]
+def test_a_share_settles_one_whole_slot():
+    """The case the whole policy exists for: three equal slots, three friends.
 
-
-def test_an_odd_amount_still_adds_back_exactly():
-    """100 across three slots is 33.33 three times, which is a cent short.
-
-    The leftover has to land somewhere rather than evaporating.
+    Each payment clears exactly one slot, so that slot has ONE payer, raises
+    ONE invoice and confirms itself straight away.
     """
     slots = [FakeSlot(100), FakeSlot(100), FakeSlot(100)]
     allocation = allocate_across(slots, Decimal("100"), "SAR")
     assert total_of(allocation) == Decimal("100")
-    assert len(allocation) == 3
+    assert len(allocation) == 1
+    assert allocation[0][0] is slots[0]
 
 
-def test_the_split_follows_price_not_headcount():
-    """Slots are not equally priced, so an equal split would be wrong.
+def test_it_fills_the_earliest_slots_first():
+    """Chronological, so which slot a payment lands on is the same every run
+    and reads the way the customer booked them."""
+    slots = [FakeSlot(100), FakeSlot(100), FakeSlot(100)]
+    allocation = allocate_across(slots, Decimal("250"), "SAR")
+    assert total_of(allocation) == Decimal("250")
+    assert [b for b, _p in allocation] == [slots[0], slots[1], slots[2]]
+    assert [part for _b, part in allocation] == [
+        Decimal("100.00"), Decimal("100.00"), Decimal("50.00")]
 
-    A peak evening costs more than an afternoon, and refunding the cheap slot
-    later has to return what was actually paid for it.
-    """
+
+def test_only_the_slot_the_money_runs_out_on_is_left_part_paid():
+    slots = [FakeSlot(100), FakeSlot(100)]
+    allocation = allocate_across(slots, Decimal("150"), "SAR")
+    assert total_of(allocation) == Decimal("150")
+    assert [part for _b, part in allocation] == [Decimal("100.00"), Decimal("50.00")]
+
+
+def test_an_odd_amount_still_adds_back_exactly():
+    """A share that does not divide into the slot prices must not lose or
+    invent a fraction of a riyal on the way."""
+    slots = [FakeSlot("33.33"), FakeSlot("33.33"), FakeSlot("33.34")]
+    allocation = allocate_across(slots, Decimal("50"), "SAR")
+    assert total_of(allocation) == Decimal("50")
+    assert [part for _b, part in allocation] == [Decimal("33.33"), Decimal("16.67")]
+
+
+def test_slots_priced_differently_are_still_settled_whole():
+    """A peak evening costs more than an afternoon. The expensive slot is
+    cleared outright before the cheap one is touched."""
     slots = [FakeSlot(300), FakeSlot(100)]
-    allocation = allocate_across(slots, Decimal("200"), "SAR")
-    assert total_of(allocation) == Decimal("200")
-    assert [part for _b, part in allocation] == [Decimal("150.00"), Decimal("50.00")]
+    allocation = allocate_across(slots, Decimal("300"), "SAR")
+    assert total_of(allocation) == Decimal("300")
+    assert len(allocation) == 1
+    assert allocation[0][0] is slots[0]
 
 
 def test_no_slot_is_ever_allocated_more_than_it_owes():
@@ -107,6 +132,21 @@ def test_a_tiny_amount_lands_on_one_slot_rather_than_splitting_to_zero():
     allocation = allocate_across(slots, Decimal("0.01"), "SAR")
     assert total_of(allocation) == Decimal("0.01")
     assert len(allocation) == 1
+
+
+def test_three_friends_settling_three_slots_raise_three_payments():
+    """The row count that started this. Each friend's share is applied to the
+    balances left by the one before, and the order ends with one payment per
+    slot rather than one per slot per payer."""
+    slots = [FakeSlot(100), FakeSlot(100), FakeSlot(100)]
+    payments = 0
+    for _friend in range(3):
+        allocation = allocate_across(slots, Decimal("100"), "SAR")
+        payments += len(allocation)
+        for booking, part in allocation:
+            booking.due -= part
+    assert payments == 3
+    assert all(slot.due == 0 for slot in slots)
 
 
 @pytest.mark.parametrize("amount", ["0.01", "1", "7.77", "33.33", "99.99", "250"])

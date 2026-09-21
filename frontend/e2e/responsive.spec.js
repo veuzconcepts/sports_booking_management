@@ -20,6 +20,9 @@ import {
 const ROUTES = [
   { name: 'Dashboard', path: '/dashboard' },
   { name: 'Bookings list', path: '/bookings' },
+  // Same listing family, but the only one whose row opens a side panel
+  // with a nested table in it.
+  { name: 'Reservations list', path: '/reservations' },
   { name: 'Organization info', path: '/organization' },
   { name: 'Booking configuration', path: '/booking-config' },
   { name: 'Clubs and facilities', path: '/clubs' },
@@ -252,6 +255,52 @@ test.describe('listing table', () => {
 
     // Any remaining width is absorbed by the wrapper, not by the page.
     expect(await horizontalOverflow(page)).toBeLessThanOrEqual(1);
+  });
+
+  test('an order detail table scrolls inside its card, not the page', async ({ page }) => {
+    // Eight columns of slot detail, which is wider than a phone however it is
+    // laid out. The question is only whether the PAGE slides sideways.
+    const slot = (id, at) => ({
+      id, reference: `BK-00000${id}`, scheduled_date: '2026-06-01',
+      scheduled_time: at, end_time: at, duration_minutes: 60,
+      facility_name: 'Court South 1', assigned_to_name: null,
+      status: 'confirmed', payment_status: 'paid',
+      total_amount: '57.750', amount_paid: '57.750', outstanding: '0.000',
+    });
+    await page.setViewportSize({ width: 375, height: 812 });
+    await setupApp(page, {
+      'GET /bookings/orders/1/': {
+        id: 1, reference: 'ORD-2B81953F', currency: 'SAR', source: 'website',
+        source_display: 'Website', customer: 7,
+        customer_name: 'Mohammed Navab', customer_email: 'navab@example.com',
+        customer_mobile: '+966500000077', club: 1, club_name: 'Nadena Club',
+        facility_type: 2, facility_type_name: 'Badminton Court',
+        created_by: null, created_by_name: null,
+        created_at: '2026-06-01T09:00:00Z', slot_count: 3,
+        total_amount: '173.250', total_duration_minutes: 180,
+        amount_paid: '57.750', outstanding: '115.500',
+        slots: [slot(1, '09:00'), slot(2, '10:00'), slot(3, '11:00')],
+      },
+    });
+    await page.goto('/orders/1');
+    await page.locator('.topbar').waitFor({ state: 'visible' });
+    await page.locator('table.table').first().waitFor({ state: 'visible' });
+    await settled(page, 'order detail at 375');
+
+    // The page not overflowing is NOT enough on its own here: a container that
+    // does not scroll simply CLIPS the extra columns, and an ancestor absorbs
+    // the overflow, so the page measures clean while the last column is
+    // unreachable. That is exactly what a misspelt wrapper class produced. So
+    // scroll the container to its end and require the last cell to arrive.
+    const reachable = await page.evaluate(() => {
+      const table = document.querySelector('table.table');
+      const box = table.parentElement;
+      box.scrollLeft = box.scrollWidth;
+      const cells = table.querySelectorAll('tbody tr:first-child td');
+      const last = cells[cells.length - 1];
+      return last.getBoundingClientRect().right <= window.innerWidth + 1;
+    });
+    expect(reachable, 'the last column must be reachable by scrolling').toBe(true);
   });
 });
 

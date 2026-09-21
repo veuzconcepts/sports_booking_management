@@ -24,13 +24,14 @@ from . import services as booking_services
 from .filters import BookingFilter
 from .models import (
     ACTIVE_STATUSES, BOOKING_DELETION_REASONS, COMPLETED_STATUSES, PAID_PAYMENT_STATUSES,
-    Booking, BookingHold, BookingPolicy, BookingStatus, HoldStatus,
+    Booking, BookingHold, BookingOrder, BookingPolicy, BookingStatus, HoldStatus,
 )
 from .permissions import BookingHoldPermission, BookingObjectPermission
 from .serializers import (
     AssignSerializer,
     BookingHoldSerializer,
     BookingCreateSerializer,
+    BookingOrderSerializer,
     BookingPolicySerializer,
     BookingSerializer,
     CompleteBookingSerializer,
@@ -741,12 +742,23 @@ class BookingViewSet(GroupedListMixin, viewsets.ModelViewSet):
                  .prefetch_related("refunds", "refunds__created_by", "refunds__credit_note")
                  .order_by("-created_at")), many=True, context=ctx).data
         # Who actually paid, when a booking was settled by several people. Kept
-        # behind payments.view because it is a money record, and stripped of the
-        # participants' contact details, which staff have no operational need for.
+        # behind payments.view because it is a money record. A participant's
+        # email and phone are a THIRD PARTY's contact details sitting on
+        # somebody else's booking, so they need `payments.view_payer_contacts`
+        # on top: reception chasing an unpaid share needs them, and most staff
+        # reading a booking do not.
         splits = []
+        can_contacts = request.user.has_perm_code("payments.view_payer_contacts")
         if can_payments:
             from apps.payments.models import BookingPaymentSplit
-            for split in (BookingPaymentSplit.objects.filter(booking=booking)
+            # A split covers EITHER one booking or a whole multi-slot order.
+            # Filtering on `booking` alone found only the first kind, so every
+            # slot of a split multi-slot order showed no payers at all: the
+            # arrangement hangs off the order, and the slot is what staff open.
+            scope = Q(booking=booking)
+            if booking.order_id:
+                scope |= Q(order_id=booking.order_id)
+            for split in (BookingPaymentSplit.objects.filter(scope)
                           .prefetch_related("shares", "shares__payment")
                           .order_by("-created_at")):
                 splits.append({
@@ -764,10 +776,69 @@ class BookingViewSet(GroupedListMixin, viewsets.ModelViewSet):
                         "status": sh.status,
                         "paid_at": sh.paid_at,
                         "payment": sh.payment.reference if sh.payment_id else None,
+                        # Absent, not blank, without the capability: a key that
+                        # is always present invites a UI that renders an empty
+                        # contact row and makes it look like none was given.
+                        **({"email": sh.participant_email,
+                            "phone": sh.participant_phone} if can_contacts else {}),
                     } for sh in split.shares.all()],
                 })
         return Response({"invoices": invoices, "payments": payments,
                          "splits": splits})
+
+    @action(detail=True, methods=["post"], url_path="split-share-link")
+    def split_share_link(self, request, pk=None):
+        """Issue a fresh payment link for one unpaid share, for staff to pass on.
+
+        This ISSUES a link, it does not reveal the existing one: raw tokens are
+        never stored, only their digests, so nobody, including us, can look up
+        the link the customer was given. Minting a new one is the only honest
+        recovery, and it is also the right answer when a link went somewhere it
+        should not have.
+
+        The previous link therefore stops working. That is the whole point when
+        a link has leaked, and a trap when reception is only being helpful, so
+        the caller is told plainly and the reissue is recorded on the booking's
+        own timeline.
+
+        Gated on `payments.add`: this is part of collecting money for a booking,
+        which is exactly who should be able to do it.
+        """
+        from apps.payments import split as split_service
+        from apps.payments.models import BookingPaymentShare
+
+        booking = self.get_object()
+        if not request.user.has_perm_code("payments.add"):
+            return Response({"detail": access.denial_message("payments", "add")},
+                            status=status.HTTP_403_FORBIDDEN)
+
+        share_id = request.data.get("share")
+        # A split covers either this booking or the order it belongs to, and the
+        # share must be reached THROUGH one of those: an id from the request is
+        # otherwise a way to mint a link for somebody else's booking entirely.
+        scope = Q(split__booking=booking)
+        if booking.order_id:
+            scope |= Q(split__order_id=booking.order_id)
+        share = (BookingPaymentShare.objects
+                 .select_related("split")
+                 .filter(scope, pk=share_id)
+                 .first())
+        if share is None:
+            return Response({"detail": "That share was not found on this booking."},
+                            status=status.HTTP_404_NOT_FOUND)
+
+        try:
+            share, raw = split_service.regenerate_share_token(
+                share.split, share.id, request=request)
+            url = split_service.share_link(raw)
+        except split_service.SplitError as exc:
+            return Response({"detail": str(exc), "code": exc.code},
+                            status=status.HTTP_400_BAD_REQUEST)
+
+        log_event(request, "split_share_link_reissued",
+                  {"reference": booking.reference, "share": share.id})
+        return Response({"share": share.id, "name": share.display_name,
+                         "amount": str(share.amount), "url": url})
 
     @action(detail=True, methods=["post"])
     def cancel(self, request, pk=None):
@@ -1383,6 +1454,18 @@ class BookingHoldViewSet(mixins.ListModelMixin, mixins.RetrieveModelMixin,
 
     def get_queryset(self):
         qs = super().get_queryset()
+
+        # Club scoping, exactly as `BookingViewSet` does it. A reservation names
+        # a customer and the courts they are holding, so a manager limited to
+        # one club must not read another club's. `club` is non-null on a hold,
+        # so there is no club-less case to admit.
+        #
+        # This also gates `release`, which resolves through this queryset: a
+        # manager cannot give away a court at a club they do not run.
+        club_ids = self.request.user.scoped_club_ids()
+        if club_ids is not None:
+            qs = qs.filter(club_id__in=club_ids)
+
         # `?live=true` asks the CLOCK, not the status: between sweeps the table
         # holds rows still marked active that have already run out, and a
         # listing that showed those would have staff chasing courts that are
@@ -1417,3 +1500,38 @@ class BookingHoldViewSet(mixins.ListModelMixin, mixins.RetrieveModelMixin,
         hold.refresh_from_db()
         log_event(request, "reservation_released", {"reference": hold.reference})
         return Response(self.get_serializer(hold).data)
+
+
+class BookingOrderViewSet(mixins.RetrieveModelMixin, viewsets.GenericViewSet):
+    """One multi-slot checkout, as a single record.
+
+    Retrieve-only, and deliberately so. An order owns no money and no status of
+    its own: everything about it is summed or read from its bookings, and the
+    way to change any of it is to act on the slot it belongs to. There is
+    nothing here to list either, because an order is reached from a booking
+    rather than browsed.
+    """
+
+    serializer_class = BookingOrderSerializer
+    queryset = (
+        BookingOrder.objects
+        .select_related("customer", "club", "facility_type", "created_by")
+        .prefetch_related("bookings", "bookings__facility", "bookings__assigned_to")
+        .all()
+    )
+
+    def get_permissions(self):
+        return [permissions.IsAuthenticated()]
+
+    def get_queryset(self):
+        qs = super().get_queryset()
+        user = self.request.user
+        if not user.has_perm_code("bookings.view"):
+            return qs.none()
+        # The same club boundary the bookings themselves obey. An order names a
+        # customer and everything they booked, so a manager at one club must
+        # not read another club's.
+        club_ids = user.scoped_club_ids()
+        if club_ids is not None:
+            qs = qs.filter(club_id__in=club_ids)
+        return qs

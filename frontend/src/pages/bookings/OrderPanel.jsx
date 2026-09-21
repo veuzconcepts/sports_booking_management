@@ -16,7 +16,7 @@ import { Money } from '../../services/currency.jsx';
  * put right, so staff cancelling one slot can see what else the customer
  * bought before they do it.
  */
-export function OrderPanel({ order }) {
+export function OrderPanel({ order, orderId }) {
   const { t } = useTranslation('bookings');
 
   return (
@@ -65,6 +65,16 @@ export function OrderPanel({ order }) {
           <span>{t('orderTotal')}</span>
           <strong><Money amount={order.total_amount} code={order.currency} /></strong>
         </div>
+
+        {/* The whole checkout on one screen: every slot with its own money and
+            status, the payers, and what is still owed. This panel answers
+            "what else did they book"; that page answers "what happened to the
+            order". */}
+        {orderId && (
+          <p style={{ margin: '12px 0 0', fontSize: 13 }}>
+            <Link to={`/orders/${orderId}`}>{t('viewFullOrder')}</Link>
+          </p>
+        )}
       </div>
     </div>
   );

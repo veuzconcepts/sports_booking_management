@@ -364,10 +364,60 @@ the slots in proportion to price.
 
 These were decided explicitly. Do not change them without asking.
 
-**A split share is an amount of the order, not a set of slots.** Paying a share
-spreads that amount across the slots in proportion to what each still owes, so
-one share may raise several invoices. Every payment records its payer, so
+**A split share is an amount of the ORDER, and it settles WHOLE SLOTS.**
+`allocate_across` fills the slots earliest first, so a friend paying a third of
+a three-slot order clears the first court outright and only the slot their
+money runs out on is left part paid. Every payment records its payer, so
 refunds still follow the payer.
+
+This replaces spreading each share proportionally across every slot. That was
+arithmetically correct and unreadable: three friends settling three slots
+produced NINE payments and NINE invoices, left all three slots "Partially
+paid" until the last person paid, and gave every slot three payers to unpick
+at refund time. Filling slots gives one payment and one invoice per slot, one
+payer per slot, and a slot that confirms itself through `confirm_if_settled`
+the moment its own payer has paid. The amount each person owes is unchanged.
+
+**A split covers either one booking or one order, and the slot is what staff
+open.** Anything reading splits must look for BOTH (`Q(booking=...) |
+Q(order=...)`), or every slot of a split multi-slot order shows no payers at
+all. Split lifecycle events go to each slot's own Booking Log through
+`split._timeline`, not only to the order-level audit trail, because a timeline
+reading "payment recorded" with no mention of the other two payers is what
+sends staff looking for an explanation that is not there.
+
+**A participant's email and phone need `payments.view_payer_contacts`.** They
+are a third party's contact details sitting on somebody else's booking, so
+seeing WHO paid what (`payments.view`) is separated from being able to contact
+them. It is opt-in, so not even Admin holds it by default. The API omits the
+keys entirely rather than blanking them, so a missing permission never looks
+like a payer who gave no address.
+
+**A payment link must be reachable, or the arrangement is refused.** Links are
+built from `PUBLIC_WEBSITE_URL`, which defaults to localhost so a developer
+needs no configuration. On a server that default is a trap: the links are
+issued, copied into a group chat and resolve for nobody, while the court stays
+held. Outside DEBUG, `split._site_base` refuses to create the split before any
+row is written, which the checkout reports and which leaves the booking payable
+the ordinary way. `manage.py check --deploy` reports the same thing earlier
+(`payments.E001`).
+
+**Staff ISSUE a payment link, they cannot read the existing one.** Raw tokens
+are stored only as digests, so the link a customer was given cannot be looked
+up by anybody, including us. `POST /bookings/{id}/split-share-link/` mints a
+fresh one for an unpaid share, which stops the previous link working: that is
+the point when a link has leaked and a trap when reception is only being
+helpful, so the UI says so before doing it. Gated on `payments.add`, and the
+share must be reachable through this booking or its order so an id in the
+request body cannot mint a link for somebody else's booking.
+
+**An order is read-only and reached from a booking.** `/orders/:id` shows one
+checkout: every slot with its own money and status, and the totals summed from
+them. It holds no money and no status of its own, so there is nothing to edit;
+the way to change any of it is to act on the slot. There is deliberately no
+listing, because a listing nobody opens is a listing nobody scopes either. A
+CANCELLED slot stays in the list while dropping out of the money, because it is
+usually the thing somebody opened the screen to ask about.
 
 **Cancelling one slot of a paid order refunds nothing automatically.** The slot
 is cancelled and the money stays where it is. A human issues a credit note
@@ -853,6 +903,29 @@ protection: every read already enforces a deadline from the clock, so a court
 is never blocked by a row the sweep has not reached. Without it the table
 fills with rows still claiming to be active, and every "what is held right
 now?" question gets the wrong answer.
+
+## The reservations screen
+
+`/reservations` is where "why will that court not take a booking?" gets an
+answer. A reservation leaves no booking row, so without it a held court shows
+on the day view as a slot that simply refuses, with nothing on screen to
+explain it.
+
+It is READ-ONLY with one exception: releasing puts the courts back on sale
+before the deadline, for the reservation that is plainly abandoned. That is
+`bookings.edit`, not `bookings.view`, and it asks for a confirmation, because
+it also refuses a customer who is still paying.
+
+The listing is scoped by `scoped_club_ids()`, the same as `BookingViewSet`. A
+reservation names a customer and the courts they hold, and `release` resolves
+through the same queryset, so the boundary covers reading it and giving the
+court away. The API had no scoping while it had no screen; unreachable is not
+a boundary.
+
+Countdowns anchor on the server's `seconds_remaining` as of the moment the
+response arrived, never on `expires_at` against the browser clock. A reception
+PC running fast would otherwise report live reservations as expired, and staff
+would tell customers on the phone that their court had gone.
 
 ## A held slot is not a booked slot
 

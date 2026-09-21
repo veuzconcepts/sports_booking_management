@@ -148,13 +148,22 @@ def target_outstanding(bookings) -> Decimal:
 
 
 def allocate_across(bookings, amount, currency):
-    """Spread one payment across slots, in proportion to what each still owes.
+    """Settle whole slots with one payment, earliest first.
 
-    Confirmed policy: a share is an amount of the ORDER, not a set of slots. So
-    a friend paying 100 of a 300 order pays a third of each slot, and each of
-    those parts raises its own invoice against its own booking. Proportional
-    rather than filling slots one at a time, because a refund of one slot must
-    return what that slot's payers actually put in.
+    Confirmed policy: a share is an amount of the ORDER, and it pays off the
+    slots one at a time rather than taking a slice of each. A friend paying 100
+    of a 300 order covers the first slot outright; only the slot their money
+    runs out on is left part paid.
+
+    This is what makes a multi-slot split readable. Spreading proportionally
+    was also correct, but three friends settling three slots produced nine
+    payments and nine invoices, left every slot "Partially paid" until the last
+    person paid, and gave every slot three payers to unpick at refund time.
+    Filling slots gives one payment per slot, one payer per slot, and a slot
+    that confirms itself the moment its own payer has paid.
+
+    `bookings` arrives chronologically, so which slot a payment lands on is the
+    same on every run and reads the way the customer booked them.
 
     Returns `[(booking, amount)]`, skipping slots allocated nothing.
     """
@@ -168,36 +177,33 @@ def allocate_across(bookings, amount, currency):
     if amount >= total:
         return [(b, due) for b, due in zip(bookings, dues) if due > 0]
 
-    # Largest-remainder over the currency's own minor unit (the same one
-    # `allocate_equal` divides in), so the parts always add back to exactly the
-    # amount charged and no part is a fraction the currency cannot express.
-    step = money_exponent(currency)
-    units_total = int((amount / step).to_integral_value(rounding=ROUND_HALF_UP))
-    raw = [(due / total) * units_total for due in dues]
-    floors = [int(value) for value in raw]
-    leftover = units_total - sum(floors)
-    order = sorted(range(len(raw)), key=lambda i: raw[i] - floors[i], reverse=True)
-    for index in order[:leftover]:
-        floors[index] += 1
-
     allocation = []
-    for booking, units, due in zip(bookings, floors, dues):
-        part = min(Decimal(units) * step, due)
+    remaining = amount
+    for booking, due in zip(bookings, dues):
+        if remaining <= 0:
+            break
+        if due <= 0:
+            continue
+        part = quantize_money(min(due, remaining), currency)
         if part > 0:
             allocation.append((booking, part))
+            remaining -= part
     return allocation
 
 
 def _settle_across(bookings, amount, *, method, card, request, payer_label, notes):
     """Take `amount` across the slots, one payment and invoice per slot.
 
+    Usually one of each: a share settles whole slots, so it takes a second
+    payment only where a share runs out partway through a slot.
+
     NOTE for a real provider: with a card this performs one authorisation per
-    slot, inside the caller's transaction, because invoices in this system are
-    raised per booking and a single payment row spanning several bookings would
-    have no invoice it could belong to. The demo provider is synchronous and
-    side-effect free, so a rollback costs nothing. Anyone wiring a live gateway
-    must move the authorisation outside the transaction (as the checkout path
-    already does) or capture once and record the parts.
+    slot touched, inside the caller's transaction, because invoices in this
+    system are raised per booking and a single payment row spanning several
+    bookings would have no invoice it could belong to. The demo provider is
+    synchronous and side-effect free, so a rollback costs nothing. Anyone
+    wiring a live gateway must move the authorisation outside the transaction
+    (as the checkout path already does) or capture once and record the parts.
 
     Returns the list of payments taken.
     """
@@ -227,16 +233,52 @@ def _new_token() -> tuple[str, str]:
     return raw, hash_split_token(raw)
 
 
+#: Hosts that mean "nobody outside this machine can open the link". A payment
+#: link is shared into a group chat, so a loopback address in it is never right
+#: however the server was reached.
+_LOCAL_HOSTS = ("localhost", "127.0.0.1", "0.0.0.0", "[::1]", "::1")
+
+
+def site_url_configured(base: str) -> bool:
+    """Is this a website address a friend on another device could actually open?"""
+    base = str(base or "").strip()
+    if not base:
+        return False
+    host = base.split("//", 1)[-1].split("/", 1)[0].split(":", 1)[0].strip().lower()
+    return host not in _LOCAL_HOSTS
+
+
+def _site_base() -> str:
+    """The public website address every payment link is built from.
+
+    `PUBLIC_WEBSITE_URL` defaults to localhost so a developer needs no
+    configuration. On a server that default is a trap rather than a
+    convenience: the links are issued, copied into a group chat and simply do
+    not resolve, while the court stays held and nobody can pay for it. The
+    organizer has no way to tell, because the link looks fine to them.
+
+    So outside DEBUG an unconfigured address refuses the arrangement before
+    anything is written. The checkout reports that as an ordinary split
+    failure and the booking stays payable the normal way, which is a far
+    better outcome than a held court and five dead links.
+    """
+    base = str(getattr(settings, "PUBLIC_WEBSITE_URL", "") or "").rstrip("/")
+    if not settings.DEBUG and not site_url_configured(base):
+        raise SplitError(
+            "Split payment is unavailable: this site's public web address is "
+            "not configured. Please pay for the booking in the usual way.",
+            code="site_not_configured")
+    return base
+
+
 def share_link(raw_token: str) -> str:
     """The public URL a participant opens. Built from the configured site base."""
-    base = str(getattr(settings, "PUBLIC_WEBSITE_URL", "") or "").rstrip("/")
-    return f"{base}/pay/split/{raw_token}"
+    return f"{_site_base()}/pay/split/{raw_token}"
 
 
 def manage_link(raw_token: str) -> str:
     """The organizer's own progress/management URL."""
-    base = str(getattr(settings, "PUBLIC_WEBSITE_URL", "") or "").rstrip("/")
-    return f"{base}/pay/split/manage/{raw_token}"
+    return f"{_site_base()}/pay/split/manage/{raw_token}"
 
 
 # --------------------------------------------------------------------------- #
@@ -261,6 +303,10 @@ def create_split(target, participants, *, request=None, expires_in_minutes=None)
     Those raw values exist only in this return: after it, only digests remain.
     """
     from apps.bookings.models import BookingOrder
+
+    # First, before a row exists: an arrangement whose links cannot resolve is
+    # worse than no arrangement, because it holds the court either way.
+    _site_base()
 
     is_order = isinstance(target, BookingOrder)
     # Lock the bookings first, and everywhere else in this module, so concurrent
@@ -317,6 +363,13 @@ def create_split(target, participants, *, request=None, expires_in_minutes=None)
         "allocated": str(split.amount_allocated),
         "expires_at": split.expires_at.isoformat(),
     })
+    _timeline(
+        split,
+        f"Split payment arranged between {len(cleaned)} people - "
+        f"{format_currency(split.amount_allocated, currency)} to collect",
+        event="split_created", bookings=bookings, request=request,
+        meta={"shares": len(cleaned), "allocated": str(split.amount_allocated),
+              "expires_at": split.expires_at.isoformat()})
     return split, links
 
 
@@ -449,6 +502,12 @@ def _record_declined_attempt(share_id, *, request=None):
         share.last_failure_code = "declined"
         share.save(update_fields=["status", "last_failure_code", "updated_at"])
         _audit(request, "split_share_failed", share.split, {"share": share.id})
+        _timeline(
+            share.split,
+            f"A split payment attempt was refused - "
+            f"{share.display_name}'s share is still outstanding",
+            event="split_share_failed", request=request,
+            meta={"share": share.id})
 
 
 @transaction.atomic
@@ -513,8 +572,9 @@ def _pay_share_locked(raw_token, *, card=None, method="card", request=None):
         # Unwind to release the locks, then record the attempt outside.
         raise _Declined(str(exc), share_id=share.id) from exc
     # A share is one participant's commitment, so it points at the first of the
-    # payments it produced; the rest are tied to it by the same payer label and
-    # note, and each keeps its own invoice against its own slot.
+    # payments it produced. Settling whole slots means that is normally the
+    # only one; a share that runs out partway through a slot produces a second,
+    # tied to it by the same payer label and note, with its own invoice.
     payment = payments[0]
 
     share.status = ShareStatus.PAID
@@ -532,6 +592,15 @@ def _pay_share_locked(raw_token, *, card=None, method="card", request=None):
         "payments": [p.reference for p in payments], "slots": len(payments),
         "payer": payer,
     })
+    settled = split.shares.filter(status=ShareStatus.PAID).count()
+    total_shares = split.shares.count()
+    _timeline(
+        split,
+        f"{payer} paid their share - {format_currency(amount, currency)} "
+        f"({settled} of {total_shares} paid)",
+        event="split_share_paid", bookings=bookings, request=request,
+        meta={"amount": str(amount), "share": share.id, "payer": payer,
+              "paid_shares": settled, "total_shares": total_shares})
     _settle_if_complete(split, bookings, request=request)
     return share, payment
 
@@ -557,6 +626,11 @@ def _settle_if_complete(split, bookings, *, request=None):
     _revoke_open_shares(split, ShareStatus.CANCELLED)
     _audit(request, "split_completed", split,
            {"paid": str(split.paid_total)})
+    _timeline(
+        split,
+        "Split payment complete - every slot is paid for",
+        event="split_completed", bookings=bookings, request=request,
+        meta={"paid": str(split.paid_total)})
     return split
 
 
@@ -601,6 +675,12 @@ def pay_remaining(split, *, card=None, method="card", request=None):
     _audit(request, "split_remaining_paid", split,
            {"amount": str(outstanding), "payment": payments[0].reference,
             "payments": [p.reference for p in payments]})
+    _timeline(
+        split,
+        f"Organizer paid the remaining balance - "
+        f"{format_currency(outstanding, split.currency)}",
+        event="split_remaining_paid", bookings=bookings, request=request,
+        meta={"amount": str(outstanding), "payment": payments[0].reference})
     _settle_if_complete(split, bookings, request=request)
     return payments[0]
 
@@ -622,6 +702,12 @@ def cancel_share(split, share_id, *, request=None):
     share.token_hash = None
     share.save(update_fields=["status", "token_hash", "updated_at"])
     _audit(request, "split_share_cancelled", split, {"share": share.id})
+    _timeline(
+        split,
+        f"{share.display_name}'s share was cancelled - "
+        f"{format_currency(share.amount, split.currency)} is unallocated",
+        event="split_share_cancelled", request=request,
+        meta={"share": share.id, "amount": str(share.amount)})
     return share
 
 
@@ -668,6 +754,11 @@ def add_shares(split, participants, *, request=None):
         links[share.id] = raw
         created.append(share)
     _audit(request, "split_shares_added", split, {"shares": len(created)})
+    _timeline(
+        split,
+        f"{len(created)} more people were added to the split payment",
+        event="split_shares_added", bookings=bookings, request=request,
+        meta={"shares": len(created)})
     return created, links
 
 
@@ -693,6 +784,11 @@ def regenerate_share_token(split, share_id, *, request=None):
     share.token_hash = digest
     share.save(update_fields=["token_hash", "updated_at"])
     _audit(request, "split_share_link_reissued", split, {"share": share.id})
+    _timeline(
+        split,
+        f"A new payment link was issued for {share.display_name}'s share",
+        event="split_share_link_reissued", request=request,
+        meta={"share": share.id})
     return share, raw
 
 
@@ -714,6 +810,14 @@ def cancel_split(split, *, request=None):
     split.save(update_fields=["status", "cancelled_at", "updated_at"])
     _revoke_open_shares(split, ShareStatus.CANCELLED)
     _audit(request, "split_cancelled", split, {"collected": str(collected)})
+    # Says what did NOT happen, because that is the part people get wrong:
+    # cancelling the arrangement refunds nobody by confirmed policy.
+    _timeline(
+        split,
+        f"Split payment cancelled - {format_currency(collected, split.currency)} "
+        f"already collected stays on the booking, nothing refunded",
+        event="split_cancelled", request=request,
+        meta={"collected": str(collected)})
     return split
 
 
@@ -732,6 +836,13 @@ def _expire(split, *, request=None):
     split.save(update_fields=["status", "updated_at"])
     _revoke_open_shares(split, ShareStatus.EXPIRED)
     _audit(request, "split_expired", split, {"collected": str(split.paid_total)})
+    _timeline(
+        split,
+        f"Split payment deadline passed - "
+        f"{format_currency(split.paid_total, split.currency)} collected, links "
+        f"closed. Nothing refunded and no slot released",
+        event="split_expired", request=request,
+        meta={"collected": str(split.paid_total)})
     return split
 
 
@@ -788,6 +899,37 @@ def record_reminder(split, share_id):
 # --------------------------------------------------------------------------- #
 # Audit
 # --------------------------------------------------------------------------- #
+def _timeline(split, note, *, event, bookings=None, request=None, meta=None):
+    """Put a split event on every slot's own Booking Log.
+
+    `_audit` records these against the ORDER, which is the right home for the
+    arrangement but the wrong place to look: staff open a SLOT, and its
+    timeline used to say only "payment recorded" with no hint that three
+    people were paying for it, who still owed, or by when.
+
+    Written to every slot the split covers, because who has paid and how long
+    is left are facts about the whole arrangement, and staff may open any one
+    of the slots to ask.
+
+    The Booking Log renders the note and `meta.amount`; everything else is
+    structured detail for whoever reads the record later, so the note has to
+    stand on its own.
+    """
+    # `_actor_or_none` rather than `request.user`: a friend paying through a
+    # link is anonymous, which is not a User row and cannot go on a foreign key.
+    from apps.bookings.services import _actor_or_none, record_booking_event
+
+    actor = _actor_or_none(request)
+    rows = split_bookings(split) if bookings is None else bookings
+    payload = {"split": split.id, "currency": split.currency}
+    if split.order_id:
+        payload["order"] = split.order.reference
+    if meta:
+        payload.update(meta)
+    for booking in rows:
+        record_booking_event(booking, note, actor=actor, event=event, meta=payload)
+
+
 def _audit(request, event, split, extra=None):
     """Record a split event. Never includes a token, raw or hashed.
 

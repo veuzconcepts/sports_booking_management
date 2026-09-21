@@ -39,6 +39,8 @@ const RENDER_TIMEOUT_MS = 20000;
 
 const PAGES = [
   ['Bookings', () => import('./bookings/BookingsListPage.jsx')],
+  ['Reservations', () => import('./bookings/ReservationsListPage.jsx')],
+  ['Order detail', () => import('./bookings/OrderDetailPage.jsx')],
   ['Customers', () => import('./customers/CustomersListPage.jsx')],
   ['Staff', () => import('./staff/StaffListPage.jsx')],
   ['Payments', () => import('./payments/PaymentsPage.jsx')],

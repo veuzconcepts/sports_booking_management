@@ -28,6 +28,7 @@ import {
   Images,
   Megaphone,
   Gift,
+  Timer,
 } from 'lucide-react';
 
 import { useAuth } from '../hooks/useAuth.jsx';
@@ -50,6 +51,7 @@ const SECTIONS = [
     key: 'operations', labelKey: 'sections.operations', icon: CalendarCheck,
     items: [
       { to: '/bookings', labelKey: 'items.bookings', icon: CalendarCheck, perm: 'bookings.view' },
+      { to: '/reservations', labelKey: 'items.reservations', icon: Timer, perm: 'bookings.view' },
       { to: '/staff', labelKey: 'items.staff', icon: HardHat, perm: 'staff.view' },
       { to: '/customers', labelKey: 'items.customers', icon: Users, perm: 'customers.view' },
       {
