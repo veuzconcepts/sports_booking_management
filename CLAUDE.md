@@ -743,6 +743,52 @@ decision, not an oversight. A gate that refuses too much is not the safer gate.
 Assigning a worker walks a booking through Confirmed, so it asks the same gate,
 BEFORE it writes anything.
 
+## Draft is an unfinished form, not a reservation
+
+A draft exists because an admin gets interrupted halfway through taking a
+booking and would rather keep what they typed. Only an admin creates one, and
+only through `save_as_draft` on creation: `status` is not client-writable, and
+the flag is ignored on an edit, because demoting a real booking back to a
+draft would take its court away without cancelling anything.
+
+**A draft holds NO court.** There is no clock on a draft, so one that is
+forgotten would take a court off sale for ever. The slot stays on sale and
+availability is checked in `services.finish_draft`, which is the moment the
+draft stops being a form and starts occupying something. That check can fail,
+and failing there is the point: the alternative is a court promised twice.
+
+`DRAFT` is outside `ACTIVE_STATUSES` and `SLOT_BLOCKING_STATUSES`, so it also
+counts against no per-customer cap. It moves only to BOOKED or CANCELLED, and
+nothing moves into it.
+
+A draft is excused the COMPLETENESS rules in `Booking.clean` and the
+serializer (no customer, no activity) and nothing else. Consistency rules
+still apply, because naming a court at the wrong club is a mistake rather
+than an omission, and date and time stay required: the slot index, the
+filters and every listing assume a booking has a when. `finish_draft` runs
+every excused rule again before the booking becomes real.
+
+## Staff see a hold; customers do not
+
+The same fact, two audiences, two right answers. A customer only needs to
+pick something else, so the website withdraws a held slot. A receptionist
+with somebody at the desk needs to know whether it is worth waiting, so the
+admin slot picker labels it "being booked" rather than "full".
+
+A refusal from `allocate_facility` says how long the reservation has left
+when a reservation is the reason. Staff refused on a calendar with nothing on
+it conclude the software is broken: a reservation leaves no booking row, so
+there is nothing on the day view to explain it. `services.minutes_held` is
+for that message only, never for deciding availability, and it reports
+relative minutes so it needs no timezone conversion and cannot be an hour
+wrong.
+
+`expire-holds` runs on the beat every five minutes. It is housekeeping, not
+protection: every read already enforces a deadline from the clock, so a court
+is never blocked by a row the sweep has not reached. Without it the table
+fills with rows still claiming to be active, and every "what is held right
+now?" question gets the wrong answer.
+
 ## A held slot is not a booked slot
 
 Availability merges holds and bookings, because both make a court

@@ -29,3 +29,26 @@ def expire_unpaid_bookings_task():
         logger.info("Released %s booking(s) whose payment window passed.",
                     released)
     return released
+
+
+@shared_task
+def expire_holds_task():
+    """Close reservations whose deadline has passed.
+
+    Not a correctness guarantee, and deliberately so. Every read path already
+    checks the clock as well as the status, because a sweep that runs every
+    few minutes leaves rows sitting ACTIVE past their deadline in between, and
+    a court must never be blocked by one of those. `reservations.require_live`
+    is what actually protects a booking.
+
+    This is housekeeping: without it the table fills with rows that claim to
+    be active, which makes every "what is live right now?" question staff ask
+    answer wrongly, and gives anybody reading the data a false picture of how
+    much stock is tied up.
+    """
+    from . import reservations
+
+    closed = reservations.expire_due()
+    if closed:
+        logger.info("Closed %s reservation(s) past their deadline.", closed)
+    return closed

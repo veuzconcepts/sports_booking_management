@@ -1116,6 +1116,41 @@ class BookingViewSet(GroupedListMixin, viewsets.ModelViewSet):
         log_event(request, "booking_assigned", summary, subject=staff_subject(worker))
         return Response(self.get_serializer(booking).data)
 
+    @action(detail=True, methods=["post"], url_path="finish-draft")
+    def finish_draft(self, request, pk=None):
+        """Turn a saved draft into a real booking.
+
+        A draft holds no court, so this is the first moment availability
+        matters, and it may well have gone while the draft sat there. That is
+        the honest place to find out: the alternative is a court promised
+        twice and somebody turned away at the door.
+        """
+        booking = self.get_object()
+        if not request.user.has_perm_code("bookings.edit"):
+            return Response({"detail": access.denial_message("bookings", "edit")},
+                            status=status.HTTP_403_FORBIDDEN)
+        if booking.status != BookingStatus.DRAFT:
+            return Response({"detail": "This booking is not a draft.",
+                             "code": "not_a_draft"},
+                            status=status.HTTP_400_BAD_REQUEST)
+        try:
+            booking_services.finish_draft(booking, actor=request.user)
+        except booking_services.DraftIncomplete as exc:
+            return Response({"detail": str(exc), "code": "draft_incomplete",
+                             "missing": exc.missing},
+                            status=status.HTTP_400_BAD_REQUEST)
+        except booking_services.FacilityUnavailable as exc:
+            # The court went while the draft was sitting there. Say which and
+            # why, rather than a bare validation error.
+            return Response({"detail": str(exc), "code": "slot_unavailable"},
+                            status=status.HTTP_409_CONFLICT)
+        except booking_services.BookingRuleViolation as exc:
+            return Response({"detail": " ".join(exc.reasons), "code": "rules",
+                             "rules": exc.reasons},
+                            status=status.HTTP_400_BAD_REQUEST)
+        log_event(request, "booking_draft_completed", {"reference": booking.reference})
+        return Response(self.get_serializer(booking).data)
+
     @action(detail=True, methods=["post"], url_path="skip-assignment")
     def skip_assignment(self, request, pk=None):
         """Advance the booking past the assignment stage without assigning anyone.

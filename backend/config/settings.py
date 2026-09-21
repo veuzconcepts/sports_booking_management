@@ -380,6 +380,15 @@ CELERY_BEAT_SCHEDULE = {
         "task": "apps.bookings.tasks.expire_unpaid_bookings_task",
         "schedule": crontab(minute="*/5"),
     },
+    # Housekeeping rather than protection: every read already enforces a
+    # reservation's deadline from the clock, so a court is never blocked by a
+    # row this has not reached yet. Without it the table fills with rows that
+    # still claim to be active, and every "what is held right now?" question
+    # staff ask gets the wrong answer.
+    "expire-holds": {
+        "task": "apps.bookings.tasks.expire_holds_task",
+        "schedule": crontab(minute="*/5"),
+    },
 }
 
 # ---------------------------------------------------------------------------

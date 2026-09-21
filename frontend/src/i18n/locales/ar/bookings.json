@@ -158,6 +158,8 @@
   },
   "covered": "مغطّى",
   "coveredMembership": "مغطّى بالعضوية",
+  "saveAsDraft": "حفظ كمسودة",
+  "finishBooking": "إتمام الحجز",
   "createBooking": "إنشاء حجز",
   "created": "أنشأه",
   "creating": "جارٍ الإنشاء…",
@@ -326,6 +328,7 @@
   "status": {
     "arrived": "تم الحضور",
     "assigned": "مُسند",
+    "draft": "مسودة",
     "booked": "قيد الانتظار",
     "cancelled": "ملغى",
     "closed": "مغلق",

@@ -5,6 +5,7 @@
    One colour per booking status, used by BOTH views. `--bk-a` is the strong
    accent (left bar, event border, legend dot), `--bk-bg` the tint behind an
    event, `--bk-fg` text that stays readable on that tint. */
+.bk-st--draft       { --bk-a: #64748b; --bk-bg: #f1f5f9; --bk-fg: #334155; }
 .bk-st--booked      { --bk-a: #d97706; --bk-bg: #fffbeb; --bk-fg: #92400e; }
 .bk-st--confirmed   { --bk-a: #059669; --bk-bg: #ecfdf5; --bk-fg: #065f46; }
 .bk-st--assigned    { --bk-a: #4f46b5; --bk-bg: #eef0fb; --bk-fg: #3730a3; }

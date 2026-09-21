@@ -1317,6 +1317,60 @@ def _lock_club_day(club_id, on_date) -> None:
                        [int(club_id), int(on_date.toordinal())])
 
 
+def minutes_held(on_date, at_time, *, duration, club, facility_type=None,
+                 facility=None, exclude_hold_id=None):
+    """Minutes until the reservation standing in the way of this slot ends.
+
+    None when nothing is holding it, so the caller can tell "somebody is
+    paying for this right now" from "this is simply taken".
+
+    For EXPLAINING a refusal and nothing else. Availability never consults
+    this; it reads the same reservations through `_day_holds` like everything
+    else does, and adding a second path would be a second set of rules that
+    could disagree. Staff told "no court is free" while looking at a calendar
+    with nothing on it conclude the software is broken. Told that one is held
+    for another four minutes, they can wait, offer another time, or pick it up
+    when the clock runs out.
+
+    Relative minutes rather than a wall-clock time on purpose: it needs no
+    timezone conversion, so it cannot quietly be an hour wrong.
+    """
+    from datetime import datetime as _datetime
+
+    from .models import BookingHoldSlot, HoldStatus
+
+    eligible = {f.id for f in eligible_facilities(club=club,
+                                                  facility_type=facility_type)}
+    if facility is not None:
+        eligible &= {facility.id}
+    if not eligible:
+        return None
+
+    start = at_time
+    end = (_datetime.combine(on_date, at_time)
+           + timedelta(minutes=duration or 0)).time()
+    rows = (BookingHoldSlot.objects
+            .filter(scheduled_date=on_date, facility_id__in=eligible,
+                    hold__status=HoldStatus.ACTIVE,
+                    hold__expires_at__gt=timezone.now())
+            .select_related("hold"))
+    if exclude_hold_id:
+        rows = rows.exclude(hold_id=exclude_hold_id)
+
+    # The one that frees up soonest: that is the answer to "how long until I
+    # can offer this court?", which is what the person asking actually wants.
+    soonest = None
+    for row in rows:
+        if not (row.scheduled_time < end and start < row.end_time):
+            continue
+        left = row.hold.seconds_remaining
+        if soonest is None or left < soonest:
+            soonest = left
+    if soonest is None:
+        return None
+    return max(1, -(-soonest // 60))            # round up; never "0 minutes"
+
+
 def allocate_facility(booking, *, commit=True, exclude_hold_id=None):
     """Pick a facility for `booking` and pin it to the booking.
 
@@ -1355,16 +1409,35 @@ def allocate_facility(booking, *, commit=True, exclude_hold_id=None):
             # block it. Every other live hold still does.
             exclude_hold_id=exclude_hold_id,
         )
+        # Why it is unavailable, when the reason is a reservation somebody is
+        # part way through paying for. Worked out only on the failure path, so
+        # a successful allocation costs nothing extra.
+        def held_note(facility=None):
+            minutes = minutes_held(
+                booking.scheduled_date, booking.scheduled_time,
+                duration=booking.duration_minutes, club=booking.club,
+                facility_type=booking.facility_type, facility=facility,
+                exclude_hold_id=exclude_hold_id)
+            if minutes is None:
+                return ""
+            unit = "minute" if minutes == 1 else "minutes"
+            return (f" Somebody is booking it right now; it is held for another "
+                    f"{minutes} {unit}.")
+
         if booking.facility_id:
             chosen = next((f for f in free if f.id == booking.facility_id), None)
             if chosen is None:
                 raise FacilityUnavailable(
-                    f"{booking.facility.name} is not available at that time.")
+                    f"{booking.facility.name} is not available at that time."
+                    + held_note(booking.facility))
         else:
             chosen = free[0] if free else None
             if chosen is None:
                 label = booking.facility_type.name
+                note = held_note()
                 raise FacilityUnavailable(
+                    f"No {label} is free at that time.{note}"
+                    if note else
                     f"No {label} is free at that time. Please choose another slot.")
             booking.facility = chosen
             if commit and booking.pk:
@@ -1500,6 +1573,56 @@ def _validate_confirmation_gate(booking, target):
         raise ValueError(
             "This booking is still awaiting its online payment and cannot be "
             "confirmed yet.")
+
+
+class DraftIncomplete(Exception):
+    """A draft cannot become a booking until it says what it is booking."""
+
+    def __init__(self, missing):
+        self.missing = missing
+        super().__init__("Fill in " + ", ".join(missing) + " before saving this booking.")
+
+
+def finish_draft(booking, *, actor=None):
+    """Turn a saved draft into a real booking.
+
+    Everything a draft was excused from happens HERE, because this is the
+    moment it stops being one person's unfinished form and starts occupying a
+    court: the fields it was allowed to leave blank must be filled, the club's
+    booking rules apply, and a facility is allocated, which revalidates
+    availability under the club/day lock.
+
+    That last part is the point of drafts holding nothing. The court was on
+    sale the whole time the draft sat there, so it may well have gone, and the
+    honest place to find out is here rather than at the moment somebody turns
+    up to play.
+    """
+    if booking.status != BookingStatus.DRAFT:
+        return booking
+
+    missing = [label for label, value in (
+        ("a customer", booking.customer_id),
+        ("a club", booking.club_id),
+        ("an activity", booking.facility_type_id),
+    ) if not value]
+    if missing:
+        raise DraftIncomplete(missing)
+
+    with transaction.atomic():
+        booking.compute_duration()
+        enforce_booking_rules(
+            club=booking.club, on_date=booking.scheduled_date,
+            at_time=booking.scheduled_time, customer=booking.customer,
+            staff_booking=True, exclude_booking_id=booking.pk)
+        # Raises FacilityUnavailable, which now explains a reservation when
+        # one is the reason the court has gone.
+        allocate_facility(booking, commit=False)
+        booking.compute_pricing()
+        booking.sync_payment_status()
+        booking.save()
+        return transition_booking(
+            booking, BookingStatus.BOOKED, actor=actor,
+            note="Draft completed")
 
 
 def check_confirmable(booking):

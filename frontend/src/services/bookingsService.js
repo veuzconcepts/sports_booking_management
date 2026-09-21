@@ -52,6 +52,11 @@ export const bookingsApi = {
       .then((r) => r.data),
   skipAssignment: (id) =>
     api.post(`/bookings/${id}/skip-assignment/`).then((r) => r.data),
+  // Turn a saved draft into a real booking. A draft holds no court, so this
+  // is the first moment availability matters and it can legitimately fail
+  // with 409 if the slot went while the draft was sitting there.
+  finishDraft: (id) =>
+    api.post(`/bookings/${id}/finish-draft/`).then((r) => r.data),
   // Apply / remove subscription coverage on an existing booking (no full edit).
   redeemSubscription: (id) =>
     api.post(`/bookings/${id}/redeem-subscription/`).then((r) => r.data),
@@ -136,6 +141,9 @@ export function bookingEditInitial(b) {
 
 // One vocabulary: the same `status.*` keys the badges and the calendar use.
 export const BOOKING_STATUS_VALUES = [
+  // `draft` leads because it comes before the lifecycle rather than being
+  // part of it: an admin's unfinished form, holding no court.
+  'draft',
   'booked', 'confirmed', 'assigned', 'arrived', 'in_progress',
   'completed', 'closed', 'cancelled', 'no_show',
 ];

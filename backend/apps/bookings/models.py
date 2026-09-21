@@ -71,6 +71,11 @@ class PaymentMethod(models.TextChoices):
 
 
 class BookingStatus(models.TextChoices):
+    # An admin's unfinished form, kept deliberately. It is NOT a reservation:
+    # a draft holds no court, so a half-filled booking somebody forgets about
+    # cannot take a court off sale for ever. Availability is checked when the
+    # draft is finished, which is the moment it becomes a real booking.
+    DRAFT = "draft", _("Draft")
     BOOKED = "booked", _("Pending")
     CONFIRMED = "confirmed", _("Confirmed")
     ASSIGNED = "assigned", _("Assigned")
@@ -86,6 +91,11 @@ class BookingStatus(models.TextChoices):
 # separately). Used by the API to reject illegal jumps. A customer can be
 # marked NO_SHOW any time before the booking has started.
 STATUS_TRANSITIONS = {
+    # A draft goes forward into the ordinary lifecycle or it is thrown away.
+    # Nothing moves INTO draft: a booking that has been made cannot become an
+    # unfinished form again, and letting it would take a live booking's court
+    # away without cancelling anything.
+    BookingStatus.DRAFT: {BookingStatus.BOOKED, BookingStatus.CANCELLED},
     BookingStatus.BOOKED: {BookingStatus.CONFIRMED, BookingStatus.CANCELLED, BookingStatus.NO_SHOW},
     BookingStatus.CONFIRMED: {BookingStatus.ASSIGNED, BookingStatus.CANCELLED, BookingStatus.NO_SHOW},
     BookingStatus.ASSIGNED: {BookingStatus.ARRIVED, BookingStatus.IN_PROGRESS,
@@ -99,6 +109,7 @@ STATUS_TRANSITIONS = {
 }
 
 # Statuses that count against slot capacity (i.e. still occupy a facility).
+# DRAFT is deliberately absent: an unfinished form is not a claim on a court.
 ACTIVE_STATUSES = {
     BookingStatus.BOOKED,
     BookingStatus.CONFIRMED,
@@ -476,17 +487,33 @@ class Booking(models.Model):
     # Validation
     # ------------------------------------------------------------------ #
     def clean(self):
-        # Exactly one bookable target: a facility type or a facility category.
-        targets = (bool(self.facility_type_id), bool(self.facility_category_id))
-        if sum(targets) != 1:
-            raise ValidationError(
-                "A booking must reference exactly one of facility type or facility category."
-            )
-        is_walk_in = self.booking_type == BookingType.WALK_IN
-        # Customer required unless this is a walk-in (which snapshots the name).
-        if not is_walk_in and not self.customer_id:
-            raise ValidationError("Select a customer, or mark the booking as walk-in.")
-        # A pinned facility must belong to the booking's club.
+        # A draft is excused the COMPLETENESS rules and nothing else.
+        #
+        # It is an admin's unfinished form, so "I have not decided yet" is its
+        # normal state rather than a broken record. Nothing downstream can be
+        # surprised by a half-filled draft: it holds no court, carries no
+        # money, and `services.finish_draft` runs every one of these again
+        # before it is allowed to become a real booking.
+        #
+        # Consistency rules still apply below, because a draft that says
+        # something contradictory is wrong whenever it was written.
+        complete = self.status != BookingStatus.DRAFT
+
+        if complete:
+            # Exactly one bookable target: a facility type or a category.
+            targets = (bool(self.facility_type_id), bool(self.facility_category_id))
+            if sum(targets) != 1:
+                raise ValidationError(
+                    "A booking must reference exactly one of facility type or "
+                    "facility category."
+                )
+            # Customer required unless walk-in (which snapshots the name).
+            if self.booking_type != BookingType.WALK_IN and not self.customer_id:
+                raise ValidationError(
+                    "Select a customer, or mark the booking as walk-in.")
+
+        # A pinned facility must belong to the booking's club. True of a draft
+        # too: naming a court at the wrong club is a mistake, not an omission.
         if self.facility_id and self.club_id and self.facility.club_id != self.club_id:
             raise ValidationError("The selected facility does not belong to this club.")
 

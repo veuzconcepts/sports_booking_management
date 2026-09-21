@@ -387,3 +387,86 @@ class TestAHeldSlotIsNotCalledBooked:
         slot = self.slot_at(venue)
         assert slot["available"] >= 1
         assert slot["held"] == 0
+
+
+class TestStaffAreToldWhyACourtIsUnavailable:
+    """A receptionist looking at an empty calendar, refused without a reason,
+    concludes the software is broken.
+
+    A reservation leaves no booking row, so there is nothing on the day view
+    to explain the refusal. Saying how long it has left turns a dead end into
+    a decision: wait, offer another time, or come back when it runs out.
+    """
+
+    def test_a_refusal_caused_by_a_reservation_says_so(self, venue):
+        from apps.bookings.models import Booking
+        from apps.bookings.services import FacilityUnavailable, allocate_facility
+
+        take(venue, "19:00")
+        booking = Booking(
+            customer=venue["customer"], club=venue["club"],
+            facility_type=venue["activity"], scheduled_date=soon(),
+            scheduled_time=time(19, 0), duration_minutes=60,
+            status=BookingStatus.BOOKED, currency="SAR",
+            total_amount=Decimal("100.000"))
+        with pytest.raises(FacilityUnavailable) as refused:
+            allocate_facility(booking, commit=False)
+        assert "held for another" in str(refused.value), str(refused.value)
+
+    def test_a_refusal_caused_by_a_real_booking_does_not_mention_a_reservation(
+            self, venue):
+        """Only say it when it is true: that court is not coming free."""
+        from apps.bookings.models import Booking
+        from apps.bookings.services import FacilityUnavailable, allocate_facility
+
+        Booking.objects.create(
+            customer=venue["customer"], club=venue["club"],
+            facility=venue["court"], facility_type=venue["activity"],
+            scheduled_date=soon(), scheduled_time=time(19, 0),
+            end_time=time(20, 0), duration_minutes=60,
+            status=BookingStatus.CONFIRMED, currency="SAR",
+            total_amount=Decimal("100.000"))
+        booking = Booking(
+            customer=venue["customer"], club=venue["club"],
+            facility_type=venue["activity"], scheduled_date=soon(),
+            scheduled_time=time(19, 0), duration_minutes=60,
+            status=BookingStatus.BOOKED, currency="SAR",
+            total_amount=Decimal("100.000"))
+        with pytest.raises(FacilityUnavailable) as refused:
+            allocate_facility(booking, commit=False)
+        assert "held for another" not in str(refused.value), str(refused.value)
+
+    def test_the_booking_being_created_from_a_reservation_is_not_blamed_on_it(
+            self, venue):
+        """Its own reservation is excluded, so it must never be the reason."""
+        from apps.bookings.services import minutes_held
+
+        hold, _token = take(venue, "19:00")
+        assert minutes_held(
+            soon(), time(19, 0), duration=60, club=venue["club"],
+            facility_type=venue["activity"], exclude_hold_id=hold.id) is None
+
+    def test_minutes_are_rounded_up_so_it_never_reads_zero(self, venue):
+        """"Held for another 0 minutes" is worse than saying nothing."""
+        from apps.bookings.services import minutes_held
+
+        hold, _token = take(venue, "19:00")
+        hold.expires_at = timezone.now() + timedelta(seconds=5)
+        hold.save(update_fields=["expires_at"])
+        assert minutes_held(soon(), time(19, 0), duration=60, club=venue["club"],
+                            facility_type=venue["activity"]) == 1
+
+    def test_an_expired_reservation_is_not_offered_as_a_reason(self, venue):
+        from apps.bookings.services import minutes_held
+
+        hold, _token = take(venue, "19:00")
+        hold.expires_at = timezone.now() - timedelta(minutes=1)
+        hold.save(update_fields=["expires_at"])
+        assert minutes_held(soon(), time(19, 0), duration=60, club=venue["club"],
+                            facility_type=venue["activity"]) is None
+
+    def test_a_free_slot_has_nothing_to_explain(self, venue):
+        from apps.bookings.services import minutes_held
+
+        assert minutes_held(soon(), time(19, 0), duration=60, club=venue["club"],
+                            facility_type=venue["activity"]) is None

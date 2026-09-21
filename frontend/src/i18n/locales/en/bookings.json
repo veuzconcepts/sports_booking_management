@@ -141,6 +141,8 @@
   },
   "covered": "Covered",
   "coveredMembership": "Covered by Membership",
+  "saveAsDraft": "Save as draft",
+  "finishBooking": "Finish booking",
   "createBooking": "Create booking",
   "created": "Created by",
   "creating": "Creating…",
@@ -309,6 +311,7 @@
   "status": {
     "arrived": "Checked in",
     "assigned": "Assigned",
+    "draft": "Draft",
     "booked": "Pending",
     "cancelled": "Cancelled",
     "closed": "Closed",

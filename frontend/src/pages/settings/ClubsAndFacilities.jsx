@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { Plus, Trash2, Pencil, Wrench, Clock, X, SlidersHorizontal } from 'lucide-react';
+import { Plus, Trash2, Pencil, Wrench, Clock, X, SlidersHorizontal, MapPin, Building2 }
+  from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import toast from 'react-hot-toast';
 
@@ -18,6 +19,8 @@ import { Select2 } from '../../components/Select2.jsx';
 import { facilitiesApi, facilityTypesApi, maintenanceBlocksApi }
   from '../../services/facilitiesService.js';
 import { apiErrorMessage } from '../../utils/apiError.js';
+import { ListPage } from '../../components/listview/index.js';
+import './clubs.css';
 
 export default function ClubsAndFacilities() {
   const { t } = useTranslation('settings');
@@ -42,25 +45,39 @@ export default function ClubsAndFacilities() {
     } finally { setDelBusy(false); }
   }
 
-  return (
-    <>
-      {canManage && (
-        <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 12 }}>
-          <button className="btn btn-primary" onClick={() => setClubModal(true)}><Plus size={15} /> {t('newClub')}</button>
-        </div>
-      )}
+  const facilityTotal = rows.reduce((sum, club) => sum + (club.facility_count || 0), 0);
 
+  return (
+    <ListPage
+      wide
+      title={t('clubsFacilities')}
+      subtitle={rows.length
+        ? t('clubsCount', { clubs: rows.length, facilities: facilityTotal })
+        : t('addClubFacilitiesItOffers')}
+      actions={canManage && (
+        <button className="btn btn-primary" onClick={() => setClubModal(true)}>
+          <Plus size={15} /> {t('newClub')}
+        </button>
+      )}
+    >
+      {/* A card grid rather than a table, so it goes in `.lv-altbody` and
+          occupies the region the table would have (CLAUDE.md section 36). */}
+      <div className="lv-altbody">
       {loading ? (
         <div className="card"><div className="card-body center" style={{ padding: 40 }}><span className="muted">Loading…</span></div></div>
       ) : rows.length === 0 ? (
         <div className="card"><div className="empty"><h3>{t('noClubsYet')}</h3><p>{t('addClubFacilitiesItOffers')}</p></div></div>
       ) : (
-        rows.map((club) => (
-          <ClubCard key={club.id} club={club}
-            onEdit={() => setEditClub(club)} onManageFacilities={() => setActiveClub(club)}
-            onDelete={() => { setDelErr(''); setDeleteClub(club); }} />
-        ))
+        <div className="clubs-grid">
+          {rows.map((club) => (
+            <ClubCard key={club.id} club={club} canManage={canManage}
+              onEdit={() => setEditClub(club)} onManageFacilities={() => setActiveClub(club)}
+              onDelete={() => { setDelErr(''); setDeleteClub(club); }} />
+          ))}
+        </div>
       )}
+
+      </div>
 
       <ClubModal
         open={clubModal || Boolean(editClub)}
@@ -89,38 +106,85 @@ export default function ClubsAndFacilities() {
         onConfirm={runDeleteClub}
         onClose={() => { if (!delBusy) { setDeleteClub(null); setDelErr(''); } }}
       />
-    </>
+    </ListPage>
   );
 }
 
-function ClubCard({ club, onManageFacilities, onEdit, onDelete }) {
+/**
+ * How many facility chips fit before the card stops being scannable.
+ *
+ * A club with twenty courts used to print twenty badges and grow to several
+ * times the height of its neighbours, which is what broke the grid and made
+ * the page feel empty and enormous at the same time. The rest are a count,
+ * and "Facilities" opens the full list.
+ */
+const CHIP_LIMIT = 5;
+
+function ClubCard({ club, canManage, onManageFacilities, onEdit, onDelete }) {
   const { t } = useTranslation('settings');
+  const facilities = club.facilities || [];
+  const shown = facilities.slice(0, CHIP_LIMIT);
+  const hidden = facilities.length - shown.length;
+  const where = [club.address, club.city].filter(Boolean).join(', ');
+
   return (
-    <div className="card" style={{ marginBottom: 14 }}>
-      <div className="card-header">
-        <div>
-          <h3 className="card-title">{club.name} <code style={{ fontSize: 12 }}>{club.code}</code></h3>
-          <p className="card-subtitle">{club.address || '-'}{club.city ? `, ${club.city}` : ''} · {club.facility_count} facilities</p>
+    <article className={`club-card${club.is_active ? '' : ' is-off'}`}>
+      <div className="club-card__head">
+        <div style={{ minWidth: 0 }}>
+          <h3 className="club-card__name" title={club.name}>{club.name}</h3>
+          <code className="club-card__code">{club.code}</code>
         </div>
-        <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-          <StatusBadge tone={club.is_active ? 'success' : 'muted'} label={club.is_active ? t('common:state.active') : t('common:state.inactive')} />
-          <button className="btn btn-secondary btn-sm" onClick={onEdit}><Pencil size={14} /> {t('common:actions.edit')}</button>
-          <button className="btn btn-secondary btn-sm" onClick={onManageFacilities}>{t('manageFacilities')}</button>
-          <button className="icon-btn" title={t('deleteClub2')} onClick={onDelete}><Trash2 size={15} /></button>
-        </div>
+        <StatusBadge
+          tone={club.is_active ? 'success' : 'muted'}
+          label={club.is_active ? t('common:state.active') : t('common:state.inactive')}
+        />
       </div>
-      <div className="card-body">
-        {(club.facilities || []).length === 0 ? (
-          <p className="muted">{t('noFacilitiesConfigured')}</p>
-        ) : (
-          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
-            {club.facilities.map((b) => (
-              <StatusBadge key={b.id} tone={b.is_active ? 'info' : 'muted'} label={b.name} />
-            ))}
-          </div>
+
+      <p className="club-card__meta">
+        <MapPin size={14} aria-hidden="true" />
+        <span>{where || t('noAddressYet')}</span>
+      </p>
+      <p className="club-card__meta">
+        <Building2 size={14} aria-hidden="true" />
+        <span>{t('facilityCount', { count: club.facility_count || 0 })}</span>
+      </p>
+
+      {facilities.length === 0 ? (
+        <p className="club-card__none">{t('noFacilitiesConfigured')}</p>
+      ) : (
+        <div className="club-card__chips">
+          {shown.map((f) => (
+            <span key={f.id}
+              className={`club-card__chip${f.is_active ? '' : ' is-off'}`}
+              title={f.name}>
+              {f.name}
+            </span>
+          ))}
+          {hidden > 0 && (
+            <span className="club-card__chip club-card__chip--more">
+              {t('andMore', { count: hidden })}
+            </span>
+          )}
+        </div>
+      )}
+
+      <div className="club-card__foot">
+        <button className="btn btn-secondary btn-sm" onClick={onManageFacilities}>
+          <Wrench size={14} /> {t('manageFacilities')}
+        </button>
+        {canManage && (
+          <button className="btn btn-ghost btn-sm" onClick={onEdit}>
+            <Pencil size={14} /> {t('common:actions.edit')}
+          </button>
+        )}
+        <span className="club-card__spacer" />
+        {canManage && (
+          <button className="icon-btn" title={t('deleteClub2')} onClick={onDelete}>
+            <Trash2 size={15} />
+          </button>
         )}
       </div>
-    </div>
+    </article>
   );
 }
 

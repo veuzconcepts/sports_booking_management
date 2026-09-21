@@ -345,6 +345,12 @@ class BookingCreateSerializer(serializers.ModelSerializer):
     # books a facility TYPE; the server allocates the unit (see `_finalize`).
     facility = serializers.PrimaryKeyRelatedField(
         queryset=Facility.objects.all(), required=False, allow_null=True)
+    # A one-way flag rather than a writable `status`: a client may say "I have
+    # not finished this", and nothing else about the lifecycle. It is only
+    # honoured on creation, so an existing booking can never be turned back
+    # into an unfinished form and quietly give up its court.
+    save_as_draft = serializers.BooleanField(
+        write_only=True, required=False, default=False)
 
     class Meta:
         model = Booking
@@ -361,6 +367,7 @@ class BookingCreateSerializer(serializers.ModelSerializer):
             "promo_code_input",
             "recurrence",
             "customer_notes", "internal_notes", "special_instructions",
+            "save_as_draft",
         )
         read_only_fields = ("id",)
 
@@ -402,7 +409,14 @@ class BookingCreateSerializer(serializers.ModelSerializer):
                     raise self._closed_error()
 
         # Exactly one bookable target: a facility type or a facility category.
-        if sum(bool(eff(f)) for f in ("facility_type", "facility_category")) != 1:
+        #
+        # A draft is exempt, and only a draft. It is an unfinished form, so
+        # "you have not said what you are booking yet" is its normal state
+        # rather than an error; the same check runs again in `finish_draft`,
+        # when the booking actually has to mean something.
+        as_draft = bool(attrs.get("save_as_draft"))
+        if (not as_draft
+                and sum(bool(eff(f)) for f in ("facility_type", "facility_category")) != 1):
             raise serializers.ValidationError(
                 "Provide exactly one of `facility_type` or `facility_category`."
             )
@@ -412,8 +426,10 @@ class BookingCreateSerializer(serializers.ModelSerializer):
         club = eff("club")
         facility = eff("facility")
 
-        # Customer required unless walk-in (which captures a name snapshot).
-        if not is_walk_in and not customer:
+        # Customer required unless walk-in (which captures a name snapshot),
+        # or unless this is a draft: an unfinished form is allowed not to know
+        # yet. `finish_draft` asks again before the booking becomes real.
+        if not is_walk_in and not customer and not as_draft:
             raise serializers.ValidationError(
                 {"customer": "Select a customer, or set booking type to walk-in."}
             )
@@ -476,10 +492,17 @@ class BookingCreateSerializer(serializers.ModelSerializer):
         if add_ons is not None:
             booking.add_ons.set(add_ons)
         booking.compute_duration()
-        self._enforce_rules(booking)
-        # Allocation happens AFTER the duration is known: a 90-minute booking
-        # must be given a facility that is free for the whole 90 minutes.
-        self._allocate_facility(booking)
+        # A draft is an unfinished form the admin means to come back to, so
+        # neither the club's booking rules nor a court are applied to it yet.
+        # It holds nothing, and everything skipped here is enforced when it is
+        # finished, which is the moment it stops being a draft and becomes a
+        # real booking. Pricing still runs: an admin returning to a draft
+        # wants to see what it would cost.
+        if booking.status != BookingStatus.DRAFT:
+            self._enforce_rules(booking)
+            # Allocation happens AFTER the duration is known: a 90-minute
+            # booking must be given a facility free for the whole 90 minutes.
+            self._allocate_facility(booking)
         booking.compute_pricing()
         from apps.bookings.services import booking_amount_paid, sync_booking_payment_status
         if booking_amount_paid(booking) > 0:
@@ -525,12 +548,15 @@ class BookingCreateSerializer(serializers.ModelSerializer):
 
     def create(self, validated_data):
         from apps.settings_app.currency import get_default_currency
+        as_draft = validated_data.pop("save_as_draft", False)
         add_ons = validated_data.pop("add_ons", [])
         promo_input = (validated_data.pop("promo_code_input", "") or "").strip()
         request = self.context.get("request")
         if request and request.user.is_authenticated:
             validated_data["created_by"] = request.user
         validated_data.setdefault("currency", get_default_currency())
+        if as_draft:
+            validated_data["status"] = BookingStatus.DRAFT
         booking = Booking(**validated_data)
         try:
             booking.full_clean(exclude=["reference", "duration_minutes"])
@@ -565,6 +591,11 @@ class BookingCreateSerializer(serializers.ModelSerializer):
         promo_services.record_redemption(promo, booking, booking.promo_discount, user=user)
 
     def update(self, instance, validated_data):
+        # Creation-only. Editing a draft leaves it a draft, and editing a real
+        # booking must never be able to demote it back into one: that would
+        # hand its court to somebody else without cancelling anything. The
+        # only way out of draft is `services.finish_draft`.
+        validated_data.pop("save_as_draft", None)
         add_ons = validated_data.pop("add_ons", None)
         # Snapshot the catalogue selection BEFORE the edit so we can log exactly what
         # changed (who added/removed which item/add-on, and the price impact).

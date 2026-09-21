@@ -156,6 +156,25 @@ class TestContrast:
                         if not c["passes"]]
             assert failures == [], f"{preset.name}: {failures}"
 
+    def test_every_shipped_preset_uses_only_catalogue_tokens(self):
+        """A misspelt token is stored and then silently ignored for ever.
+
+        `resolve` is `DEFAULTS | stored`, so an unknown name passes straight
+        through and simply never reaches a stylesheet. The contrast check
+        above cannot see it either: the pair it reads falls back to the
+        default and looks perfectly fine. Nothing notices until somebody
+        wonders why one colour in a preset does nothing.
+        """
+        known = set(theme_cfg.TOKEN_NAMES)
+        for preset in ThemePreset.objects.filter(is_builtin=True):
+            unknown = sorted(set(preset.tokens) - known)
+            assert unknown == [], f"{preset.name}: {unknown}"
+
+    def test_every_shipped_preset_stores_real_colours(self):
+        for preset in ThemePreset.objects.filter(is_builtin=True):
+            for token, value in preset.tokens.items():
+                assert theme_cfg.HEX.match(value), f"{preset.name}.{token}={value}"
+
 
 # --------------------------------------------------------------------------- #
 # The API                                                                      #
@@ -282,6 +301,15 @@ class TestPresets:
         names = [p["name"] for p in api.get("/api/v1/settings/theme-presets/").json()]
         assert "Default" in names
         assert "Midnight" in names
+        assert "Veuz Teal" in names
+
+    def test_the_veuz_preset_carries_its_brand_colours(self, api):
+        """Seeded by a migration, so nothing else would notice it going missing."""
+        preset = next(p for p in api.get("/api/v1/settings/theme-presets/").json()
+                      if p["name"] == "Veuz Teal")
+        assert preset["resolved"]["primary"] == "#0f4c4c"      # petrol teal
+        assert preset["resolved"]["accent"] == "#5cb335"       # leaf green
+        assert preset["resolved"]["secondary"] == "#1b8fbf"    # logo blue
 
     def test_preset_carries_a_resolved_palette(self, api):
         preset = next(p for p in api.get("/api/v1/settings/theme-presets/").json()
@@ -291,20 +319,28 @@ class TestPresets:
 
     def test_applying_a_preset_sets_the_active_theme(self, api):
         preset = next(p for p in api.get("/api/v1/settings/theme-presets/").json()
-                      if p["name"] == "Modern Green")
+                      if p["name"] == "Professional Blue")
         res = api.post(f"/api/v1/settings/theme-presets/{preset['id']}/apply/")
         assert res.status_code == 200
 
         org = Organization.get_solo()
-        assert org.theme["primary"] == "#0f766e"
-        assert org.theme_preset_name == "Modern Green"
+        assert org.theme["primary"] == "#2563eb"
+        assert org.theme_preset_name == "Professional Blue"
 
     def test_applying_a_preset_does_not_change_the_preset(self, api):
         preset = next(p for p in api.get("/api/v1/settings/theme-presets/").json()
-                      if p["name"] == "Modern Green")
+                      if p["name"] == "Professional Blue")
         api.post(f"/api/v1/settings/theme-presets/{preset['id']}/apply/")
         api.put("/api/v1/settings/theme/", {"theme": {"primary": "#ff0000"}}, format="json")
-        assert ThemePreset.objects.get(pk=preset["id"]).tokens["primary"] == "#0f766e"
+        assert ThemePreset.objects.get(pk=preset["id"]).tokens["primary"] == "#2563eb"
+
+    def test_a_withdrawn_preset_is_gone_from_the_list(self, api):
+        """Modern Green was removed. Deleting a preset is safe because a
+        preset never renders: applying one copies its tokens onto the
+        organization theme, so anybody already using those colours keeps
+        them."""
+        names = [p["name"] for p in api.get("/api/v1/settings/theme-presets/").json()]
+        assert "Modern Green" not in names
 
     def test_a_built_in_preset_cannot_be_edited(self, api):
         preset = ThemePreset.objects.get(name="Midnight")
