@@ -1161,7 +1161,7 @@ function UserFormModal({ open, user, roles = [], onClose, onSaved, onMfaChanged 
   }
 
   return (
-    <Modal open={open} onClose={onClose} title={isEdit ? `Edit ${user.email}` : 'New user'} size="lg"
+    <Modal open={open} onClose={onClose} title={isEdit ? `Edit ${user.email}` : 'New user'} side size="lg"
       footer={<>
         <button className="btn btn-secondary" type="button" onClick={onClose}>{t('common:actions.cancel')}</button>
         <button className="btn btn-primary" onClick={handleSubmit(onSubmit)} disabled={isSubmitting}>

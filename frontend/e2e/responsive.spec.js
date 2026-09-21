@@ -464,4 +464,69 @@ test.describe('right-to-left', () => {
     expect(nav.x + nav.width).toBeGreaterThan(1400);   // docked on the right
     expect(await horizontalOverflow(page)).toBeLessThanOrEqual(1);
   });
+
+  /**
+   * Slide-over panels mirror, and the way to get this wrong is specific.
+   *
+   * `justify-content` resolves against the container's direction, so the
+   * `flex-end` that anchors a panel to the right in English already means the
+   * left in Arabic. Adding a `[dir="rtl"]` override to `flex-start` looks like
+   * the mirroring fix and is the opposite of one: it puts the panel back on
+   * the right while the shadow beside it is drawn for a panel on the left.
+   * The drawer carried exactly that for a while, measured at 1000..1440 in a
+   * right-to-left interface.
+   *
+   * One test per direction rather than one that visits both: `addInitScript`
+   * only takes effect on a later navigation, so measuring English and then
+   * Arabic on the same page silently measured English twice and read as a
+   * mirroring failure.
+   */
+  const PANELS = [
+    ['drawer', 'drawer-backdrop', 'drawer-panel'],
+    ['side modal', 'modal-backdrop modal-backdrop--side',
+      'modal-dialog modal-dialog--lg modal-dialog--side'],
+  ];
+
+  async function panelEdge(page, backdropClass, panelClass) {
+    return page.evaluate(([backdrop, panel]) => {
+      const host = document.createElement('div');
+      host.className = backdrop;
+      const inner = document.createElement('div');
+      inner.className = panel;
+      inner.style.maxWidth = '440px';
+      host.appendChild(inner);
+      document.body.appendChild(host);
+      const box = inner.getBoundingClientRect();
+      const out = { left: Math.round(box.left), right: Math.round(box.right) };
+      host.remove();
+      return out;
+    }, [backdropClass, panelClass]);
+  }
+
+  for (const [label, backdropClass, panelClass] of PANELS) {
+    test(`a ${label} opens from the right in English`, async ({ page }) => {
+      await page.setViewportSize({ width: 1440, height: 900 });
+      await setupApp(page);
+      await page.goto('/bookings');
+      await page.locator('.topbar').waitFor({ state: 'visible' });
+      await expect(page.locator('html')).toHaveAttribute('dir', 'ltr');
+
+      const box = await panelEdge(page, backdropClass, panelClass);
+      expect(box.right).toBeGreaterThan(1400);
+    });
+
+    test(`a ${label} opens from the left in Arabic`, async ({ page }) => {
+      await page.setViewportSize({ width: 1440, height: 900 });
+      await page.addInitScript(() => window.localStorage.setItem('ui_language', 'ar'));
+      await setupApp(page);
+      await page.goto('/bookings');
+      await page.locator('.topbar').waitFor({ state: 'visible' });
+      // Asserted before measuring: a language that failed to apply would
+      // otherwise be indistinguishable from a panel on the wrong edge.
+      await expect(page.locator('html')).toHaveAttribute('dir', 'rtl');
+
+      const box = await panelEdge(page, backdropClass, panelClass);
+      expect(box.left).toBeLessThanOrEqual(1);
+    });
+  }
 });

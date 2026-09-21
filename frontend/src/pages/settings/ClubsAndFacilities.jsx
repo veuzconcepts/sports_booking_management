@@ -264,7 +264,7 @@ function ClubModal({ open, club, onClose, onSaved }) {
   }
 
   return (
-    <Modal open={open} onClose={onClose} title={editing ? t('editClub') : t('newClub')} size="lg"
+    <Modal open={open} onClose={onClose} title={editing ? t('editClub') : t('newClub')} side size="lg"
       footer={<>
         <button className="btn btn-secondary" type="button" onClick={onClose}>{t('common:actions.cancel')}</button>
         <button className="btn btn-primary" onClick={submit} disabled={busy}>
@@ -684,7 +684,7 @@ function FacilityHoursModal({ facility, club, onClose, onSaved }) {
       open={Boolean(facility && form)}
       onClose={busy ? () => {} : onClose}
       title={facility ? `Business hours - ${facility.name}` : 'Business hours'}
-      size="lg"
+      side size="lg"
       footer={
         <>
           <button className="btn btn-secondary" type="button" disabled={busy}

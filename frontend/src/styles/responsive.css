@@ -149,6 +149,60 @@ body {
 .modal-dialog--lg { max-width: 720px; }
 .modal-dialog--xl { max-width: 960px; }
 
+/* ------------------------------------------------- slide-over form dialog */
+/* `<Modal side>`: the same dialog, anchored to the edge instead of centred.
+   A long record form reads better as a tall column than as a short wide box
+   that scrolls its middle.
+
+   It reuses `.modal-dialog`, so the head, body, footer, sizes and close
+   behaviour are literally the same rules. Only the position changes, which is
+   why a side panel cannot drift out of step with a centred one. */
+.modal-backdrop--side {
+  align-items: stretch;
+  justify-content: flex-end;
+  padding: 0;
+}
+
+.modal-dialog--side {
+  height: 100%;
+  max-height: none;
+  border-radius: 0;
+  box-shadow: -20px 0 50px rgba(15, 23, 42, 0.25);
+}
+
+/* Wider than the centred equivalents: a panel has the full height to use, so
+   it can afford a comfortable measure without becoming a wall of text. */
+.modal-dialog--side.modal-dialog--sm { max-width: 420px; }
+.modal-dialog--side.modal-dialog--md { max-width: 560px; }
+.modal-dialog--side.modal-dialog--lg { max-width: 760px; }
+.modal-dialog--side.modal-dialog--xl { max-width: 1000px; }
+
+.slide-in-end { animation: slide-in-end .22s ease both; }
+
+@keyframes slide-in-end {
+  from { opacity: 0; transform: translateX(24px); }
+  to   { opacity: 1; transform: translateX(0); }
+}
+
+/* In Arabic the panel belongs on the left, and it already is: `justify-content`
+   resolves against the container's direction, so `flex-end` above means the
+   left edge under `dir="rtl"`. Overriding it to `flex-start` here would put
+   the panel back on the RIGHT, which is exactly the mistake it looks like a
+   fix for. Only the shadow, which is drawn in physical pixels, has to flip. */
+[dir="rtl"] .modal-dialog--side { box-shadow: 20px 0 50px rgba(15, 23, 42, 0.25); }
+[dir="rtl"] .slide-in-end { animation-name: slide-in-end-rtl; }
+
+@keyframes slide-in-end-rtl {
+  from { opacity: 0; transform: translateX(-24px); }
+  to   { opacity: 1; transform: translateX(0); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  /* Travel across the screen is the kind of movement that actually makes
+     people unwell. The panel still appears; it just stops sliding. */
+  .slide-in-end { animation: none; }
+}
+
 .drawer-backdrop {
   position: fixed;
   inset: 0;
@@ -185,12 +239,26 @@ body {
   .modal-foot { flex-wrap: wrap; }
   .modal-foot > .btn { flex: 1 1 140px; }
   .drawer-panel { max-width: none !important; }
+  /* A side panel takes the whole phone rather than becoming a bottom sheet:
+     it is a long form, and the rounded top corners of the sheet treatment
+     would cost two rows of fields for decoration. */
+  .modal-dialog--side {
+    max-width: none;
+    max-height: 100vh;
+    max-height: 100dvh;
+    border-radius: 0;
+  }
 }
 
 /* --------------------------------------------------------------- RTL trim */
 /* Direction-specific shadows; everything else uses logical properties. */
 [dir="rtl"] .drawer-panel { box-shadow: 20px 0 50px rgba(15, 23, 42, 0.25); }
-[dir="rtl"] .drawer-backdrop { justify-content: flex-start; }
+/* The `justify-content: flex-start` that used to sit here kept the drawer on
+   the RIGHT in Arabic while the shadow above was already drawn for a panel on
+   the left. `justify-content` resolves against the container's direction, so
+   the `flex-end` on `.drawer-backdrop` mirrors on its own and the override was
+   putting it back. Measured at 1440: the panel was at 1000..1440, the right
+   edge, in a right-to-left interface. */
 
 /* ------------------------------------------- membership entitlement rows */
 /* Six controls in a line is a laptop layout; below that it becomes two

@@ -70,6 +70,13 @@ class BookingSerializer(serializers.ModelSerializer):
     customer_label = serializers.SerializerMethodField()
     facility_category_name = serializers.CharField(source="facility_category.name", read_only=True, default=None)
     facility_type_name = serializers.CharField(source="facility_type.name", read_only=True, default=None)
+    # The activity's own photo, so a booking can be recognised at a glance
+    # instead of read. `ImageField` resolves an absolute URL from the request
+    # in the serializer context, which the viewset already supplies, and the
+    # listing queryset already `select_related`s `facility_type`, so a page of
+    # rows costs no extra queries.
+    facility_type_image = serializers.ImageField(
+        source="facility_type.image", read_only=True, default=None)
     assigned_to_name = serializers.CharField(source="assigned_to.full_name", read_only=True, default=None)
     created_by_name = serializers.CharField(source="created_by.full_name", read_only=True, default=None)
     updated_by_name = serializers.CharField(source="updated_by.full_name", read_only=True, default=None)
@@ -104,7 +111,7 @@ class BookingSerializer(serializers.ModelSerializer):
             "customer", "customer_name", "customer_email", "customer_label",
             "walk_in_name", "walk_in_phone", "walk_in_email",
             "facility_category", "facility_category_name",
-            "facility_type", "facility_type_name",
+            "facility_type", "facility_type_name", "facility_type_image",
             "add_ons", "add_on_names",
             "booking_type", "source", "source_display", "priority", "status",
             "customer_was_new", "customer_info_updated", "customer_verified",

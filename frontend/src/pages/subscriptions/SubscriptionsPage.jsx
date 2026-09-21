@@ -563,7 +563,7 @@ function PlanFormModal({ open, plan, onClose, onDone }) {
   }
 
   return (
-    <Modal open={open} onClose={onClose} title={isEdit ? t('editMembershipPlan') : t('newMembershipPlan')} size="lg"
+    <Modal open={open} onClose={onClose} title={isEdit ? t('editMembershipPlan') : t('newMembershipPlan')} side size="lg"
       footer={<>
         <button className="btn btn-secondary" type="button" onClick={onClose}>{t('common:actions.cancel')}</button>
         <button className="btn btn-primary" onClick={submit} disabled={busy}>{t('savePlan')}</button>

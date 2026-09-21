@@ -302,7 +302,7 @@ function FacilityCategoryFormModal({ open, category, onClose, onSaved, onDeleted
 
   return (
     <>
-    <Modal open={open} onClose={onClose} title={isEdit ? `Edit ${category.name}` : 'New facility category'} size="lg"
+    <Modal open={open} onClose={onClose} title={isEdit ? `Edit ${category.name}` : 'New facility category'} side size="lg"
       footer={
         <>
           {isEdit && (
@@ -719,7 +719,7 @@ function FacilityTypeFormModal({ open, item, categories, onClose, onSaved, onDel
 
   return (
     <>
-    <Modal open={open} onClose={onClose} size="lg"
+    <Modal open={open} onClose={onClose} side size="lg"
       title={isEdit ? `Edit ${item.name}` : 'New activity'}
       footer={
         <>
@@ -1089,7 +1089,7 @@ function AddOnFormModal({ open, addon, categories, onClose, onSaved, onDeleted }
 
   return (
     <>
-    <Modal open={open} onClose={onClose} size="lg"
+    <Modal open={open} onClose={onClose} side size="lg"
       title={isEdit ? `Edit ${addon.name}` : 'New add-on'}
       footer={
         <>
@@ -1465,7 +1465,7 @@ function PricingRuleFormModal({ open, rule, onClose, onSaved, onDeleted }) {
 
   return (
     <>
-    <Modal open={open} onClose={onClose} size="lg"
+    <Modal open={open} onClose={onClose} side size="lg"
       title={isEdit ? `Edit ${rule.name}` : 'New pricing rule'}
       footer={
         <>

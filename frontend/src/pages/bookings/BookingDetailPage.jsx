@@ -39,6 +39,7 @@ import { formatTime, formatDateTime, formatDate } from '../../services/timeforma
 import { usePrompt } from '../../components/PromptDialog.jsx';
 import { apiErrorMessage } from '../../utils/apiError';
 import { actorLabel } from '../../utils/actor';
+import { ActivityThumb } from './ActivityThumb.jsx';
 
 const statusLabel = (t, v) => bookingStatuses(t).find((s) => s.value === v)?.label || v;
 const PRIORITY_TONE = { normal: 'muted', urgent: 'warning', vip: 'danger' };
@@ -412,7 +413,16 @@ export default function BookingDetailPage() {
                 </div>
               </KV>
               <KV icon={LayoutGrid} label={t('common:labels.facility')}>
-                {booking.facility_type_name || booking.facility_category_name || '-'}
+                <span style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 0 }}>
+                  <ActivityThumb
+                    src={booking.facility_type_image}
+                    name={booking.facility_type_name || booking.facility_category_name}
+                    size={30}
+                  />
+                  <span style={{ minWidth: 0 }}>
+                    {booking.facility_type_name || booking.facility_category_name || '-'}
+                  </span>
+                </span>
               </KV>
               <KV icon={Calendar} label={t('scheduled')}>
                 {formatDate(booking.scheduled_date)} at {formatTime(booking.scheduled_time)}

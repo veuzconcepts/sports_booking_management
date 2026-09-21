@@ -301,7 +301,7 @@ function TransferModal({ open, staff, onClose, onDone }) {
   }
 
   return (
-    <Modal open={open} onClose={onClose} title={t('transferEmployee')} size="lg"
+    <Modal open={open} onClose={onClose} title={t('transferEmployee')} side size="lg"
       footer={(
         <>
           <button className="btn btn-secondary" onClick={onClose} disabled={busy}>{t('common:actions.cancel')}</button>

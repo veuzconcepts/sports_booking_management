@@ -191,7 +191,7 @@ export function CampaignFormModal({ open, record, onClose, onSaved }) {
     <Modal
       open={open}
       onClose={busy ? () => {} : onClose}
-      size="xl"
+      side size="xl"
       title={editing ? t('campaigns.editCampaign') : t('campaigns.newCampaign')}
       footer={(
         <>

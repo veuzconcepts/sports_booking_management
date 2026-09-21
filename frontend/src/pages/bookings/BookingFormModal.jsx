@@ -412,7 +412,7 @@ export function BookingFormModal({ open, onClose, onSaved, initial = null, editI
     <>
     <Modal
       open={open} onClose={close}
-      title={isEdit ? 'Edit booking' : initial ? t('duplicateBooking') : t('newBooking')} size="lg"
+      title={isEdit ? 'Edit booking' : initial ? t('duplicateBooking') : t('newBooking')} side size="lg"
       footer={
         <>
           <button className="btn btn-secondary" onClick={close} type="button">{t('common:actions.cancel')}</button>

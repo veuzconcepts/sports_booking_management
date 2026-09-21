@@ -31,6 +31,7 @@ import { Money } from '../../services/currency.jsx';
 import { formatDate } from '../../services/timeformat.jsx';
 import { apiErrorMessage } from '../../utils/apiError';
 import { exportRowsToCsv } from '../../utils/exportCsv.js';
+import { ActivityThumb } from './ActivityThumb.jsx';
 
 const VIEWS = [
   { key: 'list', labelKey: 'views.list', Icon: List },
@@ -167,15 +168,20 @@ export default function BookingsListPage() {
       key: 'reference', header: t('reference'), sortKey: 'reference',
       minWidth: 150, alwaysVisible: true,
       render: (r) => (
-        <div>
-          <span className="link-btn" style={{ fontWeight: 600, fontFamily: 'var(--font-mono, monospace)' }}>
-            {r.reference}
-          </span>
-          <div className="muted" style={{ fontSize: 12 }}>
-            {r.facility_type_name}
-            {/* One of several slots bought together. Without this the list
-                reads as unrelated bookings that happen to share a customer. */}
-            {r.order_reference ? ` · ${r.order_reference}` : ''}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, minWidth: 0 }}>
+          {/* The activity at a glance. A listing of near-identical rows is
+              read far faster by picture than by name. */}
+          <ActivityThumb src={r.facility_type_image} name={r.facility_type_name} size={32} />
+          <div style={{ minWidth: 0 }}>
+            <span className="link-btn" style={{ fontWeight: 600, fontFamily: 'var(--font-mono, monospace)' }}>
+              {r.reference}
+            </span>
+            <div className="muted" style={{ fontSize: 12 }}>
+              {r.facility_type_name}
+              {/* One of several slots bought together. Without this the list
+                  reads as unrelated bookings that happen to share a customer. */}
+              {r.order_reference ? ` · ${r.order_reference}` : ''}
+            </div>
           </div>
         </div>
       ),
