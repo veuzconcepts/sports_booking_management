@@ -94,7 +94,7 @@ class PaymentSerializer(serializers.ModelSerializer):
             "invoice_id", "invoice_number", "receipt_id", "receipt_number",
             "customer", "customer_name",
             "method", "method_display", "status", "status_display", "currency",
-            "amount", "refunded_amount", "refundable_amount",
+            "amount", "refunded_amount", "refundable_amount", "payer",
             "gateway", "gateway_reference", "failure_reason",
             "refunds", "paid_at", "created_by", "created_by_name",
             "created_at", "updated_at",

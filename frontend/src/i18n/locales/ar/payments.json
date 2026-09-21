@@ -160,6 +160,7 @@
   "originalInvoiceItsCreditNotes": "الفاتورة الأصلية وإشعارات الدائن (المستردات) والرصيد القابل للاسترداد.",
   "outstanding": "المستحق",
   "paid": "مدفوع",
+  "paidBy": "دفعه",
   "partiallyRefunded": "مُسترد جزئياً",
   "payment": "الدفعة",
   "paymentCaptured": "تم تحصيل الدفعة",

@@ -2027,6 +2027,14 @@ def settle_booking_payment(booking, *, method, amount=None, reference="", notes=
         payment = pay.record_manual_payment(
             customer=booking.customer, amount=charge, method=method, booking=booking,
             reference=reference, notes=notes, request=request)
+    # Who handed the money over, on the payment ITSELF. A split share that does
+    # not divide evenly into the slots it covers raises more than one payment,
+    # and `BookingPaymentShare.payment` holds only the first; without this the
+    # rest were attributable solely by reading the Booking Log, which is not
+    # something a refund can be answered from.
+    if payer_label:
+        payment.payer = payer_label[:120]
+        payment.save(update_fields=["payer", "updated_at"])
     invoice = pay.create_invoice(
         booking=booking, payment=payment, amount=charge, request=request)
     sync_booking_payment_status(booking)

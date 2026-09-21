@@ -353,6 +353,20 @@ class Payment(models.Model):
     card_brand = models.CharField(max_length=20, blank=True)
     card_last4 = models.CharField(max_length=4, blank=True)
 
+    # Who actually handed the money over, when that is not the booking's own
+    # customer: a friend settling their share of a split.
+    #
+    # It has to live on the PAYMENT rather than only on the share, because a
+    # share that does not divide evenly into the slots it covers produces more
+    # than one payment, and `BookingPaymentShare.payment` can hold only the
+    # first. The rest were attributable solely by reading the Booking Log,
+    # which is not something a refund can be answered from, and "refunds follow
+    # the payer" is confirmed policy.
+    #
+    # A display name, never an identity: the Payment still belongs to the
+    # booking's customer, because the invoice is raised against the booking.
+    payer = models.CharField(max_length=120, blank=True)
+
     created_by = models.ForeignKey(
         settings.AUTH_USER_MODEL,
         on_delete=models.SET_NULL,

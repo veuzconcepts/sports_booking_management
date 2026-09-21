@@ -160,6 +160,7 @@
   "originalInvoiceItsCreditNotes": "Original invoice, its credit notes (refunds), and the refundable balance.",
   "outstanding": "Outstanding",
   "paid": "Paid",
+  "paidBy": "Paid by",
   "partiallyRefunded": "Partially refunded",
   "payment": "Payment",
   "paymentCaptured": "Payment captured",

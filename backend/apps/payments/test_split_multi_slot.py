@@ -654,3 +654,102 @@ class TestSettlingAtTheDeskClosesTheArrangement:
         split.refresh_from_db()
         assert split.status == SplitStatus.ACTIVE
         assert split_service.resolve_share(links[unpaid.id]) is not None
+
+
+class TestEveryPaymentKeepsItsPayer:
+    """Refunds follow the payer, which needs the payer to be on the PAYMENT.
+
+    `BookingPaymentShare.payment` is a one-to-one, so it holds the first
+    payment a share produced and no more. A share that does not divide evenly
+    into the slots it covers raises two, and the second was attributable only
+    by reading the Booking Log. That is not something a refund can be answered
+    from, and refunding the wrong person is the mistake this prevents.
+    """
+
+    def test_a_share_names_its_payer_on_the_payment(self, order):
+        booking_order, bookings = order
+        split, links = three_ways(booking_order, bookings)
+        pay(links, ordered_shares(split)[0])
+
+        payment = Payment.objects.get(booking_id=bookings[0].pk)
+        assert payment.payer == "Mohammed Navab"
+
+    def test_the_second_payment_of_a_straddling_share_names_it_too(self, order):
+        """The case this exists for. One share, two slots, two payments, and
+        both have to say who paid."""
+        booking_order, bookings = order
+        total = sum((booking_outstanding(b) for b in bookings), Decimal("0"))
+        one_slot = booking_outstanding(bookings[0])
+        big = one_slot + Decimal("10.000")
+        split, links = split_service.create_split(booking_order, [
+            {"amount": big, "name": "Ahmed", "is_organizer": True},
+            {"amount": total - big, "name": "Omar"},
+        ])
+        pay(links, ordered_shares(split)[0])
+
+        first = Payment.objects.get(booking_id=bookings[0].pk)
+        second = Payment.objects.get(booking_id=bookings[1].pk)
+        assert first.payer == "Ahmed"
+        assert second.payer == "Ahmed"
+        # And the share can still only point at one of them, which is exactly
+        # why the payer has to live on the payment.
+        share = ordered_shares(split)[0]
+        share.refresh_from_db()
+        assert share.payment_id in (first.pk, second.pk)
+
+    def test_each_payer_is_on_their_own_payment(self, order):
+        booking_order, bookings = order
+        split, links = three_ways(booking_order, bookings)
+        for share in ordered_shares(split):
+            pay(links, share)
+
+        payers = {p.booking_id: p.payer
+                  for p in Payment.objects.filter(
+                      booking_id__in=[b.pk for b in bookings])}
+        assert set(payers.values()) == {"Mohammed Navab", "Ahmed", "Omar"}
+
+    def test_a_share_with_no_name_still_records_something_useful(self, order):
+        """An organizer may want a bare link to paste into a group chat, so a
+        participant name is optional. "Guest" beats a blank column."""
+        booking_order, bookings = order
+        total = sum((booking_outstanding(b) for b in bookings), Decimal("0"))
+        split, links = split_service.create_split(booking_order, [
+            {"amount": total, "name": ""},
+        ])
+        pay(links, ordered_shares(split)[0])
+
+        assert Payment.objects.filter(booking_id=bookings[0].pk).first().payer == "Guest"
+
+    def test_the_organizer_settling_the_remainder_is_named(self, order):
+        booking_order, bookings = order
+        split, _links = three_ways(booking_order, bookings)
+        split_service.pay_remaining(split, method="cash")
+
+        payers = {p.payer for p in Payment.objects.filter(
+            booking_id__in=[b.pk for b in bookings])}
+        assert payers == {"Organizer"}
+
+    def test_an_ordinary_booking_leaves_it_blank(self, venue):
+        """Almost every payment. The booking's own customer paid, and saying so
+        twice would be noise on every receipt in the system."""
+        from apps.bookings.services import settle_booking_payment
+
+        booking = Booking.objects.create(
+            customer=venue["customer"], club=venue["club"], facility=venue["court"],
+            facility_type=venue["activity"], scheduled_date=MONDAY,
+            scheduled_time=time(14, 0), end_time=time(15, 0), duration_minutes=60,
+            status=BookingStatus.BOOKED, currency="SAR",
+            total_amount=Decimal("100.000"))
+        settle_booking_payment(booking, method="cash")
+
+        assert Payment.objects.get(booking_id=booking.pk).payer == ""
+
+    def test_the_api_reports_it_so_a_refund_can_be_aimed(self, auth_api, order):
+        booking_order, bookings = order
+        split, links = three_ways(booking_order, bookings)
+        pay(links, ordered_shares(split)[1])
+
+        response = auth_api.get(f"/api/v1/bookings/{bookings[0].pk}/finance/")
+        assert response.status_code == 200, response.data
+        payments = response.data["payments"]
+        assert [p["payer"] for p in payments] == ["Ahmed"]

@@ -328,9 +328,21 @@ asked and answered explicitly; it is not an unfinished corner.
 per participant, each against their own payment, through the normal credit note
 flow and honouring `Organization.require_refund_approval`. Cancelling such a
 booking does not refund anybody automatically, and the full amount is never
-returned to the organizer alone. Every share therefore has to keep its payer,
-its amount and its payment reference, and each share's payment must raise its
-own invoice.
+returned to the organizer alone.
+
+**The payer lives on the PAYMENT, not only on the share.** `Payment.payer`
+names who handed the money over whenever that is not the booking's own
+customer, and it is set in `settle_booking_payment`, the one place any payment
+is recorded. `BookingPaymentShare.payment` is a one-to-one and holds only the
+FIRST payment a share produced; a share that does not divide evenly into the
+slots it covers raises a second, which was previously attributable only by
+reading the Booking Log. A refund cannot be aimed from a log entry, and
+refunding the wrong person is what this prevents.
+
+It is a display name, never an identity: the Payment still belongs to the
+booking's customer, because the invoice is raised against the booking. An
+ordinary booking leaves it blank rather than repeating the customer on every
+receipt in the system. Each share's payment still raises its own invoice.
 
 ## Multi-Slot Booking Integrity
 
