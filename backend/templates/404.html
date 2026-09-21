@@ -1,0 +1,115 @@
+<!DOCTYPE html>
+<!--
+  The backend's "not found" page.
+
+  Deliberately plain HTML with no template tags and no external requests, so
+  ONE file serves two jobs: Django renders it for a route that does not exist,
+  and nginx can point `error_page 404` straight at it for a static or media
+  path that never reaches Django. That second case is the one people actually
+  meet, because a missing image or a mistyped media URL is answered by nginx
+  and Django never hears about it.
+
+  A page that says "something is missing" must not itself depend on anything
+  that could be missing: no fonts, no stylesheets, no images, no scripts. The
+  styling is inline and the artwork is a data URI.
+
+  It also says nothing about what went wrong beyond the fact. A 404 on an
+  administration host should not confirm which paths exist.
+-->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex, follow">
+<title>Page not found</title>
+<style>
+  :root {
+    color-scheme: light dark;
+    --bg: #f7f5ef;
+    --surface: #ffffff;
+    --ink: #14303a;
+    --muted: #5f7076;
+    --line: #dfe7e4;
+    --accent: #0f4c4c;
+    --accent-ink: #ffffff;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #0d1b1f;
+      --surface: #132a30;
+      --ink: #eaf4f1;
+      --muted: #9ab0b3;
+      --line: rgba(255, 255, 255, 0.10);
+      --accent: #4fb3a5;
+      --accent-ink: #06231f;
+    }
+  }
+  * { box-sizing: border-box; }
+  html, body { height: 100%; }
+  body {
+    margin: 0;
+    display: grid;
+    place-items: center;
+    padding: 32px 16px;
+    background: var(--bg);
+    color: var(--ink);
+    font: 16px/1.55 system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    -webkit-font-smoothing: antialiased;
+  }
+  .card {
+    width: 100%;
+    max-width: 460px;
+    padding: 40px 32px;
+    border: 1px solid var(--line);
+    border-radius: 18px;
+    background: var(--surface);
+    box-shadow: 0 18px 44px rgba(12, 32, 38, 0.08);
+    text-align: center;
+  }
+  .mark { width: 64px; height: 64px; margin: 0 auto 20px; display: block; }
+  .code {
+    display: block;
+    font-size: 54px;
+    font-weight: 800;
+    letter-spacing: -0.02em;
+    line-height: 1;
+    color: var(--accent);
+  }
+  h1 { margin: 14px 0 8px; font-size: 20px; font-weight: 700; }
+  p { margin: 0 0 26px; color: var(--muted); font-size: 14.5px; }
+  .btn {
+    display: inline-block;
+    padding: 12px 26px;
+    border-radius: 999px;
+    background: var(--accent);
+    color: var(--accent-ink);
+    font-weight: 600;
+    font-size: 14.5px;
+    text-decoration: none;
+    transition: opacity .15s ease;
+  }
+  .btn:hover { opacity: .88; }
+  .btn:focus-visible { outline: 3px solid var(--accent); outline-offset: 3px; }
+  @media (max-width: 420px) {
+    .card { padding: 32px 22px; }
+    .code { font-size: 44px; }
+  }
+</style>
+</head>
+<body>
+  <main class="card">
+    <!-- A compass, drawn inline: the page is about being somewhere that is
+         not there, and a linked image here could itself 404. -->
+    <svg class="mark" viewBox="0 0 64 64" fill="none" aria-hidden="true">
+      <circle cx="32" cy="32" r="25" stroke="currentColor" stroke-width="3" opacity=".22"/>
+      <path d="M41 23 27 28l-4 13 14-5 4-13z" stroke="currentColor" stroke-width="3"
+            stroke-linejoin="round" opacity=".55"/>
+      <circle cx="32" cy="32" r="3.2" fill="currentColor"/>
+    </svg>
+    <span class="code">404</span>
+    <h1>We cannot find that page</h1>
+    <p>The link may be out of date, or the address may have a typo in it.</p>
+    <a class="btn" href="/">Go to the dashboard</a>
+  </main>
+</body>
+</html>
