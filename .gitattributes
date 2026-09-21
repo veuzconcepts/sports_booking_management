@@ -24,6 +24,7 @@ frontend/**/*.test.jsx       export-ignore
 frontend/**/*.spec.js        export-ignore
 frontend/**/*.spec.jsx       export-ignore
 frontend/e2e/**              export-ignore
+frontend/e2e                 export-ignore
 frontend/playwright.config.js export-ignore
 frontend/vitest.setup.js     export-ignore
 
@@ -35,5 +36,7 @@ web/scripts/**               export-ignore
 # ------------------------------------------------------------------ repo --
 # Notes for whoever is changing this code, not for the machine running it.
 docs/**                      export-ignore
+docs                         export-ignore
 scripts/**                   export-ignore
+scripts                      export-ignore
 CLAUDE.md                    export-ignore
