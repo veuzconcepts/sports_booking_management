@@ -142,6 +142,7 @@
   "completeAndPay": "الإتمام والدفع",
   "completed": "مكتمل",
   "confirmed": "مؤكد",
+  "confirmedOnPayment": "تم تسجيل الدفعة. تم تأكيد الحجز الآن.",
   "couldnTCalculatePriceSelection": "تعذّر حساب سعر لهذا الاختيار.",
   "coverage": {
     "full": "مغطّى بالكامل بالعضوية",

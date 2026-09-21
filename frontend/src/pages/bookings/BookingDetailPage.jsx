@@ -87,6 +87,9 @@ export default function BookingDetailPage() {
   const [linkFor, setLinkFor] = useState(null);
   const [issuingShare, setIssuingShare] = useState(null);
   const [issuedLink, setIssuedLink] = useState(null);
+  // The bill wizard was opened BY a refused confirmation, so its success
+  // message should say the booking is confirmed rather than merely invoiced.
+  const [paymentToConfirm, setPaymentToConfirm] = useState(false);
   const seenPaidRef = useRef(new Set());
   const financeInitedRef = useRef(false);
 
@@ -160,6 +163,16 @@ export default function BookingDetailPage() {
       toast.success(`Moved to ${statusLabel(t, status)}`);
       loadFinance();   // completion may auto-raise an invoice/receipt → pops the success modal
     } catch (e) {
+      // A website checkout that chose to pay online is still refused, because
+      // the same predicate decides whether the slot sweep may release it. But
+      // the answer is to TAKE the payment, so offer that rather than leaving
+      // staff at a dead end with a message and nothing to click. Paying in
+      // full confirms the booking on its own, through `confirm_if_settled`.
+      if (e?.response?.data?.code === 'payment_required') {
+        setPaymentToConfirm(true);
+        setBillOpen(true);
+        return;
+      }
       toast.error(apiErrorMessage(e, t('unableUpdateBookingStatusPlease')));
     } finally {
       setBusy(false);
@@ -945,9 +958,15 @@ export default function BookingDetailPage() {
         open={billOpen}
         mode="bill"
         booking={booking}
-        onClose={() => setBillOpen(false)}
+        onClose={() => { setBillOpen(false); setPaymentToConfirm(false); }}
         onChanged={(updated) => setBooking(updated)}   /* redeem/unapply: live sync, keep open */
-        onCompleted={onBilled}                          /* invoice+payment done: close + refresh */
+        onCompleted={(updated) => {
+          onBilled(updated);
+          if (paymentToConfirm) {
+            setPaymentToConfirm(false);
+            toast.success(t('confirmedOnPayment'));
+          }
+        }}
       />
     </>
   );

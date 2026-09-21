@@ -205,3 +205,58 @@ class TestAssigningDoesNotConfirmPastTheGate:
             f"/api/v1/bookings/{booking.id}/assign/",
             {"assigned_to": worker.id}, format="json")
         assert response.status_code == 200, response.data
+
+
+class TestTheRefusalOffersAWayForward:
+    """Staff meeting "cannot be confirmed yet" with nothing to click is what
+    made this rule feel like a bug.
+
+    The rule itself is unchanged: an unpaid online checkout is still refused,
+    because the same predicate decides whether the slot sweep may release it.
+    What changed is that the refusal is now identifiable, so the screen can
+    offer to TAKE the payment instead of stopping there.
+    """
+
+    def test_the_refusal_carries_a_code(self, venue):
+        from apps.bookings.services import BookingPaymentRequired
+
+        booking = make_booking(venue)
+        with pytest.raises(BookingPaymentRequired) as exc:
+            transition_booking(booking, BookingStatus.CONFIRMED)
+        assert exc.value.code == "payment_required"
+
+    def test_it_is_still_a_value_error(self, venue):
+        """Every existing caller catches ValueError, and must keep working."""
+        booking = make_booking(venue)
+        with pytest.raises(ValueError):
+            transition_booking(booking, BookingStatus.CONFIRMED)
+
+    def test_the_api_reports_the_code_so_the_screen_can_act_on_it(
+            self, auth_api, venue):
+        booking = make_booking(venue)
+        response = auth_api.post(f"/api/v1/bookings/{booking.pk}/transition/",
+                                 {"status": BookingStatus.CONFIRMED}, format="json")
+        assert response.status_code == 400
+        assert response.data["code"] == "payment_required"
+        assert "payment" in response.data["detail"].lower()
+
+    def test_another_refusal_carries_no_code(self, venue):
+        """So the screen offers payment only where payment is the answer."""
+        booking = make_booking(venue, status=BookingStatus.CANCELLED)
+        response = None
+        try:
+            transition_booking(booking, BookingStatus.CONFIRMED)
+        except ValueError as exc:
+            response = getattr(exc, "code", "")
+        assert response == ""
+
+    def test_taking_the_payment_confirms_it(self, auth_api, venue):
+        """The whole point: pay, and the booking confirms itself through
+        `confirm_if_settled` without anybody clicking Confirm again."""
+        from apps.bookings.services import settle_booking_payment
+
+        booking = make_booking(venue)
+        settle_booking_payment(booking, method="card")
+
+        booking.refresh_from_db()
+        assert booking.status == BookingStatus.CONFIRMED

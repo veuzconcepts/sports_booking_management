@@ -563,3 +563,94 @@ class TestStaffCanPassOnAPaymentLink:
             event="split_share_link_reissued")]
         assert len(notes) == 1
         assert "Ahmed" in notes[0]
+
+
+class TestSettlingAtTheDeskClosesTheArrangement:
+    """`settle_booking_payment` is the one place any payment is recorded, and
+    it knew nothing about splits.
+
+    So an admin taking the remaining balance at the counter left the
+    arrangement ACTIVE with every unpaid link still live. Nobody was double
+    charged, because paying a share re-reads the balance and refuses, but the
+    friends met an unexplained refusal instead of a link that had simply
+    finished its job, and the customer progress page still showed money owed.
+    """
+
+    @staticmethod
+    def settle_everything(bookings):
+        from apps.bookings.services import booking_outstanding, settle_booking_payment
+
+        for booking in bookings:
+            booking.refresh_from_db()
+            if booking_outstanding(booking) > 0:
+                settle_booking_payment(booking, method="cash")
+
+    def test_the_split_closes(self, order):
+        booking_order, bookings = order
+        split, _links = three_ways(booking_order, bookings)
+
+        self.settle_everything(bookings)
+        split.refresh_from_db()
+        assert split.status == SplitStatus.COMPLETED
+
+    def test_every_unpaid_link_stops_working(self, order):
+        booking_order, bookings = order
+        split, links = three_ways(booking_order, bookings)
+        unpaid = ordered_shares(split)[1]
+
+        self.settle_everything(bookings)
+        assert split_service.resolve_share(links[unpaid.id]) is None
+
+    def test_a_share_already_paid_is_left_alone(self, order):
+        """Real money and a real invoice. Closing the arrangement must not
+        rewrite what somebody actually paid."""
+        booking_order, bookings = order
+        split, links = three_ways(booking_order, bookings)
+        paid = ordered_shares(split)[0]
+        pay(links, paid)
+
+        self.settle_everything(bookings)
+        paid.refresh_from_db()
+        assert paid.status == ShareStatus.PAID
+        assert paid.payment_id is not None
+
+    def test_it_is_recorded_once_on_each_slot(self, order):
+        """One payment can now reach the closing code twice. It must not write
+        the completion, or its Booking Log entry, a second time."""
+        booking_order, bookings = order
+        three_ways(booking_order, bookings)
+
+        self.settle_everything(bookings)
+        for booking in bookings:
+            notes = booking.status_history.filter(event="split_completed")
+            assert notes.count() == 1
+
+    def test_a_booking_with_no_split_is_untouched(self, venue):
+        """Almost every booking. The helper must be silent, not merely safe."""
+        from apps.bookings.services import settle_booking_payment
+
+        booking = Booking.objects.create(
+            customer=venue["customer"], club=venue["club"], facility=venue["court"],
+            facility_type=venue["activity"], scheduled_date=MONDAY,
+            scheduled_time=time(16, 0), end_time=time(17, 0), duration_minutes=60,
+            status=BookingStatus.BOOKED, currency="SAR",
+            total_amount=Decimal("100.000"))
+        settle_booking_payment(booking, method="cash")
+
+        booking.refresh_from_db()
+        assert booking.status == BookingStatus.CONFIRMED
+        assert booking.status_history.filter(event="split_completed").count() == 0
+
+    def test_part_paying_leaves_the_arrangement_open(self, order):
+        """The links must keep working while anything is still owed."""
+        from apps.bookings.services import settle_booking_payment
+
+        booking_order, bookings = order
+        split, links = three_ways(booking_order, bookings)
+        unpaid = ordered_shares(split)[2]
+
+        settle_booking_payment(bookings[0], method="cash",
+                               amount=Decimal("10.000"))
+        split.refresh_from_db()
+        assert split.status == SplitStatus.ACTIVE
+        assert split_service.resolve_share(links[unpaid.id]) is not None

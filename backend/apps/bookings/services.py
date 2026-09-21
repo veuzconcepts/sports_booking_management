@@ -1552,6 +1552,18 @@ def transition_booking(booking: Booking, target: str, *, actor=None, note="", re
     return booking
 
 
+class BookingPaymentRequired(ValueError):
+    """Confirmation refused because the online payment has not arrived.
+
+    A `ValueError` subclass so every existing caller keeps behaving exactly as
+    it did. The `code` is what lets the admin screen offer to TAKE the payment
+    instead of showing a dead end: staff meeting "cannot be confirmed yet" with
+    no way forward is what made this feel like a bug rather than a rule.
+    """
+
+    code = "payment_required"
+
+
 def _validate_confirmation_gate(booking, target):
     """A website checkout that chose to pay online is not Confirmed until it pays.
 
@@ -1570,9 +1582,9 @@ def _validate_confirmation_gate(booking, target):
     if booking.source != BookingSource.WEBSITE:
         return
     if awaiting_online_payment(booking):
-        raise ValueError(
-            "This booking is still awaiting its online payment and cannot be "
-            "confirmed yet.")
+        raise BookingPaymentRequired(
+            "This booking is still awaiting its online payment. Take the "
+            "payment to confirm it.")
 
 
 class DraftIncomplete(Exception):
@@ -2027,8 +2039,13 @@ def settle_booking_payment(booking, *, method, amount=None, reference="", notes=
               "payer": payer_label or None,
               "amount_paid": str(booking_amount_paid(booking)),
               "outstanding": str(booking_outstanding(booking))})
+    # A live split arrangement over this booking has finished its job once
+    # nothing is owed, however the money arrived. Without this, an admin
+    # taking the balance at the desk left every unpaid payment link live.
+    from apps.payments.split import close_if_settled
+    close_if_settled(booking, request=request)
     # After the payment is recorded and logged, so the timeline reads in the
-    # order it happened: paid, then confirmed.
+    # order it happened: paid, the arrangement closed, then confirmed.
     confirm_if_settled(booking, actor=_actor_or_none(request), request=request)
     return payment, invoice
 

@@ -858,6 +858,47 @@ decision, not an oversight. A gate that refuses too much is not the safer gate.
 Assigning a worker walks a booking through Confirmed, so it asks the same gate,
 BEFORE it writes anything.
 
+## A refused confirmation offers to take the payment
+
+The gate is unchanged: a website checkout that chose to pay online and has
+collected nothing is still refused, because the same predicate decides whether
+`expire_unpaid_bookings` may release its slot. Pay-at-venue, admin and walk-in
+bookings confirm freely, and asking them for money up front would stop
+reception holding a court for a regular who pays on arrival. Asked and answered
+explicitly.
+
+What changed is that the refusal is identifiable. `BookingPaymentRequired`
+carries `code="payment_required"` and is still a `ValueError`, so every
+existing caller behaves as before; the transition endpoint passes the code on,
+and the booking screen opens the payment wizard instead of showing a message
+with nothing to click. Paying in full then confirms the booking on its own
+through `confirm_if_settled`. Staff meeting a rule with no way forward is what
+made this read as a bug.
+
+## Money settles the arrangement, however it arrives
+
+`settle_booking_payment` is the one place any payment is recorded, and it knew
+nothing about splits, so an admin taking the balance at the desk left the
+arrangement ACTIVE with every unpaid link live. Nobody was double charged,
+because paying a share re-reads the balance and refuses, but the friends met an
+unexplained refusal instead of a link that had finished its job.
+`split.close_if_settled` now closes it from that one place.
+
+One payment therefore reaches `_settle_if_complete` twice. It closes the split
+with a CONDITIONAL update rather than trusting the instance it was handed,
+whose in-memory status is stale by then; deciding from that attribute wrote the
+completion, and its Booking Log entry, a second time.
+
+## Payment links are 256 bits, and throttled on their own scope
+
+`secrets.token_urlsafe(32)` stored only as a SHA-256 digest, never logged, and
+destroyed on payment, cancellation or expiry. Guessing is not the threat.
+
+Reading and paying a share therefore has its OWN throttle scope,
+`public_split`, for the same reason reservations do: sharing `public_booking`
+meant a friend opening their link a few times exhausted the allowance and the
+PAYMENT was then refused, which costs the club the money it is collecting.
+
 ## Draft is an unfinished form, not a reservation
 
 A draft exists because an admin gets interrupted halfway through taking a

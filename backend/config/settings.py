@@ -201,6 +201,12 @@ REST_FRAMEWORK = {
         # opposite of what a booking throttle is for. Abuse is already bounded
         # here by the courts actually being free and by the hold expiring.
         "public_reservation": config("THROTTLE_PUBLIC_RESERVATION", default="60/hour"),
+        # A friend opening their payment link, and paying it. Its own scope for
+        # the same reason reservations have one: sharing `public_booking` meant
+        # reading a link a few times exhausted the allowance and the PAYMENT was
+        # then refused, which costs the club the money it is trying to collect.
+        # The token is 256 bits, so this is not what makes a link unguessable.
+        "public_split": config("THROTTLE_PUBLIC_SPLIT", default="60/hour"),
     },
     # Throttle client identity: number of trusted proxies in front of the app.
     # 0 (default) = key on REMOTE_ADDR and IGNORE X-Forwarded-For, so a client

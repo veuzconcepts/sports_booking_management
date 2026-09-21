@@ -618,9 +618,21 @@ def _settle_if_complete(split, bookings, *, request=None):
     if target_outstanding(bookings) > 0:
         return split
 
+    # Close it with a CONDITIONAL update rather than trusting the instance.
+    # One payment now reaches here twice: `settle_booking_payment` closes any
+    # settled arrangement through `close_if_settled`, and the share path calls
+    # this again afterwards holding an object whose in-memory status is still
+    # ACTIVE. Deciding from that stale attribute wrote the completion, and its
+    # Booking Log entry, a second time.
+    closed_at = timezone.now()
+    if not (BookingPaymentSplit.objects
+            .filter(pk=split.pk, status=SplitStatus.ACTIVE)
+            .update(status=SplitStatus.COMPLETED, completed_at=closed_at,
+                    updated_at=closed_at)):
+        split.refresh_from_db()
+        return split
     split.status = SplitStatus.COMPLETED
-    split.completed_at = timezone.now()
-    split.save(update_fields=["status", "completed_at", "updated_at"])
+    split.completed_at = closed_at
     # Every link that is still out there stops working now, whether or not its
     # holder ever used it.
     _revoke_open_shares(split, ShareStatus.CANCELLED)
@@ -632,6 +644,31 @@ def _settle_if_complete(split, bookings, *, request=None):
         event="split_completed", bookings=bookings, request=request,
         meta={"paid": str(split.paid_total)})
     return split
+
+
+def close_if_settled(booking, *, request=None):
+    """Close any live arrangement over this booking once nothing is owed.
+
+    `settle_booking_payment` is the one place any payment is recorded, and it
+    knew nothing about splits. So an admin taking the remaining balance at the
+    desk left the arrangement ACTIVE with every unpaid link still live: the
+    friends were not double charged, because paying a share re-reads the
+    balance and refuses, but they met an unexplained refusal instead of a link
+    that had simply finished its job, and the customer progress page still
+    showed money outstanding.
+
+    Idempotent and silent when there is no split, which is almost every
+    booking.
+    """
+    scope = models.Q(booking=booking)
+    if booking.order_id:
+        scope |= models.Q(order_id=booking.order_id)
+    splits = (BookingPaymentSplit.objects
+              .filter(scope, status=SplitStatus.ACTIVE)
+              .select_for_update())
+    for split in splits:
+        _settle_if_complete(split, collectable_bookings(_lock_bookings(split)),
+                            request=request)
 
 
 def _revoke_open_shares(split, status):

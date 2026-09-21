@@ -125,6 +125,7 @@
   "completeAndPay": "Complete & pay",
   "completed": "Completed",
   "confirmed": "Confirmed",
+  "confirmedOnPayment": "Payment recorded. The booking is now confirmed.",
   "couldnTCalculatePriceSelection": "Couldn’t calculate a price for this selection.",
   "coverage": {
     "full": "Fully covered by membership",

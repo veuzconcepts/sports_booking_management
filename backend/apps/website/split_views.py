@@ -211,6 +211,8 @@ class PublicPaymentConfigView(_PublicView):
 class PublicSplitShareView(_PublicView):
     """What a friend sees when they open their payment link."""
 
+    throttle_scope = "public_split"
+
     def get(self, request, token):
         share = split_service.resolve_share(token)
         if share is None:

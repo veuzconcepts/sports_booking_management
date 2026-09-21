@@ -585,7 +585,11 @@ class BookingViewSet(GroupedListMixin, viewsets.ModelViewSet):
                 note=ser.validated_data.get("note", ""), request=request,
             )
         except ValueError as exc:
-            return Response({"detail": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+            # `code` distinguishes "this needs paying first" from every other
+            # refusal, so the screen can offer to take the payment rather than
+            # leaving staff at a dead end.
+            return Response({"detail": str(exc), "code": getattr(exc, "code", "")},
+                            status=status.HTTP_400_BAD_REQUEST)
         log_event(request, "booking_status_change",
                   {"reference": booking.reference, "to": target})
         return Response(self.get_serializer(booking).data)
