@@ -44,6 +44,39 @@ export const NAMESPACES = [
 
 export const FALLBACK_LANGUAGE = 'en';
 
+/**
+ * Which way a language reads, when we have to guess.
+ *
+ * The catalogue is authoritative: an administrator sets `direction` on each
+ * Language row, so a house that adds Hebrew gets it right without anyone
+ * touching this list. But the interface applies a remembered language BEFORE
+ * the catalogue has loaded, and at that moment the only thing known for
+ * certain is the code.
+ *
+ * Guessing "left to right" for every unknown code is what put Arabic text in
+ * a left-to-right document: the language applied, the direction did not, and
+ * the page painted the wrong way round until the catalogue answered. A guess
+ * that is right for the languages people actually use is strictly better than
+ * one that is wrong for all of them.
+ */
+const RTL_LANGUAGES = new Set([
+  'ar',   // Arabic
+  'fa',   // Persian
+  'he',   // Hebrew
+  'ps',   // Pashto
+  'sd',   // Sindhi
+  'ug',   // Uyghur
+  'ur',   // Urdu
+  'yi',   // Yiddish
+]);
+
+/** 'ar-SA' and 'ar' both read right to left; the region never changes that. */
+export function directionFor(code) {
+  const base = String(code || '').toLowerCase().split(/[-_]/)[0];
+  return RTL_LANGUAGES.has(base) ? 'rtl' : 'ltr';
+}
+
+
 /** Languages already fetched, so switching back is instant. */
 const loaded = new Set([FALLBACK_LANGUAGE]);
 

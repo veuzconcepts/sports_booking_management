@@ -97,14 +97,18 @@ export default function BookingsListPage() {
   const { clubs, facilityTypes } = useFilterOptions();
 
   // Stable values, translated labels: the API keeps receiving 'confirmed'.
-  const statusOptions = useMemo(
-    () => bookingStatuses(t).map((o) => ({ value: o.value, label: t(`status.${o.value}`) })),
-    [t],
-  );
-  const sourceOptions = useMemo(
-    () => bookingSources(t).map((o) => ({ value: o.value, label: t(`source.${o.value}`) })),
-    [t],
-  );
+  //
+  // Both helpers already return `{ value, label }` with the label translated.
+  // Re-translating here built a SECOND key for the same thing, and the two
+  // disagreed: `bookings:source` is the column heading "Source", a plain
+  // string, so asking for a child of it gave back the key and the filter
+  // listed the key names instead of the sources. The labels belong to the
+  // helpers, which is where every other screen reads them from.
+  //
+  // The key guard could not catch it: the old call built its key from a
+  // template, and a scanner reading literals has nothing to check.
+  const statusOptions = useMemo(() => bookingStatuses(t), [t]);
+  const sourceOptions = useMemo(() => bookingSources(t), [t]);
   const canExport = hasPerm('reports.export');
 
   const openBooking = useCallback((row) => navigate(`/bookings/${row.id}`), [navigate]);
