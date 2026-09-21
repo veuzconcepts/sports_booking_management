@@ -575,6 +575,13 @@ class BookingCreateSerializer(serializers.ModelSerializer):
         booking = self._finalize(booking, add_ons)
         if promo_input:
             self._apply_promo(booking, promo_input, request)
+        # A booking that is covered by a membership, priced at nothing, or
+        # discounted to nothing owes the club nothing, so it is confirmed here
+        # rather than waiting for a payment that is never coming. After the
+        # promo, because the promo may be what took the balance to zero.
+        from apps.bookings.services import confirm_if_settled
+        confirm_if_settled(booking, actor=validated_data.get("created_by"),
+                           request=request)
         return booking
 
     def _apply_promo(self, booking, code, request):
@@ -621,6 +628,10 @@ class BookingCreateSerializer(serializers.ModelSerializer):
             instance.updated_by = actor
         booking = self._finalize(instance, add_ons)
         self._log_service_change(booking, before, actor)
+        # An edit can settle a booking too: drop the last chargeable add-on and
+        # there is nothing left to collect.
+        from apps.bookings.services import confirm_if_settled
+        confirm_if_settled(booking, actor=actor, request=request)
         return booking
 
     @staticmethod

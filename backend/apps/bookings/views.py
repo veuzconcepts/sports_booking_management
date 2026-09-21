@@ -888,6 +888,9 @@ class BookingViewSet(GroupedListMixin, viewsets.ModelViewSet):
         log_event(request, "booking_subscription_redeemed",
                   {"reference": booking.reference, "from": prev_total,
                    "to": str(booking.total_amount), "membership": snap.get("membership_number")})
+        # Coverage that absorbs the whole booking leaves nothing to collect, so
+        # the booking is confirmed here for the same reason a paid one is.
+        booking_services.confirm_if_settled(booking, actor=request.user, request=request)
         return Response(self.get_serializer(booking).data)
 
     @action(detail=True, methods=["post"], url_path="unapply-subscription")
@@ -1002,6 +1005,8 @@ class BookingViewSet(GroupedListMixin, viewsets.ModelViewSet):
             booking, "Promo applied", actor=request.user, event="promo_applied",
             meta={"code": promo.code, "discount": str(booking.promo_discount)})
         log_event(request, "booking_promo_applied", {"reference": booking.reference, "code": promo.code})
+        # A discount big enough to clear the balance settles the booking.
+        booking_services.confirm_if_settled(booking, actor=request.user, request=request)
         return Response(self.get_serializer(booking).data)
 
     @action(detail=True, methods=["post"], url_path="remove-promo")

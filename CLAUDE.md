@@ -749,22 +749,49 @@ two members of staff reaching for one court at the same instant, and a member
 of staff racing a customer's checkout, are both covered by threaded tests in
 `test_reservations_concurrency.py`.
 
-## Confirmed the moment it is paid for
+## Confirmed the moment there is nothing left to pay
 
-The other half of the gate below. Nothing used to move a PAID booking out of
-the opening status, so a customer who had paid in full sat at Pending until
-somebody noticed and clicked.
+The other half of the gate below. Nothing used to move a SETTLED booking out
+of the opening status, so a customer who owed the club nothing sat at Pending
+until somebody noticed and clicked.
 
-`services.confirm_if_settled` runs from `settle_booking_payment`, the one
-place any payment is recorded, so the website, a split share and a member of
-staff taking cash at the desk all behave the same. It confirms only from the
-opening status and only when nothing is outstanding: a part-paid split has not
-bought the court, and a booking already Assigned must not be dragged
-backwards.
+`services.confirm_if_settled` is the one rule, and how the balance reached
+zero does not change it: money taken, a membership absorbing the booking, a
+promo or loyalty points clearing it, or an activity that was free to begin
+with. It confirms only from the opening status and only when nothing is
+outstanding, so a part-paid split has not bought the court and a booking
+already Assigned is not dragged backwards. It is idempotent, which is why it
+sits at the end of every path that can settle a booking:
 
-A booking covered by a membership, or worth zero, does not pass through the
-payment path and is deliberately NOT confirmed by this. Whether it should be
-is a separate question that has not been asked.
+- `settle_booking_payment`, the one place any payment is recorded, so the
+  website, a split share and staff taking cash at the desk agree;
+- `BookingCreateSerializer.create` and `.update`, for a booking that is
+  covered, free, or discounted to nothing before anyone pays;
+- `redeem-subscription` and `apply-promo`, and `loyalty.redeem_points`, where
+  an existing booking's balance can drop to zero without money.
+
+The Booking Log says which of those it was, because "Confirmed on payment"
+against a booking nobody paid for reads like a bug.
+
+The rule cannot tell a genuinely free activity from one whose price was never
+configured. Both are worth zero and both confirm.
+
+## Membership coverage has ONE key: `covered_service_item`
+
+`payments.services.coverage_for_booking` returns it and the Redeem
+Subscription override builds it. `Booking.compute_pricing` and
+`_coverage_snapshot` read it. All four must agree, because nothing fails
+loudly when they do not: pricing reads it with `.get`, so a wrong name is
+merely falsy and the member is quietly charged full price for a court their
+plan covers.
+
+That is exactly what happened from the first commit until this was fixed. The
+two reads in `Booking` asked for `covered_facility_type`, which nothing has
+ever produced, so court coverage silently overcharged and add-on coverage
+raised KeyError out of `compute_pricing`.
+
+`apps/payments/test_membership_coverage.py` pins this by the BILL rather than
+by the key, so renaming either side again cannot bring it back quietly.
 
 ## Confirmation requires the money, for one case only
 

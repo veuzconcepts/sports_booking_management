@@ -170,7 +170,8 @@ def redeem_points(booking, points, *, actor=None, request=None):
     """Redeem `points` against `booking` to reduce the payable. Validates config,
     balance and caps; deducts the points immediately and sets the booking's
     `loyalty_discount`. Returns {points, value}."""
-    from apps.bookings.services import booking_has_live_invoice, sync_booking_payment_status
+    from apps.bookings.services import (
+        booking_has_live_invoice, confirm_if_settled, sync_booking_payment_status)
     from apps.customers.models import Customer, LoyaltySource, LoyaltyTxnType
 
     cfg = get_config()
@@ -215,6 +216,9 @@ def redeem_points(booking, points, *, actor=None, request=None):
         booking.compute_pricing()
         booking.save()
         sync_booking_payment_status(booking)
+        # Points that clear the whole balance settle the booking, the same as
+        # money would.
+        confirm_if_settled(booking, actor=actor, request=request)
     _log("loyalty_redeemed",
          {"points": points, "value": str(value), "booking": booking.reference,
           "changes": {"Points redeemed": str(points), "Value": str(value)}},

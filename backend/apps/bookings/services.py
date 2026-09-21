@@ -2034,13 +2034,18 @@ def settle_booking_payment(booking, *, method, amount=None, reference="", notes=
 
 
 def confirm_if_settled(booking, *, actor=None, request=None):
-    """Confirm a booking the moment it is fully paid for.
+    """Confirm a booking that has nothing left to pay.
 
     The other half of the confirmation gate. That gate stops an unpaid online
-    checkout being called Confirmed; without this nothing ever called a PAID
-    one Confirmed either, so a customer who had paid in full sat at Pending
-    until somebody noticed and clicked. The money is in, the court is theirs,
-    and the status should say so.
+    checkout being called Confirmed; without this nothing ever called a
+    SETTLED one Confirmed either, so a customer who owed the club nothing sat
+    at Pending until somebody noticed and clicked. Nothing is outstanding, the
+    court is theirs, and the status should say so.
+
+    How the balance reached zero is not the point. Money taken, a membership
+    absorbing the whole booking, a promo or loyalty points covering it, or a
+    booking that was never chargeable all leave the same two facts: the club
+    has nothing left to collect, and the customer is owed their court.
 
     Narrow on purpose:
 
@@ -2052,15 +2057,23 @@ def confirm_if_settled(booking, *, actor=None, request=None):
     * never for a cancelled or no-show booking, which `can_transition`
       refuses anyway.
 
-    Idempotent: a second payment against a settled booking changes nothing.
+    Idempotent, which is why it is safe at the end of every path that can
+    settle a booking: called again on one already Confirmed it does nothing.
     """
     if booking.status != BookingStatus.BOOKED:
         return booking
     if booking_outstanding(booking) > 0:
         return booking
+    # The Booking Log should say WHY it confirmed itself, because "Confirmed on
+    # payment" against a booking nobody paid for reads like a bug.
+    if booking_amount_paid(booking) > 0:
+        note = "Confirmed on payment"
+    elif booking.coverage_snapshot:
+        note = "Confirmed - covered by membership"
+    else:
+        note = "Confirmed - nothing to pay"
     return transition_booking(
-        booking, BookingStatus.CONFIRMED, actor=actor, request=request,
-        note="Confirmed on payment")
+        booking, BookingStatus.CONFIRMED, actor=actor, request=request, note=note)
 
 
 def event_source(actor):

@@ -592,7 +592,14 @@ class Booking(models.Model):
             from apps.payments.services import coverage_for_booking
             cov = coverage_for_booking(self, addon_objs=addon_objs)
         if cov:
-            if cov.get("covered_facility_type"):
+            # `covered_service_item` is what coverage_for_booking returns and
+            # what the Redeem Subscription override builds. These three reads
+            # asked for `covered_facility_type`, a name nothing has ever
+            # produced. Here `.get` made it falsy, so a membership covering a
+            # COURT silently left the booking at full price; in
+            # `_coverage_snapshot` below the same name was subscripted, so a
+            # membership covering an ADD-ON raised KeyError instead.
+            if cov.get("covered_service_item"):
                 base = Decimal("0.00")
                 discount = Decimal("0.00")
             covered_addon_ids = set(cov.get("covered_addon_ids") or set())
@@ -767,11 +774,11 @@ class Booking(models.Model):
         catalogue prices captured BEFORE coverage zeroed them. None when no coverage
         applied. Read-only data — it drives the payment-status reason + booking-time
         display, and never feeds back into pricing."""
-        if not cov or not (cov.get("covered_facility_type") or cov.get("covered_addon_ids")):
+        if not cov or not (cov.get("covered_service_item") or cov.get("covered_addon_ids")):
             return None
         membership = cov["membership"]
         lines, covered_amount = [], Decimal("0.00")
-        if cov["covered_facility_type"] and self.facility_type_id:
+        if cov["covered_service_item"] and self.facility_type_id:
             price = q(pre_coverage_base)
             lines.append({"kind": "facility_type", "label": self.facility_type.name,
                           "actual_price": str(price)})
