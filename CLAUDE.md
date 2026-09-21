@@ -205,6 +205,36 @@ Do not require customers to click dates just to discover there are no slots.
 Use efficient date-range availability summaries, preserve final backend
 revalidation, and avoid duplicate availability logic.
 
+## A closed date says why, when the club has said why
+
+`date_availability_summary` carries a `reason` and, for a date closed by a
+named `ScheduleException`, a `label` holding that name. A greyed square tells a
+customer nothing: it cannot distinguish "the club chose to close for National
+Day" from "this date is simply not on offer", so they either ring up to ask or
+assume the club is unreliable.
+
+Only the exception's `name` is exposed. Its `notes` are written for staff and
+never leave the server.
+
+The calendar marks such a date and explains it on hover, on keyboard focus and
+on tap. A date with something to explain is therefore `aria-disabled` with a
+guarded click rather than natively `disabled`: a `disabled` button cannot be
+focused or tapped, so on a phone, where there is no hover at all, the
+explanation could never be reached. A date with nothing to explain, one in the
+past or beyond the booking window, stays plainly `disabled` so most of the
+month does not become a row of keyboard stops.
+
+The explanation sits in a fixed-height line UNDER the grid, not in a floating
+tooltip. Near the edge of a phone a tooltip either overflows the viewport or
+covers the dates either side of the one it explains, and the reserved height
+stops the calendar jumping as the pointer moves.
+
+`availability_cache._PREFIX` ends in a shape version. The VERSION counter
+retires entries whose availability may have changed, but it lives in the cache,
+so a deploy does not bump it and a summary cached by the previous release would
+be served with its new fields missing. Bump the prefix whenever the per-day
+dict gains or loses a key.
+
 ## Calendar Offer and Time Classification Standard
 
 Customer booking calendars may display compact offer indicators only when the

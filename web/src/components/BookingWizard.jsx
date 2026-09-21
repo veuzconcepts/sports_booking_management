@@ -58,6 +58,28 @@ export function formatSlotsParam(slots) {
   return slots.map((s) => `${s.date}T${s.time}~${s.end}`).join(',');
 }
 
+/**
+ * Why a date cannot be booked, in words a customer can use.
+ *
+ * The club's own name for the date wins whenever it gave one: "National Day"
+ * tells somebody more than "Closed" ever will, and it is the thing they would
+ * have been told had they rung up to ask.
+ *
+ * Reasons a customer can already see for themselves, a date in the past or one
+ * beyond the booking window, deliberately return nothing. Explaining those
+ * would put a mark and a keyboard stop on most of the month for no gain.
+ */
+export function reasonText(state, t) {
+  if (state?.label) return state.label;
+  switch (state?.reason) {
+    case 'holiday': return t('wizard.when.holiday');
+    case 'closed': return t('wizard.when.closed');
+    case 'fully_booked': return t('wizard.when.fullyBooked');
+    case 'rules': return t('wizard.when.notEnoughSlots');
+    default: return '';
+  }
+}
+
 /** A real calendar date, not merely four digits, a dash and two more. */
 function isRealDate(iso) {
   const [y, m, d] = iso.split('-').map(Number);
@@ -998,6 +1020,13 @@ export function Schedule({ facilityType, category, club, currency, initialDate =
     () => _monthCache.get(_monthKey(club, facilityType, monthFrom)) || null);
   const [monthLoading, setMonthLoading] = useState(true);
   const [monthFailed, setMonthFailed] = useState(false);
+  // The closed date the customer is currently asking about, shown in a line
+  // under the grid rather than a floating tooltip. A tooltip has to be
+  // positioned, and near the edge of a phone it either overflows the viewport
+  // or covers the dates either side of the one being explained. A line below
+  // the calendar has neither problem, works on touch where there is no hover
+  // at all, and can be announced.
+  const [dayNote, setDayNote] = useState(null);
 
   useEffect(() => {
     if (!club) return undefined;
@@ -1136,6 +1165,13 @@ export function Schedule({ facilityType, category, club, currency, initialDate =
     return {
       off: !known.available,
       count: known.slot_count || 0,
+      // Why a date is out, when the backend knows. A holiday looks exactly
+      // like any other greyed day otherwise, and the customer is left to
+      // guess whether it is worth ringing the club to ask.
+      reason: known.available ? '' : (known.reason || ''),
+      // The name the club gave the date, e.g. "National Day". Absent on a
+      // summary cached by an older release, so never assumed.
+      label: known.available ? '' : (known.label || ''),
       // Only a bookable date carries one. Advertising a discount on a day
       // nobody can book is an advert for a disappointment.
       offer: known.available ? known.offer || null : null,
@@ -1278,22 +1314,56 @@ export function Schedule({ facilityType, category, club, currency, initialDate =
             const offerText = offer
               ? (offer.time_limited ? t('wizard.when.offer') : offer.label)
               : '';
+            // Why this date is out, in the customer's language. The club's own
+            // name for the date wins when it gave one, because "National Day"
+            // tells them more than "Closed" ever will.
+            const whyOff = off ? reasonText(state, t) : '';
+            const holiday = off && state.reason === 'holiday';
+            // A date that can EXPLAIN itself stays focusable and tappable so it
+            // can be asked. `disabled` would make it unreachable by keyboard
+            // and inert to a tap, which on a phone means the explanation could
+            // never be reached at all. The click is guarded instead.
+            const askable = Boolean(whyOff);
             return (
-              <button key={iso} type="button" disabled={off}
-                title={offer ? offer.name : undefined}
+              <button key={iso} type="button"
+                disabled={off && !askable}
+                aria-disabled={off || undefined}
+                title={offer ? offer.name : (whyOff || undefined)}
                 aria-label={longDate(iso, locale)
-                  + (off ? `, ${t('wizard.when.unavailable')}` : '')
+                  + (off ? `, ${whyOff || t('wizard.when.unavailable')}` : '')
                   + (!off && limited ? `, ${t('wizard.when.slotsLeft', { count: state.count })}` : '')
                   + (offer ? `, ${offer.name}` : '')}
-                className={`bw__day${active ? ' is-active' : off ? ' is-off' : ' is-open'}${isToday && !active && !off ? ' is-today' : ''}${limited ? ' is-limited' : ''}${offer ? ' has-offer' : ''}`}
-                onClick={() => setDate(iso)}>
+                className={`bw__day${active ? ' is-active' : off ? ' is-off' : ' is-open'}${isToday && !active && !off ? ' is-today' : ''}${limited ? ' is-limited' : ''}${offer ? ' has-offer' : ''}${holiday ? ' is-holiday' : ''}`}
+                onMouseEnter={askable ? () => setDayNote({ iso, text: whyOff }) : undefined}
+                onMouseLeave={askable ? () => setDayNote(null) : undefined}
+                onFocus={askable ? () => setDayNote({ iso, text: whyOff }) : undefined}
+                onBlur={askable ? () => setDayNote(null) : undefined}
+                onClick={() => {
+                  // An unbookable date never becomes the selection, however it
+                  // was reached. Tapping one only asks it why.
+                  if (off) { if (askable) setDayNote({ iso, text: whyOff }); return; }
+                  setDate(iso);
+                }}>
                 {d.getDate()}
                 {offer && <span className="bw__day-offer"><bdi>{offerText}</bdi></span>}
                 {limited && !offer && <span className="bw__day-dot" aria-hidden="true" />}
+                {holiday && <span className="bw__day-mark" aria-hidden="true" />}
               </button>
             );
           })}
         </div>
+
+        {/* Announced politely: a customer using a screen reader hears the
+            reason when they arrow onto the date, which is the same moment a
+            sighted customer sees it. */}
+        <p className="bw__cal-why" role="status" aria-live="polite">
+          {dayNote ? (
+            <>
+              <span className="bw__cal-why-day">{longDate(dayNote.iso, locale)}</span>
+              <span className="bw__cal-why-text">{dayNote.text}</span>
+            </>
+          ) : ''}
+        </p>
 
         {monthLoading && !days && (
           <p className="bw__cal-note">{t('wizard.when.checkingAvailability')}</p>

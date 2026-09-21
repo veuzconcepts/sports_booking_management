@@ -674,12 +674,67 @@ check('the calendar asks the backend which dates are bookable', () => {
     'the summary is fetched but not used');
 });
 
-check('a date the backend refuses is disabled, not merely faded', () => {
-  // Section 32: a visually disabled date that is still reachable by keyboard
-  // is worse than no disabled state at all.
-  assert(calendarSource.includes('disabled={off}'), 'day cells are not disabled');
+check('a date the backend refuses can never become the selection', () => {
+  // Section 32. This used to demand `disabled={off}` outright, on the grounds
+  // that a faded date still reachable by keyboard is worse than no disabled
+  // state at all. That is right about the DANGER and wrong about the remedy:
+  // a `disabled` button cannot be focused or tapped, so a date that has a
+  // reason worth reading could never be asked for it on a phone, where there
+  // is no hover either.
+  //
+  // So the invariant is the one that actually matters: an unbookable date is
+  // announced as unavailable and can never be selected, however it is reached.
+  // A date with nothing to explain is still plainly `disabled`.
+  assert(calendarSource.includes('disabled={off && !askable}'),
+    'a date with no explanation is not disabled');
+  assert(calendarSource.includes('aria-disabled={off'),
+    'an unbookable date is not announced as unavailable');
+  assert(calendarSource.includes('if (off) {'),
+    'the click is not guarded, so a tap could select an unbookable date');
   return assert(calendarSource.includes("t('wizard.when.unavailable')"),
     'a disabled date carries no accessible reason');
+});
+
+check('a date closed for a holiday says so rather than greying out', () => {
+  // A holiday looked exactly like a date out of range, so a customer could
+  // not tell "the club chose to close" from "not on offer" and had no reason
+  // to ring and ask.
+  assert(calendarSource.includes("state.reason === 'holiday'"),
+    'the holiday reason is never read');
+  assert(calendarSource.includes('is-holiday'),
+    'a holiday carries no mark of its own');
+  return assert(calendarSource.includes('reasonText('),
+    'nothing turns the reason into words');
+});
+
+check('the club name for the date wins over a generic reason', () => {
+  // "National Day" tells a customer more than "Closed" ever will, and it is
+  // what they would have been told had they rung up.
+  assert(calendarSource.includes('state?.label'),
+    'the name the club gave the date is ignored');
+  return assert(calendarSource.includes("known.label || ''"),
+    'a summary cached before the label existed would break the calendar');
+});
+
+check('the reason is reachable without a mouse', () => {
+  // A tooltip on hover alone is invisible on a phone, which is where most of
+  // these bookings are made.
+  assert(calendarSource.includes('onFocus={askable'), 'not reachable by keyboard');
+  assert(calendarSource.includes('onMouseEnter={askable'), 'no pointer affordance');
+  assert(calendarSource.includes('setDayNote({ iso, text: whyOff })'),
+    'a tap does not reveal the reason');
+  return assert(calendarSource.includes("aria-live=\"polite\""),
+    'the reason is never announced');
+});
+
+check('the explanation sits under the grid, not over it', () => {
+  // Section 17: a floating tooltip near the edge of a phone either overflows
+  // the viewport or covers the dates either side of the one it explains.
+  const css = readFileSync('src/styles/booking.css', 'utf8');
+  assert(calendarSource.includes('bw__cal-why'), 'there is no explanation line');
+  assert(css.includes('.bw__cal-why'), 'the explanation line is unstyled');
+  return assert(css.includes('min-block-size'),
+    'the row collapses when empty, so the calendar jumps as the pointer moves');
 });
 
 check('an empty month offers somewhere to go', () => {

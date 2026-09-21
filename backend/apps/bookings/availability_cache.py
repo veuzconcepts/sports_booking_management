@@ -22,7 +22,12 @@ from django.core.cache import cache
 TTL_SECONDS = 60
 
 _VERSION_KEY = "bookings:availability:version"
-_PREFIX = "bookings:availability:summary"
+# The trailing number is the SHAPE of the cached value, not its freshness.
+# The VERSION counter below retires entries whose availability may have
+# changed; it lives in the cache, so a deploy does not bump it and a summary
+# cached by the previous release would still be served with its old fields
+# missing. Bump this whenever the dict a day maps to gains or loses a key.
+_PREFIX = "bookings:availability:summary:v2"
 
 
 def version() -> int:

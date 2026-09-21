@@ -131,6 +131,45 @@ class TestDateStates:
         # Distinguished from an ordinary closed weekday for support tooling.
         assert day["reason"] == DATE_HOLIDAY
 
+    def test_a_holiday_carries_the_name_the_club_gave_it(self, venue):
+        """A greyed date tells a customer nothing. "National Day" tells them it
+        was a decision rather than an oversight, and that ringing up will not
+        help."""
+        from apps.settings_app.models import ScheduleException
+        target = soon(4)
+        ScheduleException.objects.create(
+            name="National Day", club=venue["club"], start_date=target,
+            end_date=target, closed=True, is_active=True)
+        day = summary_for(venue)[target.isoformat()]
+        assert day["label"] == "National Day"
+
+    def test_an_ordinary_closed_day_has_no_name_to_give(self, venue):
+        """Only a named exception has a label. A weekly closure gets the
+        generic reason, and an empty label rather than a misleading one."""
+        from apps.settings_app.models import BOOKING_DAY_KEYS
+        target = soon(3)
+        hours = {d: {"closed": False, "shifts": [{"open": "06:00", "close": "23:00"}]}
+                 for d in BOOKING_DAY_KEYS}
+        hours[BOOKING_DAY_KEYS[target.weekday()]] = {"closed": True, "shifts": []}
+        venue["club"].booking_hours = hours
+        venue["club"].save()
+        day = summary_for(venue)[target.isoformat()]
+        assert day["reason"] == DATE_CLOSED
+        assert day["label"] == ""
+
+    def test_the_notes_written_for_staff_never_reach_a_customer(self, venue):
+        """`ScheduleException.notes` is an internal field. Only the name the
+        admin typed as the date's title is public."""
+        from apps.settings_app.models import ScheduleException
+        target = soon(4)
+        ScheduleException.objects.create(
+            name="National Day", club=venue["club"], start_date=target,
+            end_date=target, closed=True, is_active=True,
+            notes="Skeleton staff only, Ahmed covering the desk")
+        day = summary_for(venue)[target.isoformat()]
+        assert "Ahmed" not in str(day)
+        assert "Skeleton" not in str(day)
+
     def test_a_maintenance_closure_is_not_available(self, venue):
         from apps.facilities.models import MaintenanceBlock
         target = soon(5)

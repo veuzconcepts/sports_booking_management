@@ -650,8 +650,13 @@ def date_availability_summary(first, last, *, club=None, facility_type=None,
                                     cursor, offer_rules, facility_type=facility_type,
                                     category_ids=category_ids, club_id=club_id)}
             elif not day.is_open:
+                # `day.exception` is the name the admin gave the date, e.g.
+                # "National Day". Carried so the calendar can say WHY a date is
+                # out instead of greying it like any other closed day and
+                # leaving the customer to guess whether it is worth asking.
                 summary[key] = _unbookable(
-                    DATE_HOLIDAY if day.exception else DATE_CLOSED)
+                    DATE_HOLIDAY if day.exception else DATE_CLOSED,
+                    label=day.exception or "")
             elif slots and free == 0:
                 summary[key] = _unbookable(DATE_FULL)
             elif free:
@@ -667,8 +672,15 @@ def date_availability_summary(first, last, *, club=None, facility_type=None,
     return summary
 
 
-def _unbookable(reason, slot_count=0):
-    return {"available": False, "slot_count": slot_count, "reason": reason}
+def _unbookable(reason, slot_count=0, label=""):
+    """A date that cannot be booked, and why.
+
+    `label` names the date when somebody has named it: the title of the
+    schedule exception that closed it. Only that field is exposed, never the
+    exception's `notes`, which are written for staff.
+    """
+    return {"available": False, "slot_count": slot_count, "reason": reason,
+            "label": label}
 
 
 def _range_bookings(first, last, club=None) -> dict:

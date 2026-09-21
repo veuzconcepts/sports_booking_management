@@ -960,6 +960,64 @@ a.bw__store:hover { transform: translateY(-2px); background: #000; }
 
 [dir="rtl"] .bw__day-dot { transform: translateX(50%); }
 
+/* A closed date that has a REASON, marked so it reads as deliberate rather
+   than as the same grey as every other day out of range. The club's own name
+   for it appears in `.bw__cal-why` on hover, focus or tap. */
+.bw__day.is-holiday {
+  position: relative;
+  color: var(--amber-600, #b45309);
+  cursor: help;
+  /* The strike is what separates "the club chose to close" from "this date is
+     simply not on offer". It is drawn in the cell rather than added as text,
+     so the date itself stays readable at any size. */
+  text-decoration: line-through;
+  text-decoration-thickness: 1.5px;
+  opacity: 0.85;
+}
+
+.bw__day.is-holiday:hover,
+.bw__day.is-holiday:focus-visible {
+  background: var(--soft-accent);
+  opacity: 1;
+}
+
+.bw__day-mark {
+  position: absolute;
+  inset-block-end: 5px;
+  inset-inline-start: 50%;
+  transform: translateX(-50%);
+  inline-size: 5px;
+  block-size: 5px;
+  border-radius: 50%;
+  background: var(--amber, #d97706);
+}
+
+/* Why a date is out, under the grid rather than floating over it. A tooltip
+   near the edge of a phone either overflows the viewport or covers the dates
+   either side of the one being explained; this has neither problem and works
+   where there is no hover at all. The row keeps its height whether or not it
+   has anything to say, so the calendar never jumps as the pointer moves. */
+.bw__cal-why {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 8px;
+  align-items: baseline;
+  justify-content: center;
+  margin: 10px 0 0;
+  min-block-size: 2.6em;
+  font-size: 12.5px;
+  text-align: center;
+}
+
+.bw__cal-why-day { font-weight: 700; }
+.bw__cal-why-text { color: var(--amber-600, #b45309); }
+
+@media (max-width: 640px) {
+  /* Two short lines read better than one wrapped one in a narrow column, and
+     the reserved height stops the grid shifting under a thumb. */
+  .bw__cal-why { min-block-size: 3.4em; }
+}
+
 .bw__cal-note {
   margin: 10px 0 0;
   font-size: 12.5px;
