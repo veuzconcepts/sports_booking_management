@@ -733,6 +733,39 @@ Expiry is read, never assumed. The sweep runs every few minutes, so rows sit
 ACTIVE past their deadline in between. Every read asks the clock as well as the
 status.
 
+## Reservations are for the website only
+
+Asked and answered explicitly: the admin booking flow does NOT take a
+reservation, and this is not an unfinished corner.
+
+A reservation exists to protect a court across a payment window. The website
+has one; a member of staff filling in the booking form does not. Adding holds
+there would take courts out of circulation whenever somebody opened a form and
+wandered off, for no gain.
+
+Admin bookings are already safe from double booking without one, because
+`allocate_facility` takes the same club/day advisory lock the website takes:
+two members of staff reaching for one court at the same instant, and a member
+of staff racing a customer's checkout, are both covered by threaded tests in
+`test_reservations_concurrency.py`.
+
+## Confirmed the moment it is paid for
+
+The other half of the gate below. Nothing used to move a PAID booking out of
+the opening status, so a customer who had paid in full sat at Pending until
+somebody noticed and clicked.
+
+`services.confirm_if_settled` runs from `settle_booking_payment`, the one
+place any payment is recorded, so the website, a split share and a member of
+staff taking cash at the desk all behave the same. It confirms only from the
+opening status and only when nothing is outstanding: a part-paid split has not
+bought the court, and a booking already Assigned must not be dragged
+backwards.
+
+A booking covered by a membership, or worth zero, does not pass through the
+payment path and is deliberately NOT confirmed by this. Whether it should be
+is a separate question that has not been asked.
+
 ## Confirmation requires the money, for one case only
 
 A website checkout that chose to pay online and has collected nothing may not

@@ -2027,7 +2027,40 @@ def settle_booking_payment(booking, *, method, amount=None, reference="", notes=
               "payer": payer_label or None,
               "amount_paid": str(booking_amount_paid(booking)),
               "outstanding": str(booking_outstanding(booking))})
+    # After the payment is recorded and logged, so the timeline reads in the
+    # order it happened: paid, then confirmed.
+    confirm_if_settled(booking, actor=_actor_or_none(request), request=request)
     return payment, invoice
+
+
+def confirm_if_settled(booking, *, actor=None, request=None):
+    """Confirm a booking the moment it is fully paid for.
+
+    The other half of the confirmation gate. That gate stops an unpaid online
+    checkout being called Confirmed; without this nothing ever called a PAID
+    one Confirmed either, so a customer who had paid in full sat at Pending
+    until somebody noticed and clicked. The money is in, the court is theirs,
+    and the status should say so.
+
+    Narrow on purpose:
+
+    * only from the opening status. A booking already Assigned or Completed
+      has moved past this and must not be dragged backwards;
+    * only when nothing is outstanding. A part-paid split has not bought the
+      court yet, and saying otherwise would be a promise the money does not
+      cover;
+    * never for a cancelled or no-show booking, which `can_transition`
+      refuses anyway.
+
+    Idempotent: a second payment against a settled booking changes nothing.
+    """
+    if booking.status != BookingStatus.BOOKED:
+        return booking
+    if booking_outstanding(booking) > 0:
+        return booking
+    return transition_booking(
+        booking, BookingStatus.CONFIRMED, actor=actor, request=request,
+        note="Confirmed on payment")
 
 
 def event_source(actor):
