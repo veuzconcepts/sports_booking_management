@@ -35,6 +35,13 @@ export const bookingsApi = {
   // Consolidated financial history: { invoices[], payments[] (with nested refunds[]) }.
   finance: (id) => api.get(`/bookings/${id}/finance/`).then((r) => r.data),
 
+  // ISSUES a fresh split-payment link for one unpaid share. It does not reveal
+  // the existing one: raw tokens are never stored, only their digests, so the
+  // link the customer was given cannot be looked up by anybody. Minting a new
+  // one invalidates the previous link, which the caller must make plain.
+  splitShareLink: (id, share) =>
+    api.post(`/bookings/${id}/split-share-link/`, { share }).then((r) => r.data),
+
   transition: (id, status, note) =>
     api.post(`/bookings/${id}/transition/`, { status, note }).then((r) => r.data),
   cancel: (id, note) =>
@@ -52,6 +59,11 @@ export const bookingsApi = {
       .then((r) => r.data),
   skipAssignment: (id) =>
     api.post(`/bookings/${id}/skip-assignment/`).then((r) => r.data),
+  // Turn a saved draft into a real booking. A draft holds no court, so this
+  // is the first moment availability matters and it can legitimately fail
+  // with 409 if the slot went while the draft was sitting there.
+  finishDraft: (id) =>
+    api.post(`/bookings/${id}/finish-draft/`).then((r) => r.data),
   // Apply / remove subscription coverage on an existing booking (no full edit).
   redeemSubscription: (id) =>
     api.post(`/bookings/${id}/redeem-subscription/`).then((r) => r.data),
@@ -68,13 +80,24 @@ export const bookingsApi = {
     api.post(`/bookings/${id}/generate-recurrences/`, { occurrences }).then((r) => r.data),
 };
 
-/** Booking rules: when a slot may be booked, and when a customer may cancel.
- *  One organization default row plus an optional row per club. */
+/** Booking rules: when a slot may be booked, how many slots one booking may
+ *  hold, and when a customer may cancel. One organization default row, plus an
+ *  optional row per club and per facility. */
 export const bookingPoliciesApi = {
   list:   (params) => api.get('/bookings/policies/', { params }).then((r) => r.data),
   create: (data)   => api.post('/bookings/policies/', data).then((r) => r.data),
   update: (id, d)  => api.patch(`/bookings/policies/${id}/`, d).then((r) => r.data),
   remove: (id)     => api.delete(`/bookings/policies/${id}/`),
+
+  /** What applies at a scope once inheritance is resolved, whether or not a
+   *  row exists there. The editor uses it to show what "inherit" would give. */
+  effective: (params) => api.get('/bookings/policies/effective/', { params })
+    .then((r) => r.data),
+
+  /** Clear the slot-rule overrides under a scope so everything below it
+   *  follows that scope again. Omit the club to reach every club. */
+  clearOverrides: (club) => api.post('/bookings/policies/clear-overrides/',
+    club ? { club } : {}).then((r) => r.data),
 };
 
 /** The dates/times the policy allows, so a picker can bound itself. */
@@ -125,6 +148,9 @@ export function bookingEditInitial(b) {
 
 // One vocabulary: the same `status.*` keys the badges and the calendar use.
 export const BOOKING_STATUS_VALUES = [
+  // `draft` leads because it comes before the lifecycle rather than being
+  // part of it: an admin's unfinished form, holding no court.
+  'draft',
   'booked', 'confirmed', 'assigned', 'arrived', 'in_progress',
   'completed', 'closed', 'cancelled', 'no_show',
 ];
@@ -186,3 +212,36 @@ export const NEXT_STATUSES = {
   cancelled:   [],
   no_show:     [],
 };
+
+// --------------------------------------------------------------------------
+// Reservations (BookingHold)
+// --------------------------------------------------------------------------
+// A reservation is the claim a checkout puts on a court while the customer
+// pays. It lives under /bookings/ because it is the same domain, and it is
+// READ-ONLY apart from `release`: nothing here may create or extend a
+// reservation, because the checkout owns the deadline.
+export const reservationsApi = {
+  list:    (params) => api.get('/bookings/reservations/', { params }).then((r) => r.data),
+  get:     (id)     => api.get(`/bookings/reservations/${id}/`).then((r) => r.data),
+  // Gives the courts back now instead of at the deadline. Idempotent server
+  // side, so a double click is not an error.
+  release: (id)     => api.post(`/bookings/reservations/${id}/release/`).then((r) => r.data),
+};
+
+// --------------------------------------------------------------------------
+// Multi-slot orders
+// --------------------------------------------------------------------------
+// Retrieve-only. An order owns no money and no status of its own: everything
+// about it is summed from its bookings, and the way to change any of it is to
+// act on the slot it belongs to.
+export const ordersApi = {
+  get: (id) => api.get(`/bookings/orders/${id}/`).then((r) => r.data),
+};
+
+export const HOLD_STATUS_VALUES = [
+  'active', 'converted', 'released', 'expired', 'cancelled',
+];
+
+export const holdStatuses = (t) => HOLD_STATUS_VALUES.map((value) => ({
+  value, label: t(`bookings:reservations.status.${value}`),
+}));

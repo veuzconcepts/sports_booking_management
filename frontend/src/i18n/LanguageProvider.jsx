@@ -2,7 +2,7 @@ import {
   createContext, useCallback, useContext, useEffect, useMemo, useState,
 } from 'react';
 
-import i18n, { FALLBACK_LANGUAGE, loadLanguage } from './index.js';
+import i18n, { FALLBACK_LANGUAGE, directionFor, loadLanguage } from './index.js';
 import { languagesApi } from '../services/languagesService.js';
 
 /**
@@ -36,12 +36,21 @@ function readStored() {
   }
 }
 
-function readStoredDirection() {
+/**
+ * The remembered direction, or the best guess from the language code.
+ *
+ * These are two values that can disagree, and they did: anything that wrote
+ * the language without the direction left this returning 'ltr' for Arabic,
+ * so the page painted left to right with Arabic text in it until the
+ * catalogue arrived and corrected it. Falling back to the code means the
+ * missing half is inferred rather than assumed to be English.
+ */
+function readStoredDirection(code) {
   try {
-    return localStorage.getItem(DIRECTION_KEY) === 'rtl' ? 'rtl' : 'ltr';
-  } catch {
-    return 'ltr';
-  }
+    const stored = localStorage.getItem(DIRECTION_KEY);
+    if (stored === 'rtl' || stored === 'ltr') return stored;
+  } catch { /* private mode or blocked storage: guess below */ }
+  return directionFor(code);
 }
 
 function writeStored(code, direction) {
@@ -90,7 +99,7 @@ export function LanguageProvider({ children, user }) {
           if (cancelled) return;
           await i18n.changeLanguage(stored);
           setLanguage(stored);
-          applyDocument(stored, readStoredDirection());
+          applyDocument(stored, readStoredDirection(stored));
         }
       } finally {
         if (!cancelled) setBooted(true);
@@ -127,7 +136,9 @@ export function LanguageProvider({ children, user }) {
     await i18n.changeLanguage(target);
     setLanguage(target);
     const meta = available.find((l) => l.code === target);
-    applyDocument(target, meta?.direction || 'ltr');
+    // The catalogue is authoritative. `directionFor` only covers a language
+    // row that somehow carries no direction at all.
+    applyDocument(target, meta?.direction || directionFor(target));
     return true;
   }, [codes, available]);
 

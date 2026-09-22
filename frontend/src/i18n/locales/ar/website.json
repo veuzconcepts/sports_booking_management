@@ -114,7 +114,7 @@
     },
     "subheadline": "العنوان الفرعي",
     "subtitle": "بطاقات ترويجية تُعرض على موقع العملاء خلال فترة محدّدة.",
-    "timezoneHint": "تُقرأ بتوقيت المؤسسة، لا بتوقيت الزائر.",
+    "timezoneHint": "يُضبط بتوقيت {{zone}}، توقيت المؤسسة، لا توقيت الزائر.",
     "title": "حملات الموقع",
     "type": "النوع",
     "types": {
@@ -141,6 +141,7 @@
   "chooseImageUpload": "اختر صورة لرفعها.",
   "cms": {
     "created": "تم إنشاء {{item}}",
+    "deleteBody": "سيؤدي هذا إلى إزالة العنصر نهائيا من إدارة محتوى الموقع.",
     "deleteTitle": "حذف {{item}}؟",
     "deleted": "تم حذف {{item}}",
     "displayOrder": "ترتيب العرض",
@@ -154,6 +155,7 @@
     "faqs": "الأسئلة الشائعة",
     "newItem": "{{item}} جديد",
     "saved": "تم حفظ {{item}}",
+    "searchPlaceholder": "بحث في {{items}}",
     "singular": {
       "banner": "بانر",
       "brand": "علامة تجارية",
@@ -210,6 +212,7 @@
   "packages": "الباقات",
   "pagePath": "مسار الصفحة",
   "path": "المسار",
+  "setWebsiteUrl": "تعيين عنوان الموقع",
   "previewWebsite": "معاينة الموقع",
   "primaryButtonLabel": "نص الزر الرئيسي",
   "primaryButtonUrl": "رابط الزر الرئيسي",

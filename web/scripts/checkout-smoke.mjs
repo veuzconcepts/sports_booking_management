@@ -1,0 +1,1395 @@
+/**
+ * Smoke check for the customer checkout and its translations.
+ *
+ * This site has no test runner, and `astro build` only proves the files parse:
+ * a component that throws on render still builds perfectly and then shows the
+ * customer a blank page. That has happened here more than once, always on the
+ * payment step, which is the worst possible place for it.
+ *
+ * So this renders the checkout pieces on the server and asserts the handful of
+ * contracts that money and language depend on:
+ *
+ *   - a payment tile is never offered for a provider the backend does not have;
+ *   - the browser never sends an amount it decided for itself;
+ *   - the equal-split preview sums back to the booking total exactly;
+ *   - every language defines the same keys, and every key the code uses exists.
+ *
+ * Run it with `npm run check`. It needs no browser and no server.
+ *
+ * It uses esbuild (already present, as Vite depends on it) to transpile the JSX,
+ * because Node cannot import `.jsx` directly.
+ */
+
+import { mkdirSync, readFileSync, readdirSync, rmSync, statSync } from 'node:fs';
+import { join } from 'node:path';
+import { pathToFileURL } from 'node:url';
+
+import * as esbuild from 'esbuild';
+
+// The bundle has to sit inside the project, not in the OS temp directory:
+// `react` stays external so the real one is used, and Node can only resolve it
+// from a path under this package.
+const workDir = join('node_modules', '.cache', 'checkout-smoke');
+mkdirSync(workDir, { recursive: true });
+const bundlePath = join(workDir, 'bundle.mjs');
+
+const i18nPath = join(workDir, 'i18n.mjs');
+
+// `react-i18next` stays external so the provider here and the hooks inside the
+// components are the same module, and therefore share one React context.
+await esbuild.build({
+  entryPoints: ['src/components/CheckoutPayment.jsx'],
+  bundle: true,
+  format: 'esm',
+  platform: 'node',
+  outfile: bundlePath,
+  external: ['react', 'react-dom', 'react-i18next'],
+  logLevel: 'silent',
+});
+
+await esbuild.build({
+  entryPoints: ['src/i18n/client.jsx'],
+  bundle: true,
+  format: 'esm',
+  platform: 'node',
+  outfile: i18nPath,
+  external: ['react', 'react-dom', 'react-i18next', 'i18next'],
+  logLevel: 'silent',
+});
+
+// The shared module imports the locale JSON, which Vite handles but bare Node
+// will not without an import attribute, so it is bundled the same way.
+const sharedPath = join(workDir, 'shared.mjs');
+await esbuild.build({
+  entryPoints: ['src/i18n/index.js'],
+  bundle: true,
+  format: 'esm',
+  platform: 'node',
+  outfile: sharedPath,
+  logLevel: 'silent',
+});
+
+const { createElement: h } = await import('react');
+const { renderToStaticMarkup } = await import('react-dom/server');
+const { I18nextProvider } = await import('react-i18next');
+const checkout = await import(pathToFileURL(bundlePath).href);
+const { getI18n } = await import(pathToFileURL(i18nPath).href);
+const { RESOURCES, LOCALES, dirFor, fromAstro, intlLocale, resolveLocale, weekdayStyle } =
+  await import(pathToFileURL(sharedPath).href);
+
+const {
+  CardForm, PaymentMethods, SplitPanel, SplitToggle,
+  blankCard, blankSplit, cardRequest, paymentTiles, previewEqualSplit, splitRequest,
+} = checkout;
+
+const failures = [];
+
+function check(name, run) {
+  try {
+    const result = run();
+    if (result === undefined || result === null || result === false) {
+      throw new Error('returned nothing');
+    }
+    console.log(`  ok    ${name}`);
+  } catch (error) {
+    failures.push(`${name}: ${error.message}`);
+    console.log(`  FAIL  ${name}: ${error.message}`);
+  }
+}
+
+function assert(condition, message) {
+  if (!condition) throw new Error(message);
+  return true;
+}
+
+/** Render an island the way Astro does, inside a language provider. */
+function render(element, locale = 'en') {
+  return renderToStaticMarkup(
+    h(I18nextProvider, { i18n: getI18n(locale) }, element),
+  );
+}
+
+const DEMO = {
+  card_enabled: true, demo_mode: true, split_enabled: true, split_minutes: 60,
+  test_cards: [{ number: '4242424242424242', label: 'Successful payment' }],
+  test_expiry: '12/30', test_cvv: '123',
+};
+const LIVE = { card_enabled: true, demo_mode: false, split_enabled: true, split_minutes: 60 };
+const NO_PROVIDER = { card_enabled: false, demo_mode: false, split_enabled: false };
+// A club that takes no money at the desk: card only.
+const CASH_OFF = { card_enabled: true, demo_mode: false, split_enabled: true, cash_enabled: false };
+
+console.log('\nRendering:');
+
+check('method tiles, demo mode', () => render(
+  h(PaymentMethods, { method: 'card', config: DEMO, country: 'SA', onPick() {} })));
+
+check('method tiles, no provider', () => render(
+  h(PaymentMethods, { method: 'venue', config: NO_PROVIDER, country: 'SA', onPick() {} })));
+
+check('method tiles while splitting', () => render(
+  h(PaymentMethods, {
+    method: 'card', config: LIVE, country: 'AE', splitOn: true,
+    heading: 'Pay your share with', onPick() {},
+  })));
+
+check('card form, demo', () => render(
+  h(CardForm, { card: blankCard(), setCard() {}, config: DEMO })));
+
+check('card form, compact', () => render(
+  h(CardForm, { card: blankCard(), setCard() {}, config: LIVE, compact: true })));
+
+check('split toggle', () => render(h(SplitToggle, { on: false, onChange() {} })));
+
+check('split panel, equal amounts', () => render(
+  h(SplitPanel, {
+    split: { ...blankSplit(), on: true }, setSplit() {}, total: '29.40',
+    currency: 'SAR', organizerName: 'Layla Ahmed', holdMinutes: 60,
+  })));
+
+check('split panel, custom amounts', () => render(
+  h(SplitPanel, {
+    split: {
+      ...blankSplit(), on: true, mode: 'custom',
+      custom: [
+        { name: '', amount: '9.80', isOrganizer: true },
+        { name: 'Ali', amount: '9.80' },
+        { name: 'Omar', amount: '9.80' },
+      ],
+    },
+    setSplit() {}, total: '29.40', currency: 'SAR',
+    organizerName: 'Layla Ahmed', holdMinutes: 60,
+  })));
+
+check('the split panel renders in Arabic', () => {
+  const html = render(
+    h(SplitPanel, {
+      split: { ...blankSplit(), on: true }, setSplit() {}, total: '29.40',
+      currency: 'SAR', organizerName: 'ليلى', holdMinutes: 60,
+    }), 'ar');
+  return assert(html.includes(RESOURCES.ar.split.title), 'Arabic copy did not render');
+});
+
+console.log('\nWhat the customer is shown:');
+
+check('the equal split preview sums back to the total', () => {
+  const shares = previewEqualSplit('29.40', 3);
+  const sum = shares.reduce((total, share) => total + Math.round(Number(share) * 100), 0);
+  assert(sum === 2940, `shares summed to ${sum}, not 2940`);
+  return assert(shares[0] === '9.80', `first share was ${shares[0]}`);
+});
+
+check('an odd cent lands on the last share rather than vanishing', () => {
+  const shares = previewEqualSplit('100.00', 3);
+  return assert(shares.join(',') === '33.33,33.33,33.34', shares.join(','));
+});
+
+check('an amount too small to divide shows nothing rather than zeros', () =>
+  assert(previewEqualSplit('0.02', 5).length === 0, 'offered impossible shares'));
+
+console.log('\nWhat the backend is allowed to decide:');
+
+check('no card provider means no card tile', () => {
+  const keys = paymentTiles({ config: NO_PROVIDER, country: 'SA' }).map((tile) => tile.key);
+  assert(!keys.includes('card'), 'a card tile was offered with no provider configured');
+  return assert(keys.includes('venue'),
+    'with no provider and cash allowed, paying at the venue must remain');
+});
+
+check('a club that does not take cash offers no venue tile', () => {
+  const keys = paymentTiles({ config: CASH_OFF, country: 'SA' }).map((tile) => tile.key);
+  assert(!keys.includes('venue'), 'pay at the venue was offered where cash is off');
+  return assert(keys.includes('card'), 'nothing at all was left to pay with');
+});
+
+check('a config that says nothing about cash still offers the venue', () => {
+  // Backward compatibility: an older payload, or one that could not be fetched,
+  // must not silently remove the only method that works without a gateway.
+  const keys = paymentTiles({ config: { card_enabled: false }, country: 'SA' })
+    .map((tile) => tile.key);
+  return assert(keys.includes('venue'), 'an unknown cash setting removed the tile');
+});
+
+check('a wallet tile stays hidden until a provider supports one', () => {
+  const keys = paymentTiles({ config: LIVE, country: 'SA' }).map((tile) => tile.key);
+  return assert(!keys.includes('wallet'), 'a wallet tile was offered with no provider');
+});
+
+check('paying at the venue is withdrawn while splitting', () => {
+  const keys = paymentTiles({ config: LIVE, country: 'SA', splitOn: true })
+    .map((tile) => tile.key);
+  return assert(!keys.includes('venue'), 'a split cannot be settled at the counter');
+});
+
+check('the card tile is labelled for the country', () => {
+  // mada is Saudi Arabia's domestic network, so only a Saudi org claims it.
+  const sa = paymentTiles({ config: LIVE, country: 'SA' })[0].labelKey;
+  const ae = paymentTiles({ config: LIVE, country: 'AE' })[0].labelKey;
+  return assert(sa === 'methods.cardMada' && ae === 'methods.card', `${sa} / ${ae}`);
+});
+
+console.log('\nWhat leaves the browser:');
+
+check('an equal split sends a headcount, never amounts', () => {
+  const body = splitRequest({ ...blankSplit(), on: true, people: 4 });
+  assert(!JSON.stringify(body).includes('amount'),
+    'an amount the browser chose leaked into the request');
+  return assert(body.people === 4, 'the headcount was lost');
+});
+
+check('the contact box sends an email and nothing else', () => {
+  // It used to take an email OR a mobile and guess which from an "@". The
+  // guess was the problem: a typo with no "@" was quietly filed as a phone
+  // number and the friend never got their link, with nothing to show why.
+  // The field asks for an email now, so `phone` goes out empty rather than
+  // filled with whatever failed to look like an address.
+  const body = splitRequest({
+    ...blankSplit(), on: true, people: 3,
+    friends: [
+      { name: 'Ali', contact: 'ali@club.sa' },
+      { name: 'Omar', contact: 'not-an-address' },
+    ],
+  });
+  assert(body.friends[0].email === 'ali@club.sa' && !body.friends[0].phone,
+    'the email was not sent as an email');
+  return assert(body.friends[1].phone === '' && body.friends[1].email === 'not-an-address',
+    'a value that is not an address was filed as a phone number again');
+});
+
+check('the split fields ask plainly, without "optional" in the way', () => {
+  // Everything in this panel is optional; saying so on each field was noise,
+  // and the name in particular read as a heading rather than something to
+  // type in.
+  const { en, ar } = RESOURCES;
+  for (const [code, r] of [['en', en], ['ar', ar]]) {
+    assert(!/optional/i.test(r.split.namePlaceholder),
+      `${code}: the name field still says optional`);
+    assert(!/optional|اختياري/i.test(r.split.contactPlaceholder),
+      `${code}: the email field still says optional`);
+  }
+  return assert(!/mobile|phone/i.test(en.split.contactPlaceholder),
+    'the email field still offers a mobile number');
+});
+
+check('the name and email fields look like one pair', () => {
+  // A bordered box beneath a bare underline read as two different kinds of
+  // control stacked on each other.
+  const css = readFileSync('src/styles/payment.css', 'utf8');
+  const block = css.slice(css.indexOf('.ck__person-contact {'));
+  const decl = block.slice(0, block.indexOf('}'));
+  assert(/border-bottom:\s*1px dashed/.test(decl),
+    'the email field does not take the name field underline');
+  return assert(!/border-radius/.test(decl),
+    'the email field is still a rounded box');
+});
+
+check('a refused reservation clears the times it refused', () => {
+  // "Pick times again" kept the selection, so pressing Continue sent the
+  // customer straight back to the same refusal. Those times are the ones
+  // somebody else has taken. An EXPIRY keeps them, because they may well
+  // still be free.
+  const wizardSrc = readFileSync('src/components/BookingWizard.jsx', 'utf8');
+  assert(wizardSrc.includes('onPickAgain({ reset: true })'),
+    'the refusal banner does not ask for a clean slate');
+  assert(wizardSrc.includes("opts?.reset === true) setSlots([])"),
+    'the wizard ignores the request to clear');
+  // The expiry banner must NOT ask for it.
+  const expired = wizardSrc.slice(wizardSrc.indexOf("t('hold.expired')"));
+  return assert(!expired.slice(0, 400).includes('reset: true'),
+    'an expired reservation also throws the selection away');
+});
+
+check('the card payload carries only what was typed', () => {
+  const body = cardRequest({
+    holder: 'Layla Ahmed', number: '4242 4242 4242 4242', expiry: '12/30', cvv: '123',
+  });
+  assert(body.number === '4242424242424242', `number was ${body.number}`);
+  return assert(Object.keys(body).sort().join(',') === 'cvv,expiry,holder,number',
+    `unexpected fields: ${Object.keys(body)}`);
+});
+
+console.log('\nTranslations:');
+
+/** Every dotted key in a nested dictionary. */
+function keysOf(node, prefix = '') {
+  return Object.entries(node).flatMap(([key, value]) => {
+    const path = prefix ? `${prefix}.${key}` : key;
+    return value && typeof value === 'object' ? keysOf(value, path) : [path];
+  });
+}
+
+const englishKeys = keysOf(RESOURCES.en);
+const english = new Set(englishKeys);
+
+// A plural key exists as several suffixed entries, and languages legitimately
+// have different numbers of them: English has two forms, Arabic has six. So
+// parity is compared on the BASE key, not on the suffixed variants.
+const PLURAL_SUFFIX = /_(zero|one|two|few|many|other)$/;
+const baseKey = (key) => key.replace(PLURAL_SUFFIX, '');
+const baseKeys = (bundle) => new Set(keysOf(bundle).map(baseKey));
+const englishBases = baseKeys(RESOURCES.en);
+
+check('every language covers exactly the same keys', () => {
+  const problems = [];
+  for (const { code } of LOCALES) {
+    if (code === 'en') continue;
+    const theirs = baseKeys(RESOURCES[code]);
+    for (const key of englishBases) if (!theirs.has(key)) problems.push(`${code} missing ${key}`);
+    for (const key of theirs) if (!englishBases.has(key)) problems.push(`${code} has extra ${key}`);
+  }
+  return assert(problems.length === 0, problems.slice(0, 8).join('; '));
+});
+
+check('Arabic carries its own plural forms', () => {
+  // Arabic grammar distinguishes one, two and several; a two-form translation
+  // copied from English would read wrong for exactly two add-ons.
+  const forms = keysOf(RESOURCES.ar).filter((key) => PLURAL_SUFFIX.test(key));
+  const bases = new Set(forms.map(baseKey));
+  const problems = [...bases].filter((base) =>
+    !forms.includes(`${base}_two`) || !forms.includes(`${base}_few`));
+  return assert(problems.length === 0, `missing dual/few forms: ${problems.join(', ')}`);
+});
+
+check('no Arabic value is still the English string', () => {
+  const read = (node, key) => key.split('.').reduce((branch, part) => branch?.[part], node);
+  const untranslated = englishKeys.filter((key) => {
+    const source = read(RESOURCES.en, key);
+    const target = read(RESOURCES.ar, key);
+    if (typeof source !== 'string' || typeof target !== 'string') return false;
+    if (source !== target) return false;
+    // Placeholders, brand names and pure punctuation are legitimately identical.
+    return !/^[\d\s/{}.@:A-Za-z]*$/.test(source);
+  });
+  return assert(untranslated.length === 0, untranslated.slice(0, 8).join(', '));
+});
+
+check('every key the components use actually exists', () => {
+  const files = [];
+  const walk = (dir) => {
+    for (const name of readdirSync(dir)) {
+      const full = join(dir, name);
+      if (statSync(full).isDirectory()) {
+        if (name !== 'i18n') walk(full);
+      } else if (/\.(jsx|js|astro)$/.test(name)) {
+        files.push(full);
+      }
+    }
+  };
+  walk('src');
+  const missing = new Set();
+  for (const file of files) {
+    const text = readFileSync(file, 'utf8');
+    for (const [, key] of text.matchAll(/\bt\(\s*'([a-z][\w.]*)'/g)) {
+      if (!english.has(key) && !englishBases.has(key)) missing.add(`${key} (${file})`);
+    }
+  }
+  return assert(missing.size === 0, [...missing].slice(0, 8).join(', '));
+});
+
+check('Arabic is right to left and English is not', () => {
+  assert(dirFor('ar') === 'rtl', 'Arabic must be rtl');
+  return assert(dirFor('en') === 'ltr', 'English must be ltr');
+});
+
+check('an explicit language choice beats a stored one', () => {
+  const locale = resolveLocale({
+    url: new URL('https://x.test/book?lang=ar'),
+    cookies: { get: () => ({ value: 'en' }) },
+    headers: new Headers(),
+  });
+  return assert(locale === 'ar', `resolved ${locale}`);
+});
+
+check('a stored choice beats the browser header', () => {
+  const locale = resolveLocale({
+    url: new URL('https://x.test/book'),
+    cookies: { get: () => ({ value: 'ar' }) },
+    headers: new Headers({ 'accept-language': 'en-GB,en;q=0.9' }),
+  });
+  return assert(locale === 'ar', `resolved ${locale}`);
+});
+
+check('an unknown language falls back rather than failing', () => {
+  const locale = resolveLocale({
+    url: new URL('https://x.test/book?lang=zz'),
+    cookies: { get: () => undefined },
+    headers: new Headers({ 'accept-language': 'zz-ZZ' }),
+  });
+  return assert(locale === 'en', `resolved ${locale}`);
+});
+
+check('a page still renders when middleware has not run', () => {
+  // Astro.locals is an ordinary object. A dev server started before the
+  // middleware file existed leaves it empty, and a component that called
+  // `Astro.locals.t` then threw and took the whole page down.
+  const { t, locale, dir } = fromAstro({
+    url: new URL('https://x.test/book?lang=ar'),
+    cookies: { get: () => undefined },
+    request: { headers: new Headers() },
+  });
+  assert(typeof t === 'function', 'no translator without middleware');
+  assert(locale === 'ar' && dir === 'rtl', `resolved ${locale}/${dir}`);
+  return assert(t('nav.clubs') === RESOURCES.ar.nav.clubs, 'translator did not translate');
+});
+
+check('no component reads the translator straight off Astro.locals', () => {
+  const offenders = [];
+  const walk = (dir) => {
+    for (const name of readdirSync(dir)) {
+      const full = join(dir, name);
+      if (statSync(full).isDirectory()) walk(full);
+      else if (/\.astro$/.test(name)) {
+        const text = readFileSync(full, 'utf8');
+        // Either shape is the bug: reading a property off `locals`, or
+        // destructuring the translator out of it. A page must not depend on
+        // middleware having run.
+        if (text.includes('Astro.locals')) offenders.push(full);
+      }
+    }
+  };
+  walk('src');
+  return assert(offenders.length === 0,
+    `use fromAstro(Astro) instead: ${offenders.join(', ')}`);
+});
+
+console.log('\nRight to left:');
+
+check('dates and months read in the active language', () => {
+  const when = new Date(2026, 8, 17);
+  const english = when.toLocaleDateString(intlLocale('en'), { month: 'long', year: 'numeric' });
+  const arabic = when.toLocaleDateString(intlLocale('ar'), { month: 'long', year: 'numeric' });
+  assert(english.includes('September'), `English month was ${english}`);
+  assert(!/[A-Za-z]/.test(arabic), `Arabic month still latin: ${arabic}`);
+  // Latin digits on purpose, so a date never disagrees with the price beside it.
+  return assert(arabic.includes('2026'), `Arabic year was not latin digits: ${arabic}`);
+});
+
+check('weekday headings fit a seven column grid', () => {
+  const widest = (code) => Math.max(...Array.from({ length: 7 }, (_, index) =>
+    new Date(2024, 0, 7 + index)
+      .toLocaleDateString(intlLocale(code), { weekday: weekdayStyle(code) }).length));
+  assert(widest('en') <= 3, `English heading too wide: ${widest('en')}`);
+  // Arabic's short form is the whole word, so the narrow form is the only one
+  // that fits. This guards against someone "tidying" it back to short.
+  return assert(widest('ar') <= 3, `Arabic heading too wide: ${widest('ar')}`);
+});
+
+check('a duration is a translated phrase, not a glued-on unit', () => {
+  const english = getI18n('en').t('common.minutes', { count: 45 });
+  const arabic = getI18n('ar').t('common.minutes', { count: 45 });
+  assert(english === '45 min', `English was ${english}`);
+  assert(!/[A-Za-z]/.test(arabic), `Arabic duration still latin: ${arabic}`);
+  // Arabic marks the dual, so two minutes is its own word.
+  const dual = getI18n('ar').t('common.minutes', { count: 2 });
+  return assert(dual !== arabic.replace('45', '2'), 'Arabic dual form not used');
+});
+
+check('clock times and money are isolated from bidi reordering', () => {
+  // Without <bdi>, the bidi algorithm reorders a left-to-right run inside an
+  // Arabic line and "8:00 PM" renders as "PM 8:00". This is what a customer
+  // reported, so it is pinned by source.
+  const wizard = readFileSync('src/components/BookingWizard.jsx', 'utf8');
+  const split = readFileSync('src/components/SplitPay.jsx', 'utf8');
+  const problems = [];
+  for (const [name, text] of [['BookingWizard', wizard], ['SplitPay', split]]) {
+    for (const [line] of text.matchAll(/^.*\bfmtTime\(.*$/gm)) {
+      // An aria-label or title is a plain string read linearly by a screen
+      // reader, not rendered text, so <bdi> would do nothing there. Visible
+      // text is still required to isolate.
+      const isAttribute = /\b(aria-label|title)=/.test(line);
+      if (!line.includes('<bdi>') && !line.includes('function fmtTime')
+          && !isAttribute) {
+        problems.push(`${name}: ${line.trim().slice(0, 60)}`);
+      }
+    }
+  }
+  if (!wizard.includes('<bdi>{sym} {v}</bdi>')) problems.push('money is not isolated');
+  return assert(problems.length === 0, problems.slice(0, 4).join(' | '));
+});
+
+check('directional icons mirror but the padlock does not', () => {
+  const css = readFileSync('src/styles/payment.css', 'utf8');
+  assert(css.includes('[dir="rtl"] .bw__cal-monthbar button svg'),
+    'month arrows are not mirrored');
+  // A padlock is not directional; flipping it with the arrows looks broken.
+  return assert(/\[dir="rtl"\] \.ck__pay svg:first-child[\s\S]{0,80}transform: none/.test(css),
+    'the padlock is being mirrored');
+});
+
+/**
+ * Blank out CSS comments, keeping newlines so line numbers still line up.
+ *
+ * Written with indexOf rather than a regular expression on purpose: the audit
+ * below looks for direction-bound properties, and a comment that merely talks
+ * about left and right is not one.
+ */
+function stripComments(text) {
+  const blank = (chunk) => chunk
+    .split('')
+    .map((character) => (character === '\n' ? character : ' '))
+    .join('');
+  let out = '';
+  let index = 0;
+  for (;;) {
+    const start = text.indexOf('/*', index);
+    if (start < 0) return out + text.slice(index);
+    out += text.slice(index, start);
+    const end = text.indexOf('*/', start + 2);
+    if (end < 0) return out + blank(text.slice(start));
+    out += blank(text.slice(start, end + 2));
+    index = end + 2;
+  }
+}
+
+check('no stylesheet uses a direction-bound property', () => {
+  // The first pass at this only looked at margin, padding, border and
+  // text-align, and missed `right: 50%` written mid-line on the step
+  // connector, which is why the progress bar drew on the wrong side in Arabic.
+  // This checks every physical form there is.
+  const PHYSICAL = [
+    [/(^|[;{\s])(margin|padding)-(left|right)\s*:/m, 'margin/padding-left|right'],
+    [/(^|[;{\s])border-(left|right)(-\w+)?\s*:/m, 'border-left|right'],
+    [/(^|[;{\s])(left|right)\s*:/m, 'left|right inset'],
+    [/text-align\s*:\s*(left|right)/m, 'text-align: left|right'],
+    [/(float|clear)\s*:\s*(left|right)/m, 'float/clear'],
+    [/border-(top|bottom)-(left|right)-radius/m, 'physical corner radius'],
+    [/border-radius\s*:\s*[^;}]*([\d.]+[a-z%]*\s+){3}[\d.]/m, 'four-value border-radius'],
+    [/background-position\s*:[^;}]*(left|right)/m, 'background-position'],
+  ];
+  const problems = [];
+  for (const name of readdirSync('src/styles')) {
+    if (!name.endsWith('.css')) continue;
+    // Comments are blanked first: prose like "Right to left:" is not a
+    // declaration, and flagging it would teach people to ignore this check.
+    // Newlines are kept so the reported line numbers stay accurate.
+    const css = stripComments(readFileSync(join('src/styles', name), 'utf8'));
+    for (const [pattern, label] of PHYSICAL) {
+      css.split('\n').forEach((line, index) => {
+        if (pattern.test(line)) problems.push(`${name}:${index + 1} ${label}`);
+      });
+    }
+  }
+  return assert(problems.length === 0, problems.slice(0, 6).join(' | '));
+});
+
+check('a mirrored icon keeps its mirror on hover', () => {
+  // `transform` is one property: a hover rule setting only translateX silently
+  // discards the scaleX(-1) that mirrors an arrow, so it flips back under the
+  // cursor. Every mirrored selector with a hover nudge must restate both.
+  const css = readFileSync('src/styles/booking.css', 'utf8')
+    + readFileSync('src/styles/payment.css', 'utf8');
+  const mirrored = [...css.matchAll(/\[dir="rtl"\]\s+(\.[\w-]+)[^{,]*\{[^}]*scaleX\(-1\)/g)]
+    .map((match) => match[1]);
+  const problems = [];
+  for (const selector of new Set(mirrored)) {
+    const hover = new RegExp(`\\${selector}[^{]*:hover[^{]*\\{[^}]*translateX`, 'g');
+    if (!hover.test(css)) continue;
+    const paired = new RegExp(`\\[dir="rtl"\\][^{]*\\${selector}[^{]*:hover[^{]*\\{[^}]*scaleX\\(-1\\)[^}]*translateX`);
+    if (!paired.test(css)) problems.push(selector);
+  }
+  return assert(problems.length === 0,
+    `hover drops the mirror for: ${problems.join(', ')}`);
+});
+
+check('a language choice is remembered without middleware', () => {
+  // The fallback path must persist the choice too, not just render it. Without
+  // this the language survives the click that carries `?lang=` and is lost on
+  // the next request, which is what a dev server with no middleware loaded does.
+  const written = [];
+  const context = {
+    url: new URL('https://x.test/book?lang=ar'),
+    cookies: { get: () => undefined, set: (name, value) => written.push([name, value]) },
+    request: { headers: new Headers() },
+  };
+  const { locale } = fromAstro(context);
+  assert(locale === 'ar', `resolved ${locale}`);
+  return assert(written.some(([name, value]) => name === 'lang' && value === 'ar'),
+    `nothing was persisted: ${JSON.stringify(written)}`);
+});
+
+check('an inferred language is not written to a cookie', () => {
+  // Only a deliberate choice is stored. Persisting what Accept-Language said on
+  // a first visit would trap the visitor in it forever.
+  const written = [];
+  fromAstro({
+    url: new URL('https://x.test/book'),
+    cookies: { get: () => undefined, set: (...args) => written.push(args) },
+    request: { headers: new Headers({ 'accept-language': 'ar-SA' }) },
+  });
+  return assert(written.length === 0, `wrote ${JSON.stringify(written)}`);
+});
+
+// --------------------------------------------------------------------------- //
+console.log('\nMulti-slot booking:');
+
+const wizardPath = join(workDir, 'wizard.mjs');
+await esbuild.build({
+  entryPoints: ['src/components/BookingWizard.jsx'],
+  bundle: true,
+  format: 'esm',
+  platform: 'node',
+  outfile: wizardPath,
+  jsx: 'automatic',
+  loader: { '.css': 'empty' },
+  // React stays external for the same reason the checkout bundle keeps it so:
+  // a second copy gives the component its own hook dispatcher and every
+  // render fails with "Invalid hook call".
+  external: ['react', 'react-dom', 'react-i18next'],
+  logLevel: 'silent',
+});
+const wizard = await import(pathToFileURL(wizardPath).href);
+const wizardSource = readFileSync('src/components/BookingWizard.jsx', 'utf8');
+
+check('a selection survives a refresh on the payment step', () => {
+  // Without this every time after the first was dropped and the customer paid
+  // for one slot of the several they chose.
+  const chosen = [
+    { date: '2026-09-17', time: '21:00', end: '21:45' },
+    { date: '2026-09-18', time: '09:00', end: '09:45' },
+  ];
+  const restored = wizard.parseSlotsParam(wizard.formatSlotsParam(chosen));
+  return assert(JSON.stringify(restored) === JSON.stringify(chosen),
+    JSON.stringify(restored));
+});
+
+check('a tampered slot parameter is discarded, not trusted', () => {
+  // A URL is user input. Anything that is not exactly a date and two times is
+  // dropped rather than carried into a booking request.
+  const parsed = wizard.parseSlotsParam(
+    'not-a-slot,2026-13-99T99:99~10:00,<script>,2026-09-17T21:00~21:45');
+  assert(parsed.length === 1, `kept ${parsed.length}`);
+  return assert(parsed[0].date === '2026-09-17', JSON.stringify(parsed));
+});
+
+check('a duplicate time cannot be smuggled in twice', () => {
+  const parsed = wizard.parseSlotsParam(
+    '2026-09-17T21:00~21:45,2026-09-17T21:00~21:45');
+  return assert(parsed.length === 1, `kept ${parsed.length}`);
+});
+
+check('slots always arrive in chronological order', () => {
+  const parsed = wizard.parseSlotsParam(
+    '2026-09-19T08:00~08:45,2026-09-17T21:00~21:45,2026-09-17T09:00~09:45');
+  return assert(
+    parsed.map((s) => `${s.date}T${s.time}`).join(',')
+      === '2026-09-17T09:00,2026-09-17T21:00,2026-09-19T08:00',
+    JSON.stringify(parsed));
+});
+
+check('the wizard never decides the rules for itself', () => {
+  // The backend resolves the chain and sends `slot_rules` with availability.
+  // A number hard-coded here would drift from it the first time somebody
+  // changed a facility.
+  assert(wizardSource.includes('data?.slot_rules'), 'slot_rules is not read');
+  return assert(!/max_slots_per_booking\s*[:=]\s*\d/.test(wizardSource),
+    'a slot maximum is hard-coded in the wizard');
+});
+
+check('one time still uses the single-booking endpoint', () => {
+  // The proven single-slot checkout must not change shape just because a
+  // multi-slot path now exists beside it.
+  assert(wizardSource.includes("const many = chosen.length > 1;"),
+    'the endpoint is not chosen by slot count');
+  return assert(wizardSource.includes("many ? '/api/order' : '/api/book'"),
+    'the two endpoints are not selected as expected');
+});
+
+check('a partly paid order is never reported as simply paid', () => {
+  // Several slots means several charges, so the run can stop halfway. Calling
+  // that "failed" would invite paying twice for the settled slots.
+  assert(wizardSource.includes("outcome.status === 'partial'"),
+    'the partial outcome is not handled');
+  return assert(wizardSource.includes('success.partlyPaid'),
+    'no message for a partly paid order');
+});
+
+check('the order proxy hides the backend like the booking one does', () => {
+  const proxy = readFileSync('src/pages/api/order.js', 'utf8');
+  assert(proxy.includes('createOrder'), 'does not call the shared client');
+  return assert(!proxy.includes('http'), 'the proxy names a backend URL');
+});
+
+// --------------------------------------------------------------------------- //
+console.log('\nAvailability-aware calendar:');
+
+const calendarSource = readFileSync('src/components/BookingWizard.jsx', 'utf8');
+
+check('the calendar asks the backend which dates are bookable', () => {
+  // Section 3: the browser must not decide this from the weekly pattern. A
+  // holiday, a maintenance closure and a full day all look open in one.
+  assert(calendarSource.includes('/api/availability-calendar'),
+    'the month summary endpoint is never called');
+  return assert(calendarSource.includes('month?.days'),
+    'the summary is fetched but not used');
+});
+
+check('a date the backend refuses can never become the selection', () => {
+  // Section 32. This used to demand `disabled={off}` outright, on the grounds
+  // that a faded date still reachable by keyboard is worse than no disabled
+  // state at all. That is right about the DANGER and wrong about the remedy:
+  // a `disabled` button cannot be focused or tapped, so a date that has a
+  // reason worth reading could never be asked for it on a phone, where there
+  // is no hover either.
+  //
+  // So the invariant is the one that actually matters: an unbookable date is
+  // announced as unavailable and can never be selected, however it is reached.
+  // A date with nothing to explain is still plainly `disabled`.
+  assert(calendarSource.includes('disabled={off && !askable}'),
+    'a date with no explanation is not disabled');
+  assert(calendarSource.includes('aria-disabled={off'),
+    'an unbookable date is not announced as unavailable');
+  assert(calendarSource.includes('if (off) {'),
+    'the click is not guarded, so a tap could select an unbookable date');
+  return assert(calendarSource.includes("t('wizard.when.unavailable')"),
+    'a disabled date carries no accessible reason');
+});
+
+check('the payer page lays out its times, and does not stack a date', () => {
+  // `.sp__facts li` as a DESCENDANT selector also caught every row of the
+  // nested times list, so each time became a two column grid whose first
+  // column is the 34px icon well. The date landed in those 34 pixels and
+  // `overflow-wrap: anywhere` let it shrink to fit, which printed
+  // "Tuesday 29 September" one chunk per line down the page.
+  const css = readFileSync('src/styles/payment.css', 'utf8');
+  assert(css.includes('.sp__facts > li {'),
+    'the icon grid is a descendant selector again, so nested lists inherit it');
+  assert(!/\.sp__facts li \{/.test(css),
+    'the old descendant rule is back');
+  const times = css.slice(css.indexOf('.sp__times li {'));
+  const decls = times.slice(0, times.indexOf('}'));
+  return assert(/flex-wrap:\s*wrap/.test(decls),
+    'a date and its time cannot wrap onto two lines on a phone');
+});
+
+check('scarcity is shown on the two days where it changes a decision', () => {
+  // Three courts free is an ordinary day. Decorating it would spend the
+  // customer's attention on nothing and leave none for the day that matters.
+  assert(calendarSource.includes('state.count <= 2'), 'no scarcity tier at all');
+  assert(calendarSource.includes('state.count === 1'), 'the last court is not singled out');
+  const css = readFileSync('src/styles/booking.css', 'utf8');
+  assert(css.includes('.bw__day-left'), 'the count has no label');
+  return assert(css.includes('.bw__day.is-last'), 'the last court has no treatment');
+});
+
+check('a day never carries two badges', () => {
+  // The cell is a 40px circle. An offer keeps the words it already had, and a
+  // last court is marked by the RING instead, so the most urgent day of the
+  // month reads as both without two labels fighting for the same space.
+  assert(calendarSource.includes('!offer && scarce'),
+    'the count label is not suppressed when an offer already has the words');
+  const css = readFileSync('src/styles/booking.css', 'utf8');
+  const ring = css.slice(css.indexOf('.bw__day.is-last {'));
+  return assert(/box-shadow:\s*inset/.test(ring.slice(0, ring.indexOf('}'))),
+    'the ring is drawn outside the circle, so the grid shifts');
+});
+
+check('the scarcity label stays readable on a filled cell', () => {
+  // The chosen day and the hover state fill the circle, and a fixed hue would
+  // disappear into it.
+  const css = readFileSync('src/styles/booking.css', 'utf8');
+  return assert(css.includes('.bw__day.is-active .bw__day-left'),
+    'the label keeps its own colour on the chosen day');
+});
+
+check('a sold out date is told apart from a shut one and a dead one', () => {
+  // Three different facts that all used to render as the same grey square:
+  // every court has gone, the club chose to close, and the date is not on
+  // offer at all. A customer who can see a day sold out will try the one
+  // either side; one that looks like dead space gets skipped.
+  const css = readFileSync('src/styles/booking.css', 'utf8');
+  assert(calendarSource.includes("state.reason === 'fully_booked'"),
+    'the sold-out reason is never read');
+  assert(calendarSource.includes('is-full'), 'a sold-out date carries no mark');
+  assert(css.includes('.bw__day-mark--full'), 'the sold-out mark is unstyled');
+  // Told apart by SHAPE as well as colour, for anyone who cannot rely on hue.
+  const full = css.slice(css.indexOf('.bw__day-mark--full'));
+  return assert(/border-radius:\s*2px/.test(full.slice(0, full.indexOf('}'))),
+    'the sold-out mark is another round dot, indistinguishable by shape');
+});
+
+check('a closed date is not marked in the colour of an open one', () => {
+  // `--amber-600` resolves to the LIME accent in this theme, so the holiday
+  // mark came out the same colour family as an available day, which is the
+  // one thing a closed date must not look like.
+  const css = readFileSync('src/styles/booking.css', 'utf8');
+  const block = css.slice(css.indexOf('.bw__day.is-holiday {'));
+  // Declarations only. The comment above this rule names the alias it stopped
+  // using, and a naive search matched its own explanation.
+  const decls = block.slice(0, block.indexOf('}')).replace(/\/\*[\s\S]*?\*\//g, '');
+  assert(!/--amber/.test(decls), 'the holiday still uses the lime alias');
+  return assert(decls.includes('--warn-ink'),
+    'the holiday has no warning colour of its own');
+});
+
+check('a calendar that opens on an unbookable date moves to a bookable one', () => {
+  // Otherwise the customer is shown a day of "Fully booked" and left to hunt.
+  return assert(calendarSource.includes('const firstOpen = Object.keys(days).sort().find'),
+    'nothing moves the selection off an unbookable date');
+});
+
+check('a date closed for a holiday says so rather than greying out', () => {
+  // A holiday looked exactly like a date out of range, so a customer could
+  // not tell "the club chose to close" from "not on offer" and had no reason
+  // to ring and ask.
+  assert(calendarSource.includes("state.reason === 'holiday'"),
+    'the holiday reason is never read');
+  assert(calendarSource.includes('is-holiday'),
+    'a holiday carries no mark of its own');
+  return assert(calendarSource.includes('reasonText('),
+    'nothing turns the reason into words');
+});
+
+check('the club name for the date wins over a generic reason', () => {
+  // "National Day" tells a customer more than "Closed" ever will, and it is
+  // what they would have been told had they rung up.
+  assert(calendarSource.includes('state?.label'),
+    'the name the club gave the date is ignored');
+  return assert(calendarSource.includes("known.label || ''"),
+    'a summary cached before the label existed would break the calendar');
+});
+
+check('the reason is reachable without a mouse', () => {
+  // A tooltip on hover alone is invisible on a phone, which is where most of
+  // these bookings are made.
+  assert(calendarSource.includes('onFocus={askable'), 'not reachable by keyboard');
+  assert(calendarSource.includes('onMouseEnter={askable'), 'no pointer affordance');
+  assert(calendarSource.includes('setDayNote({ iso, text: whyOff })'),
+    'a tap does not reveal the reason');
+  return assert(calendarSource.includes("aria-live=\"polite\""),
+    'the reason is never announced');
+});
+
+check('the explanation sits under the grid, not over it', () => {
+  // Section 17: a floating tooltip near the edge of a phone either overflows
+  // the viewport or covers the dates either side of the one it explains.
+  const css = readFileSync('src/styles/booking.css', 'utf8');
+  assert(calendarSource.includes('bw__cal-why'), 'there is no explanation line');
+  assert(css.includes('.bw__cal-why'), 'the explanation line is unstyled');
+  return assert(css.includes('min-block-size'),
+    'the row collapses when empty, so the calendar jumps as the pointer moves');
+});
+
+check('an empty month offers somewhere to go', () => {
+  // Section 8 and 27: a customer must not have to press next repeatedly.
+  assert(calendarSource.includes('noneThisMonth'), 'no empty-month message');
+  assert(calendarSource.includes('next_available'), 'the next date is not read');
+  return assert(calendarSource.includes('goToNextAvailable'),
+    'there is no action to jump to it');
+});
+
+check('a date that empties after the month loaded says so', () => {
+  // Section 12: "no times today" and "not any more" are different messages,
+  // and the second one has to retire the stale summary.
+  assert(calendarSource.includes('wentStale'), 'staleness is not detected');
+  return assert(calendarSource.includes('noLongerAvailable'),
+    'a date that just filled up reads as if it never had times');
+});
+
+check('booking a slot drops the month it belongs to', () => {
+  // Otherwise the calendar keeps offering a date its own booking just filled.
+  return assert(/availInvalidate[\s\S]{0,400}_monthCache\.delete/.test(calendarSource),
+    'invalidating a day leaves the month summary stale');
+});
+
+check('the month is fetched once per month, not once per day', () => {
+  // Section 6: thirty requests to paint thirty days is the thing this
+  // replaces.
+  assert(calendarSource.includes('monthBounds'), 'no month range is computed');
+  return assert(!/for\s*\([^)]*\)\s*\{[^}]*\/api\/availability-calendar/.test(calendarSource),
+    'the summary is fetched in a loop');
+});
+
+check('the calendar proxy hides the backend like the others do', () => {
+  const proxy = readFileSync('src/pages/api/availability-calendar.js', 'utf8');
+  assert(proxy.includes('getAvailabilityCalendar'), 'does not use the shared client');
+  return assert(!proxy.includes('http'), 'the proxy names a backend URL');
+});
+
+check('a failed summary does not silently disable the whole month', () => {
+  // Availability is a UX optimisation. Losing it must degrade to the old
+  // behaviour, not to a calendar where nothing can be clicked.
+  return assert(calendarSource.includes('availabilityUnknown'),
+    'a failed summary has no message');
+});
+
+// --------------------------------------------------------------------------- //
+console.log('\nOffers and time classification:');
+
+const bookingCss = readFileSync('src/styles/booking.css', 'utf8');
+const tokensCss = readFileSync('src/styles/tokens.css', 'utf8');
+
+check('every custom property the booking styles use is actually defined', () => {
+  // Twice now a stylesheet has used an invented token with a hard-coded
+  // fallback, which silently pins that colour to light mode for ever.
+  const used = new Set();
+  for (const [, name] of bookingCss.matchAll(/var\(\s*(--[a-z0-9-]+)/g)) used.add(name);
+  const defined = new Set();
+  for (const source of [tokensCss, bookingCss, readFileSync('src/styles/theme.css', 'utf8')]) {
+    for (const [, name] of source.matchAll(/(--[a-z0-9-]+)\s*:/g)) defined.add(name);
+  }
+  const missing = [...used].filter((name) => !defined.has(name));
+  return assert(missing.length === 0, `undefined: ${missing.join(', ')}`);
+});
+
+check('an offer colour is defined for dark mode too', () => {
+  const dark = tokensCss.slice(tokensCss.indexOf('[data-theme="dark"]'));
+  return assert(dark.includes('--offer-ink') && dark.includes('--warm-soft')
+    && dark.includes('--cool-soft'), 'a badge colour is light-mode only');
+});
+
+check('an offer is only ever shown on a date that can be booked', () => {
+  // Section 8: availability first, offer second.
+  return assert(calendarSource.includes('offer: known.available ? known.offer || null : null'),
+    'an offer can be rendered on an unavailable date');
+});
+
+check('a part-of-day offer does not claim the whole day', () => {
+  // Section 12: "-20%" on a date discounted only in the morning is a lie.
+  return assert(calendarSource.includes('offer.time_limited ?'),
+    'a time-limited offer is shown as though it covered the date');
+});
+
+check('the browser never computes a discount', () => {
+  // Section 14: the label and the price both come from the backend.
+  assert(calendarSource.includes('offer.label'), 'the backend label is unused');
+  return assert(!/offer\.value\s*[*/]/.test(calendarSource),
+    'a discount is being arithmetic-ed in the browser');
+});
+
+check('peak and off-peak reach the slot list', () => {
+  assert(calendarSource.includes("s.period === 'hot'"), 'peak is never shown');
+  return assert(calendarSource.includes("t('wizard.when.offPeak')"),
+    'off-peak has no customer wording');
+});
+
+// --------------------------------------------------------------------------- //
+console.log('\nThe date step actually renders:');
+
+// esbuild proves the file parses. It does not prove the component runs: a
+// reference to a prop that was renamed is valid JavaScript and only explodes
+// when React evaluates it. That has now shipped three times, always as a blank
+// step, so the step is rendered here for real.
+const wizardUi = await import(pathToFileURL(wizardPath).href);
+
+const CLUB = { id: 1, name: 'Nadena Club', city: 'Jeddah' };
+const ACTIVITY = { id: 3, name: 'Badminton Court', duration_minutes: 45,
+                   price: '120.00' };
+
+function renderSchedule(props = {}) {
+  return renderToStaticMarkup(h(I18nextProvider, { i18n: getI18n('en') },
+    h(wizardUi.Schedule, {
+      club: CLUB, facilityType: ACTIVITY, currency: 'SAR',
+      values: [], onChange() {}, onContinue() {}, ...props,
+    })));
+}
+
+check('the date step renders with nothing chosen yet', () => {
+  const html = renderSchedule();
+  return assert(html.includes('Badminton Court'), 'the step did not render');
+});
+
+check('the date step renders with times already chosen', () => {
+  // The exact shape that crashed: the summary aside reads the selection.
+  const html = renderSchedule({
+    values: [
+      { date: '2026-09-17', time: '21:00', end: '21:45' },
+      { date: '2026-09-18', time: '09:00', end: '09:45' },
+    ],
+  });
+  assert(html.includes('21:00') || html.includes('9:00'),
+    'a chosen time is missing from the summary');
+  return assert(html.includes('Nadena Club'), 'the club is missing');
+});
+
+check('the date step renders in Arabic', () => {
+  const html = renderToStaticMarkup(h(I18nextProvider, { i18n: getI18n('ar') },
+    h(wizardUi.Schedule, {
+      club: CLUB, facilityType: ACTIVITY, currency: 'SAR',
+      values: [{ date: '2026-09-17', time: '21:00', end: '21:45' }],
+      onChange() {}, onContinue() {},
+    })));
+  return assert(html.length > 0 && html.includes('bw__cal'),
+    'the Arabic render produced nothing');
+});
+
+check('the site reads the price field the backend actually sends', () => {
+  // The backend renamed this during the CarWash rename and has a test pinning
+  // `from_price` OUT of the payload. The site kept reading the old name, so
+  // every price it rendered was blank.
+  return assert(!calendarSource.includes('from_price'),
+    'the wizard still reads the removed from_price field');
+});
+
+check('a price that has not arrived waits rather than guessing', () => {
+  // Showing the catalogue price and swapping it for the quoted one a moment
+  // later reads as the price changing while the customer watches. Nothing is
+  // fetched during a server render, so this is exactly that first moment.
+  const html = renderSchedule({
+    values: [
+      { date: '2026-09-19', time: '20:00', end: '20:45' },
+      { date: '2026-09-19', time: '21:00', end: '21:45' },
+    ],
+  });
+  assert(html.includes('bw__price-wait'), 'no placeholder while the price loads');
+  return assert(!/SAR\s*\d/.test(html),
+    'a price was rendered before the backend supplied one');
+});
+
+check('neither step falls back to the catalogue price', () => {
+  // That fallback is what produced the visible switch.
+  assert(!calendarSource.includes('Number(facilityType.price) * Math.max'),
+    'the date step still multiplies the catalogue price');
+  return assert(!/orderTotal\(quote\)\s*\?\?\s*perSlotTotal/.test(calendarSource),
+    'the checkout still falls back to a per-slot figure');
+});
+
+check('the date step and the checkout price from the same endpoint', () => {
+  // They disagreed once: the date step showed the bare catalogue price while
+  // the checkout showed the same booking with add-ons, the offer and VAT.
+  const calls = calendarSource.match(/fetch\('\/api\/quote'/g) || [];
+  assert(calls.length <= 1, `${calls.length} separate quote calls`);
+  assert(calendarSource.includes('const fetchQuote ='), 'no shared quote helper');
+  // Both callers go through it.
+  const users = calendarSource.match(/fetchQuote\(\{/g) || [];
+  return assert(users.length >= 2,
+    `only ${users.length} caller uses the shared helper`);
+});
+
+check('the quote is asked about the dates that were chosen', () => {
+  // A rule limited to a date range or a time of day is skipped entirely when
+  // the backend prices "some booking, no date". That is how an offer which
+  // ended in September was quoted against a December booking, at a price the
+  // real booking would never have charged.
+  assert(/slots: slots\.map\(/.test(calendarSource),
+    'the quote request carries no dates');
+  return assert(calendarSource.includes('slots: chosen'),
+    'the checkout does not quote the slots it is about to book');
+});
+
+check('the order total comes from the backend, not from multiplication', () => {
+  // Multiplying the first slot's price is wrong the moment a selection
+  // straddles the end of an offer.
+  assert(calendarSource.includes('const orderTotal ='), 'no order total helper');
+  return assert(calendarSource.includes('const bookingTotal = orderTotal(quote)'),
+    'the checkout does not take its total from the quote');
+});
+
+check('a saving is only claimed when every slot costs the same', () => {
+  return assert(calendarSource.includes('uniformPricing'),
+    'a per-slot saving could be multiplied across differently priced slots');
+});
+
+// --------------------------------------------------------------------------- //
+console.log('\nThe reservation countdown:');
+
+const holdPath = join(workDir, 'hold.mjs');
+await esbuild.build({
+  entryPoints: ['src/lib/useReservation.js'],
+  bundle: true,
+  format: 'esm',
+  platform: 'node',
+  outfile: holdPath,
+  external: ['react'],
+  logLevel: 'silent',
+});
+const holdModule = await import(pathToFileURL(holdPath).href);
+const { formatCountdown, signatureOf } = holdModule;
+
+check('the countdown reads as minutes and seconds', () => {
+  assert(formatCountdown(600) === '10:00', formatCountdown(600));
+  assert(formatCountdown(65) === '1:05', formatCountdown(65));
+  return assert(formatCountdown(0) === '0:00', formatCountdown(0));
+});
+
+check('a countdown that has run past zero never goes negative', () =>
+  assert(formatCountdown(-30) === '0:00', formatCountdown(-30)));
+
+check('the reservation signature ignores the order slots were clicked in', () => {
+  // The signature decides whether a stored reservation still matches. If click
+  // order changed it, returning to the checkout would drop a perfectly good
+  // reservation and immediately be refused by its own hold.
+  const club = { id: 1 };
+  const activity = { id: 2 };
+  const a = signatureOf(club, activity,
+    [{ date: '2026-09-18', time: '20:00' }, { date: '2026-09-18', time: '19:00' }]);
+  const b = signatureOf(club, activity,
+    [{ date: '2026-09-18', time: '19:00' }, { date: '2026-09-18', time: '20:00' }]);
+  return assert(a === b, `${a} !== ${b}`);
+});
+
+check('changing the times changes the signature', () => {
+  const club = { id: 1 };
+  const activity = { id: 2 };
+  const a = signatureOf(club, activity, [{ date: '2026-09-18', time: '19:00' }]);
+  const b = signatureOf(club, activity, [{ date: '2026-09-18', time: '21:00' }]);
+  return assert(a !== b, 'a different selection reused the same reservation');
+});
+
+check('changing the club changes the signature', () => {
+  const activity = { id: 2 };
+  const slots = [{ date: '2026-09-18', time: '19:00' }];
+  return assert(signatureOf({ id: 1 }, activity, slots)
+    !== signatureOf({ id: 9 }, activity, slots), 'the club was ignored');
+});
+
+function renderHold(reservation) {
+  return render(h(wizardUi.HoldBanner, { reservation, onPickAgain() {} }));
+}
+
+check('no reservation shows no countdown', () =>
+  assert(renderHold(null) === '' && renderHold({ secondsLeft: null }) === '',
+    'a countdown appeared with nothing to count'));
+
+check('a live reservation shows the time left', () => {
+  const html = renderHold({ secondsLeft: 540, expired: false });
+  return assert(html.includes('9:00'), html.slice(0, 200));
+});
+
+check('the countdown is not announced second by second', () => {
+  // A polite live region reading out every tick makes the page unusable with a
+  // screen reader. The status is announced; the number is not.
+  const html = renderHold({ secondsLeft: 540, expired: false });
+  assert(html.includes('role="status"'), 'the reservation was not announced at all');
+  return assert(html.includes('aria-live="off"'), html.slice(0, 200));
+});
+
+check('an expired reservation is announced and offers a way back', () => {
+  const html = renderHold({ secondsLeft: 0, expired: true });
+  assert(html.includes('role="alert"'), 'expiry was not announced');
+  return assert(html.includes(RESOURCES.en.hold.pickAgain), html.slice(0, 300));
+});
+
+check('the expired reservation reads in Arabic too', () => {
+  const html = render(
+    h(wizardUi.HoldBanner, { reservation: { secondsLeft: 0, expired: true },
+      onPickAgain() {} }), 'ar');
+  return assert(html.includes(RESOURCES.ar.hold.pickAgain), html.slice(0, 300));
+});
+
+
+// --------------------------------------------------------------------------- //
+console.log('\nSwitching language mid-booking:');
+
+const headerSource = readFileSync('src/components/Header.astro', 'utf8');
+
+check('the language links are recomputed from the live URL', () => {
+  // The hrefs are rendered on the server from the URL the server saw. The
+  // wizard then rewrites the URL with replaceState as the customer moves
+  // through it, so a server-rendered link sends them back to a bare /book and
+  // the whole selection is lost. Switching language landed the customer back
+  // at the start of the wizard.
+  assert(headerSource.includes('langs__opt'), 'the language links were renamed');
+  assert(headerSource.includes('window.location.href'),
+    'the language link still uses only the server-rendered href');
+  return assert(headerSource.includes("searchParams.set('lang'"),
+    'the rebuilt link does not carry the language');
+});
+
+check('the plain href survives for a visitor without JavaScript', () =>
+  assert(headerSource.includes('href={entry.href}'),
+    'the no-JS fallback link was removed'));
+
+check('a modified click is left to the browser', () =>
+  // Ctrl-click and middle-click open a new tab. Hijacking those would break
+  // opening the other language beside this one.
+  assert(headerSource.includes('event.metaKey') && headerSource.includes('event.button !== 0'),
+    'the handler swallows new-tab clicks'));
+
+check('an abandoned reservation is dropped before a new one is claimed', () => {
+  // Reserve 8pm, wander off, come back wanting 8pm AND 9pm: the old hold is
+  // still on the 8pm court, and refusing the customer their own court reads
+  // exactly like somebody else having taken it.
+  const source = readFileSync('src/lib/useReservation.js', 'utf8');
+  const release = source.indexOf('await release(stored.token)');
+  const claim = source.indexOf("await fetch('/api/reserve'");
+  assert(release > 0 && claim > 0, 'the release or the claim moved');
+  return assert(release < claim, 'a stale reservation is left blocking the new one');
+});
+
+
+check('the countdown survives a language switch', () => {
+  // Two symptoms, one cause. Losing the URL sent the customer back to the
+  // start of the wizard AND took the countdown with it, because there is no
+  // countdown outside the payment step. With the URL preserved the wizard
+  // reopens on payment, and the reservation is recovered by its signature,
+  // so the timer resumes at whatever is actually left rather than restarting.
+  const club = { id: 3 };
+  const activity = { id: 7 };
+  const chosen = [
+    { date: '2026-09-18', time: '20:00', end: '20:45' },
+    { date: '2026-09-18', time: '21:00', end: '21:45' },
+  ];
+  const throughTheUrl = wizard.parseSlotsParam(wizard.formatSlotsParam(chosen));
+  assert(throughTheUrl.length === chosen.length,
+    `the URL carried ${throughTheUrl.length} of ${chosen.length} times`);
+  return assert(
+    signatureOf(club, activity, chosen) === signatureOf(club, activity, throughTheUrl),
+    'a reload would claim a second reservation instead of resuming the first');
+});
+
+
+check('a reservation that could not be made says so', () => {
+  // This was silent. The courts were not held, the banner rendered nothing,
+  // and the customer filled in the whole form before being refused at the Pay
+  // button. A one-court club with the customer's own earlier hold still on it
+  // hits this every time.
+  const html = renderHold({
+    secondsLeft: null, expired: false, pending: false,
+    error: '21:00 is no longer available. Please choose another slot.',
+  });
+  assert(html.includes('role="alert"'), 'the failure was not announced');
+  assert(html.includes('21:00'), 'the reason was swallowed');
+  return assert(html.includes(RESOURCES.en.hold.pickAgain), 'no way back to the calendar');
+});
+
+check('claiming shows something rather than popping in later', () => {
+  const html = renderHold({ secondsLeft: null, expired: false, pending: true });
+  return assert(html.includes(RESOURCES.en.hold.holding), html.slice(0, 200));
+});
+
+check('a reservation that could not be attempted stays quiet', () => {
+  // No error means the request itself failed, not that the slot is gone. The
+  // backend revalidates before it writes, so inventing a warning here would
+  // frighten people for nothing.
+  const html = renderHold({ secondsLeft: null, expired: false, pending: false, error: '' });
+  return assert(html === '', html.slice(0, 200));
+});
+
+
+check('a page load does not throw away the reservation it is about to restore', () => {
+  // The wizard renders at step one while it reads the URL, so the checkout is
+  // briefly "not open" on EVERY load. Treating that as having left released
+  // the reservation before the restore reached the payment step: the
+  // countdown restarted at ten minutes and the court went back on sale in
+  // between. Switching language hit this every single time.
+  const { shouldReleaseOnLeave } = holdModule;
+  assert(shouldReleaseOnLeave(false, false) === false,
+    'a fresh page load released a reservation it had never opened');
+  assert(shouldReleaseOnLeave(true, false) === false, 'released while still open');
+  assert(shouldReleaseOnLeave(true, true) === false, 'released while still open');
+  return assert(shouldReleaseOnLeave(false, true) === true,
+    'genuinely leaving the checkout no longer frees the court');
+});
+
+check('the hook uses that rule rather than repeating it', () => {
+  const source = readFileSync('src/lib/useReservation.js', 'utf8');
+  return assert(source.includes('shouldReleaseOnLeave(active, wasActive.current)'),
+    'the effect has its own copy of the rule, which can drift from the test');
+});
+
+
+check('a club that hides the countdown gets no timer', () => {
+  const html = renderHold({
+    secondsLeft: 540, expired: false, pending: false, showCountdown: false });
+  return assert(html === '', html.slice(0, 200));
+});
+
+check('hiding the countdown still warns when the reservation runs out', () => {
+  // Otherwise the customer meets an unexplained refusal at the Pay button.
+  const html = renderHold({
+    secondsLeft: 0, expired: true, pending: false, showCountdown: false });
+  assert(html.includes('role="alert"'), 'expiry was silenced along with the clock');
+  return assert(html.includes(RESOURCES.en.hold.pickAgain), 'no way back');
+});
+
+check('hiding the countdown still reports a refusal', () => {
+  const html = renderHold({
+    secondsLeft: null, expired: false, pending: false, showCountdown: false,
+    error: '21:00 is no longer available. Please choose another slot.' });
+  return assert(html.includes('21:00'), html.slice(0, 200));
+});
+
+check('a payload that says nothing about the setting still shows the timer', () =>
+  assert(renderHold({ secondsLeft: 540, expired: false }).includes('9:00'),
+    'an older payload lost its countdown'));
+
+
+check('an expired reservation is not silently restarted by a refresh', () => {
+  // Measured before the fix: refresh did GET -> DELETE -> POST 201 and handed
+  // out a fresh window. A customer who only has to press F5 to get another
+  // ten minutes can hold a Saturday evening court all afternoon, and the
+  // "Pick your times again" message on screen becomes a lie.
+  const source = readFileSync('src/lib/useReservation.js', 'utf8');
+  assert(source.includes('stored.finished'),
+    'nothing remembers that this selection already ran out');
+  const marker = source.indexOf('stored?.signature === signature && stored.finished');
+  const claim = source.indexOf("await fetch('/api/reserve'");
+  assert(marker > 0 && claim > 0, 'the guard or the claim moved');
+  return assert(marker < claim, 'the expiry guard runs after the claim, so it cannot stop it');
+});
+
+check('leaving the checkout clears the expiry mark', () => {
+  // Otherwise "Pick times again" leads to a dead page: the mark is sticky by
+  // design, so the explicit act of leaving has to be what resets it.
+  const source = readFileSync('src/lib/useReservation.js', 'utf8');
+  return assert(source.includes('if (stored) release(stored.token)'),
+    'leaving only clears storage when a token is left, so an expired mark sticks for ever');
+});
+
+
+check('an expired reservation sends a refresh back to the picker', () => {
+  // The customer used to land on the payment step looking at a dead countdown
+  // and a Pay button that would be refused, with nothing on the page asking
+  // the server again. The expiry message tells them to choose again; a reload
+  // should put them where that happens.
+  const hook = readFileSync('src/lib/useReservation.js', 'utf8');
+  const wizardSrc = readFileSync('src/components/BookingWizard.jsx', 'utf8');
+  assert(hook.includes('export function selectionFinished'),
+    'the wizard cannot ask whether this selection already ran out');
+  assert(wizardSrc.includes('selectionFinished('), 'the restore never asks');
+  return assert(wizardSrc.includes('maxReach = Math.min(maxReach, STEP_WHEN)'),
+    'an expired selection can still restore straight to the payment step');
+});
+
+check('landing on the picker clears the expired mark', () => {
+  // Otherwise the customer is moved to the picker and bounced straight back to
+  // the dead countdown the moment they press Continue, which is worse than not
+  // moving them at all.
+  const hook = readFileSync('src/lib/useReservation.js', 'utf8');
+  const wizardSrc = readFileSync('src/components/BookingWizard.jsx', 'utf8');
+  assert(hook.includes('export function clearFinishedSelection'),
+    'nothing can clear the mark outside the hook');
+  assert(hook.includes("if (!readStored()?.finished) return false"),
+    'clearing is not restricted to a FINISHED entry, so a live token could be lost');
+  return assert(wizardSrc.includes('clearFinishedSelection()'),
+    'the picker never clears it, so choosing again is refused');
+});
+
+check('a live reservation is never restarted by a reload', () => {
+  // The rule this sits beside: pressing F5 must not grant another ten minutes,
+  // or the deadline means nothing to anybody willing to press it.
+  const hook = readFileSync('src/lib/useReservation.js', 'utf8');
+  return assert(hook.includes('stored?.signature === signature && stored.finished'),
+    'the sticky guard has gone, so a refresh could silently start a new window');
+});
+
+check('a slot somebody is mid-checkout on is withdrawn, not called booked', () => {
+  // "Fully booked" was a lie: nobody had booked it, somebody was paying for
+  // it, and it could be free again in minutes.
+  const { slotIsVisible } = wizard;
+  return assert(slotIsVisible({ available: 0, held: 1 }) === false,
+    'a held slot was shown as fully booked');
+});
+
+check('a genuinely booked slot keeps its place and its label', () =>
+  // That one is not coming back today, so hiding it would only puzzle people.
+  assert(wizard.slotIsVisible({ available: 0, held: 0 }) === true,
+    'a real booking vanished from the list'));
+
+check('a slot with a court still free is shown even if another is held', () =>
+  assert(wizard.slotIsVisible({ available: 1, held: 1 }) === true,
+    'a bookable slot was hidden'));
+
+check('a payload with no held count behaves as it always did', () =>
+  assert(wizard.slotIsVisible({ available: 0 }) === true,
+    'an older backend lost its fully-booked rows'));
+
+
+rmSync(workDir, { recursive: true, force: true });
+
+if (failures.length) {
+  console.error(`\n${failures.length} check(s) failed:`);
+  failures.forEach((line) => console.error(`  ${line}`));
+  process.exit(1);
+}
+console.log('\nAll checkout checks passed.\n');

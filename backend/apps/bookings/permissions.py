@@ -39,3 +39,26 @@ class BookingObjectPermission(BasePermission):
         if not allowed:
             self.message = "You can only access your own bookings."
         return allowed
+
+
+class BookingHoldPermission(BasePermission):
+    """Reservations are an operations view: staff only.
+
+    A customer reaches their own reservation through the bearer token the
+    checkout gave them, which is a different door entirely. There is nothing
+    here for them, and the list spans every customer in the club, so it is
+    closed to them outright rather than filtered down to nothing.
+    """
+
+    def has_permission(self, request, view):
+        user = request.user
+        if not (user and user.is_authenticated):
+            self.message = "Please sign in to continue."
+            return False
+        if user.role not in STAFF_ROLES:
+            self.message = "Only staff can view reservations."
+            return False
+        if not user.has_perm_code("bookings.view"):
+            self.message = access.denial_message("bookings", "view")
+            return False
+        return True

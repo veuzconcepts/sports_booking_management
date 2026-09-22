@@ -32,7 +32,12 @@ sudo apt install -y nodejs
 ```bash
 sudo useradd --system --create-home --shell /bin/bash clubbooking
 sudo mkdir -p /opt/clubbooking && sudo chown clubbooking:clubbooking /opt/clubbooking
-sudo -u clubbooking git clone <REPO_URL> /opt/clubbooking
+# A bare mirror to release FROM, and the served tree built from an archive
+# of it. The archive honours `export-ignore` in .gitattributes, so the server
+# never receives tests, dev requirements or developer notes; a clone or a pull
+# would bring all of it.
+sudo -u clubbooking git clone --bare <REPO_URL> /opt/clubbooking-src.git
+sudo -u clubbooking git --git-dir=/opt/clubbooking-src.git archive main | sudo -u clubbooking tar -x -C /opt/clubbooking
 ```
 
 ## 3. PostgreSQL
@@ -143,9 +148,24 @@ sudo chmod o+x /opt /opt/clubbooking /opt/clubbooking/frontend /opt/clubbooking/
 
 ## Redeploy (every release)
 
+The tree is replaced from an archive rather than pulled. `git archive` applies
+`export-ignore` from .gitattributes, so tests, dev requirements and developer
+notes never land on the server while the repository keeps every one of them
+for CI and for the next person working on this.
+
+An archive extracts OVER the existing tree and does not delete what has been
+removed upstream, so a file deleted in a release stays until it is cleared by
+hand. Check with:
+
+```bash
+git --git-dir=/opt/clubbooking-src.git archive main | tar -t > /tmp/release.txt
+```
+
+
 ```bash
 sudo -u clubbooking bash -lc '
-  cd /opt/clubbooking && git pull &&
+  git --git-dir=/opt/clubbooking-src.git fetch origin main:main &&
+  git --git-dir=/opt/clubbooking-src.git archive main | tar -x -C /opt/clubbooking &&
   ./venv/bin/pip install -r backend/requirements.txt &&
   cd backend && ../venv/bin/python manage.py migrate &&
   ../venv/bin/python manage.py collectstatic --noinput &&

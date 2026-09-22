@@ -6,6 +6,8 @@ Two surfaces:
     enabled homepage payload for the marketing website to render.
 """
 
+from decimal import Decimal
+
 from django.utils import timezone
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import extend_schema
@@ -16,6 +18,7 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from apps.auditlogs.services import log_event
+from apps.settings_app.media import public_file_url
 
 from .models import (
     Banner,
@@ -230,7 +233,7 @@ def branding_payload(request):
 
     def url(field):
         try:
-            return request.build_absolute_uri(field.url) if field else None
+            return public_file_url(field, request)
         except ValueError:
             return None
 
@@ -375,7 +378,12 @@ class PublicClubsView(APIView):
         from apps.clubs.models import Club
         from .serializers import PublicClubSerializer
 
-        clubs = Club.objects.filter(is_active=True).order_by("name")
+        # `facilities__facility_types__category` is prefetched because the
+        # serializer derives each club's real offering from its own facilities,
+        # and without it that is three queries per club.
+        clubs = (Club.objects.filter(is_active=True)
+                 .prefetch_related("facilities__facility_types__categories")
+                 .order_by("name"))
         return Response({
             "clubs": PublicClubSerializer(clubs, many=True, context={"request": request}).data,
         })
@@ -428,6 +436,82 @@ class PublicAvailabilityView(APIView):
         # the wizard's date strip can grey out what the server would refuse.
         payload["window"] = booking_services.booking_window(club)
         return Response(payload)
+
+
+class PublicAvailabilityCalendarView(APIView):
+    """Which DATES can be booked, for a whole month at a time.
+
+    The calendar used to grey out days from the weekday pattern alone, so a
+    date closed for a holiday, out for maintenance or simply full looked
+    bookable until the customer clicked it and found an empty slot list. This
+    answers the same question the slot engine answers, for every date in the
+    range, in a fixed number of queries.
+
+    It is a UX optimisation and nothing more: choosing a slot recomputes that
+    day, and saving the booking revalidates everything again.
+    """
+
+    authentication_classes = []
+    permission_classes = [AllowAny]
+
+    # A customer paging through a calendar needs a month. The cap stops a
+    # crafted request from asking for a decade in one go.
+    MAX_DAYS = 62
+
+    def get(self, request):
+        from datetime import date as date_cls, timedelta
+
+        from apps.bookings import services as booking_services
+        from apps.clubs.models import Club
+        from apps.facilities.models import FacilityType
+
+        try:
+            first = date_cls.fromisoformat(request.query_params.get("from", ""))
+            last = date_cls.fromisoformat(request.query_params.get("to", ""))
+        except (ValueError, TypeError):
+            return Response({"detail": "Invalid range (expected from and to as YYYY-MM-DD)"},
+                            status=status.HTTP_400_BAD_REQUEST)
+        if last < first:
+            return Response({"detail": "The range ends before it starts."},
+                            status=status.HTTP_400_BAD_REQUEST)
+        if (last - first).days >= self.MAX_DAYS:
+            last = first + timedelta(days=self.MAX_DAYS - 1)
+
+        club = None
+        club_id = request.query_params.get("club")
+        if club_id:
+            club = Club.objects.filter(pk=club_id, is_active=True).first()
+            if club is None:
+                return Response({"detail": "Club not found"},
+                                status=status.HTTP_404_NOT_FOUND)
+
+        facility_type = None
+        ft_id = request.query_params.get("facility_type")
+        if ft_id:
+            facility_type = FacilityType.objects.filter(
+                pk=ft_id, is_active=True, online_booking_enabled=True).first()
+            if facility_type is None:
+                return Response({"detail": "Facility type not found"},
+                                status=status.HTTP_404_NOT_FOUND)
+
+        days = booking_services.date_availability_summary(
+            first, last, club=club, facility_type=facility_type)
+
+        # Only looked up when the visible range has nothing, which is exactly
+        # when the customer needs somewhere to go next.
+        next_available = None
+        if not any(day["available"] for day in days.values()):
+            found = booking_services.next_available_date(
+                first, club=club, facility_type=facility_type)
+            next_available = found.isoformat() if found else None
+
+        return Response({
+            "from": first.isoformat(),
+            "to": last.isoformat(),
+            "days": days,
+            "next_available": next_available,
+            "window": booking_services.booking_window(club),
+        })
 
 
 class PublicBookingConfigView(APIView):
@@ -520,6 +604,27 @@ class PublicBookingCreateView(APIView):
         return Response(payload, status=code)
 
 
+class PublicOrderCreateView(APIView):
+    """Create a multi-slot booking from the public website.
+
+    The single-slot endpoint is unchanged and still handles one time. This one
+    takes `slots: [{date, time}, ...]` and produces one `BookingOrder` with an
+    ordinary `Booking` behind each slot, through the same serializer, the same
+    availability engine and the same pricing as everything else.
+    """
+
+    authentication_classes = []
+    permission_classes = [AllowAny]
+    throttle_scope = "public_booking"
+
+    def post(self, request):
+        from apps.bookings.public_booking import create_public_order
+        code, payload = create_public_order(
+            request.data, request=request, source="website", customer_source="web",
+            update_via="website_booking", update_by_label="Customer (website)")
+        return Response(payload, status=code)
+
+
 class PublicQuoteView(APIView):
     """Live price breakdown (subtotal, VAT, discounts, coupon) for the public
     Confirm & Pay step — reuses the same engine as the admin price preview, so
@@ -545,12 +650,48 @@ class PublicQuoteView(APIView):
         addon_ids = [int(x) for x in (d.get("add_ons") or []) if str(x).isdigit() and int(x) in valid_addon_ids]
         addon_objs = list(AddOn.objects.filter(id__in=addon_ids))
 
-        booking = Booking(
-            currency=get_default_currency(), facility_type_id=item.id,
-            booking_type="walk_in",
-            club_id=(d.get("club") or None),
-        )
-        booking.compute_pricing(addons=addon_objs)
+        # Price the slot the customer actually chose.
+        #
+        # This used to price a booking with no date at all, which meant every
+        # date-scoped and time-scoped pricing rule was skipped: an offer that
+        # ended in September was quoted against a December booking, and the
+        # customer was shown a discount the real booking would not give them.
+        from datetime import date as date_cls, time as time_cls
+
+        def _parse(value, parser):
+            try:
+                return parser(str(value))
+            except (ValueError, TypeError):
+                return None
+
+        slots = []
+        for entry in (d.get("slots") or []):
+            if not isinstance(entry, dict):
+                continue
+            on_date = _parse(entry.get("date"), date_cls.fromisoformat)
+            at_time = _parse(entry.get("time"), time_cls.fromisoformat)
+            if on_date is not None:
+                slots.append((on_date, at_time))
+        if not slots:
+            on_date = _parse(d.get("date"), date_cls.fromisoformat)
+            at_time = _parse(d.get("time"), time_cls.fromisoformat)
+            slots = [(on_date, at_time)]
+
+        def price_slot(on_date, at_time):
+            row = Booking(
+                currency=get_default_currency(), facility_type_id=item.id,
+                booking_type="walk_in",
+                club_id=(d.get("club") or None),
+                scheduled_date=on_date, scheduled_time=at_time,
+            )
+            row.compute_pricing(addons=addon_objs)
+            return row
+
+        # The first slot drives the line breakdown; every slot is priced so a
+        # selection spanning an offer boundary totals honestly rather than
+        # assuming they all cost what the first one does.
+        priced = [price_slot(on_date, at_time) for on_date, at_time in slots]
+        booking = priced[0]
 
         coupon = {"code": "", "applied": False, "message": "", "discount": "0"}
         code = str(d.get("coupon") or d.get("promo") or "").strip()
@@ -587,6 +728,13 @@ class PublicQuoteView(APIView):
             # Enterprise B2C order summary (VAT-inclusive lines that always reconcile).
             "summary": booking_checkout_summary(booking, addons=addon_objs, tax_rate=tax_rate),
             "coupon": coupon,
+            # Every chosen slot priced on its own date, so a selection that
+            # straddles the end of an offer totals what it will really cost
+            # rather than the first slot's price times the count.
+            "slot_count": len(priced),
+            "order_total": str(sum((row.total_amount for row in priced),
+                                   Decimal("0"))),
+            "slot_totals": [str(row.total_amount) for row in priced],
         })
 
 

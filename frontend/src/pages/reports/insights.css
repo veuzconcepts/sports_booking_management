@@ -37,23 +37,61 @@
 .ai-trigger.is-open { background: var(--color-primary-100); }
 
 /* --------------------------------------------------------------- panel --- */
-/* The page keeps its own scroll and stays readable: this is a side panel, not
-   a dialog, so there is no scrim and no scroll lock. */
-.ai-panel {
-  position: fixed;
+/* The page splits; the panel does not float.
+ *
+ * With the assistant open the report becomes the left column and the panel
+ * the right one, so nothing is covered and the panel's own head is never
+ * clipped under the top bar. It was `position: fixed` before, which is
+ * exactly what produced that.
+ *
+ * `minmax(0, ...)` on both tracks because a grid child defaults to
+ * `min-width: auto` and a wide table would otherwise refuse to shrink and
+ * push the panel off screen.
+ */
+.rp-shell {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: var(--space-5, 20px);
+  align-items: start;
+}
+
+.rp-shell.is-split {
+  grid-template-columns: minmax(0, 1fr) minmax(0, var(--ai-panel-width, 360px));
+}
+
+.rp-main { min-width: 0; }
+
+/* The panel meets the window edge and the top of the content area.
+ *
+ * It sits inside `.app-content`, which pads the page on every side, so
+ * without cancelling that padding the panel floats in from the corner with a
+ * band of background around it. `--app-gutter` is published by `.app-content`
+ * for exactly this, the same way `.lv-page` cancels it, so this stays right
+ * if that padding ever changes.
+ *
+ * The height is the viewport minus the top bar and nothing else. Any extra
+ * subtracted here pushes the composer below the fold, which is what was
+ * clipping it.
+ */
+.rp-side {
+  position: sticky;
   top: var(--topbar-height);
-  bottom: 0;
-  inset-inline-end: 0;
-  z-index: 40;
+  block-size: calc(100vh - var(--topbar-height));
+  min-width: 0;
+  margin-block: calc(var(--app-gutter, 0px) * -1);
+  margin-inline-end: calc(var(--app-gutter, 0px) * -1);
+}
+
+.ai-panel {
   display: flex;
   flex-direction: column;
-  width: min(440px, 38vw);
+  block-size: 100%;
+  overflow: hidden;
   background: var(--color-surface);
+  /* Flush to the window, so only the edge facing the report is drawn. */
   border-inline-start: 1px solid var(--color-border);
-  box-shadow: -18px 0 40px rgba(15, 23, 42, .10);
   animation: ai-slide-in .22s ease both;
 }
-[dir="rtl"] .ai-panel { box-shadow: 18px 0 40px rgba(15, 23, 42, .10); }
 
 /* A short travel, not the panel's full width: a 100% slide sits a whole panel
    past the viewport while it animates, and the document counts that as
@@ -71,13 +109,38 @@
   .ai-panel { animation: none; }
 }
 
-/* Below a laptop there is no room beside the report, so the panel takes the
-   screen while it is open. */
-@media (max-width: 1024px) {
-  .ai-panel { width: min(420px, 92vw); }
+/* Narrower laptops: keep both columns but give the report more of the room. */
+@media (max-width: 1280px) {
+  .rp-shell.is-split { --ai-panel-width: 320px; }
 }
+
+/* Below a laptop there is genuinely no room for two columns, so the page
+   stacks and the panel becomes a full-height drawer over it. A docked column
+   320px wide beside a report on a tablet leaves neither one readable. */
+@media (max-width: 1024px) {
+  .rp-shell.is-split { grid-template-columns: minmax(0, 1fr); }
+
+  .rp-side {
+    position: fixed;
+    inset-block: var(--topbar-height) 0;
+    inset-inline-end: 0;
+    z-index: 40;
+    top: auto;
+    block-size: auto;
+    inline-size: min(380px, 92vw);
+    margin: 0;
+  }
+
+  .ai-panel { box-shadow: -18px 0 40px rgba(15, 23, 42, .10); }
+  [dir="rtl"] .ai-panel {
+    border-inline-end: 1px solid var(--color-border);
+    border-inline-start: 0;
+    box-shadow: 18px 0 40px rgba(15, 23, 42, .10);
+  }
+}
+
 @media (max-width: 640px) {
-  .ai-panel { width: 100%; top: var(--topbar-height); }
+  .rp-side { inline-size: 100%; }
 }
 
 .ai-panel__head {
@@ -251,3 +314,64 @@
   font-size: 11.5px;
   color: var(--color-text-muted);
 }
+
+/* The scope strip: what the answers will cover, mirrored from the report
+   filters. Read-only, so it is styled as a statement, not a control. */
+.ai-scope {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  padding: 10px 16px;
+  border-bottom: 1px solid var(--color-border-soft);
+  font-size: 12px;
+}
+
+.ai-scope__k { color: var(--color-text-muted); font-weight: 600; }
+
+.ai-scope__v {
+  padding: 3px 9px;
+  border: 1px solid var(--color-border);
+  border-radius: 999px;
+  background: var(--color-surface-2);
+  font-weight: 600;
+}
+
+.ai-scope__sync { margin-inline-start: auto; color: var(--color-text-muted); }
+
+.ai-tryasking {
+  margin: 14px 0 8px;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: .07em;
+  text-transform: uppercase;
+  color: var(--color-text-muted);
+}
+
+/* A suggestion is a row: a cue letter, the prompt, and somewhere to go. */
+.ai-suggestion {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  inline-size: 100%;
+  text-align: start;
+}
+
+.ai-suggestion__key {
+  display: inline-grid;
+  place-items: center;
+  inline-size: 22px;
+  block-size: 22px;
+  flex-shrink: 0;
+  border-radius: 6px;
+  background: var(--color-surface-2);
+  color: var(--color-text-muted);
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.ai-suggestion__text { flex: 1; min-width: 0; }
+
+.ai-suggestion__go { flex-shrink: 0; opacity: .45; }
+.ai-suggestion:hover .ai-suggestion__go { opacity: 1; }
+[dir="rtl"] .ai-suggestion__go { transform: scaleX(-1); }

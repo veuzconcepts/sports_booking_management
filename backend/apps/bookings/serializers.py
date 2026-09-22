@@ -11,6 +11,7 @@ from apps.payments.models import PaymentMethod as PaymentMethodChoices
 
 from .models import (
     Booking,
+    BookingOrder,
     BookingPolicy,
     BookingSource,
     BookingStatus,
@@ -18,6 +19,8 @@ from .models import (
     COMPLETED_STATUSES,
     PAID_PAYMENT_STATUSES,
     RecurrenceRule,
+    BookingHold,
+    BookingHoldSlot,
 )
 
 PROMO_MASK = "****"
@@ -70,6 +73,13 @@ class BookingSerializer(serializers.ModelSerializer):
     customer_label = serializers.SerializerMethodField()
     facility_category_name = serializers.CharField(source="facility_category.name", read_only=True, default=None)
     facility_type_name = serializers.CharField(source="facility_type.name", read_only=True, default=None)
+    # The activity's own photo, so a booking can be recognised at a glance
+    # instead of read. `ImageField` resolves an absolute URL from the request
+    # in the serializer context, which the viewset already supplies, and the
+    # listing queryset already `select_related`s `facility_type`, so a page of
+    # rows costs no extra queries.
+    facility_type_image = serializers.ImageField(
+        source="facility_type.image", read_only=True, default=None)
     assigned_to_name = serializers.CharField(source="assigned_to.full_name", read_only=True, default=None)
     created_by_name = serializers.CharField(source="created_by.full_name", read_only=True, default=None)
     updated_by_name = serializers.CharField(source="updated_by.full_name", read_only=True, default=None)
@@ -90,6 +100,11 @@ class BookingSerializer(serializers.ModelSerializer):
     outstanding = serializers.SerializerMethodField()
     paid_invoice_number = serializers.SerializerMethodField()
     price_breakdown = serializers.SerializerMethodField()
+    # Cheap enough for a list row with `select_related("order")`; the full
+    # sibling list below costs a query each, so it is detail-only.
+    order_reference = serializers.CharField(
+        source="order.reference", read_only=True, default=None)
+    order_summary = serializers.SerializerMethodField()
     customer_verified = serializers.BooleanField(source="customer.is_verified", read_only=True, default=None)
 
     class Meta:
@@ -99,7 +114,7 @@ class BookingSerializer(serializers.ModelSerializer):
             "customer", "customer_name", "customer_email", "customer_label",
             "walk_in_name", "walk_in_phone", "walk_in_email",
             "facility_category", "facility_category_name",
-            "facility_type", "facility_type_name",
+            "facility_type", "facility_type_name", "facility_type_image",
             "add_ons", "add_on_names",
             "booking_type", "source", "source_display", "priority", "status",
             "customer_was_new", "customer_info_updated", "customer_verified",
@@ -117,6 +132,7 @@ class BookingSerializer(serializers.ModelSerializer):
             "payment_status", "payment_method",
             "amount_paid", "outstanding", "paid_invoice_number",
             "recurrence", "parent_booking",
+            "order", "order_reference", "order_summary",
             "customer_notes", "internal_notes", "special_instructions",
             "completed_at", "cancelled_at", "cancellation_reason",
             "status_history", "cancellation", "can_modify", "can_delete",
@@ -126,6 +142,36 @@ class BookingSerializer(serializers.ModelSerializer):
             "created_at", "updated_at",
         )
         read_only_fields = fields
+
+    def get_order_summary(self, obj) -> dict:
+        """The other slots bought in the same checkout, when there are any.
+
+        A multi-slot order is N ordinary bookings, which is what keeps the
+        calendar, capacity and refunds working. The cost of that choice is that
+        a single booking looks unrelated to its siblings, so the one screen
+        that can say otherwise has to.
+        """
+        if not obj.order_id or not self.context.get("with_coverage"):
+            return None
+        order = obj.order
+        siblings = list(order.bookings.order_by("scheduled_date", "scheduled_time"))
+        return {
+            "reference": order.reference,
+            "slot_count": len(siblings),
+            "currency": order.currency,
+            "total_amount": str(order.total_amount),
+            "slots": [{
+                "id": row.id,
+                "reference": row.reference,
+                "scheduled_date": row.scheduled_date.isoformat() if row.scheduled_date else "",
+                "scheduled_time": row.scheduled_time.strftime("%H:%M") if row.scheduled_time else "",
+                "end_time": row.end_time.strftime("%H:%M") if row.end_time else "",
+                "status": row.status,
+                "payment_status": row.payment_status,
+                "total_amount": str(row.total_amount),
+                "is_this_one": row.id == obj.id,
+            } for row in siblings],
+        }
 
     def get_price_breakdown(self, obj) -> dict:
         """Per-line VAT breakdown (facility_category + each add-on) for the detail view: each
@@ -309,6 +355,12 @@ class BookingCreateSerializer(serializers.ModelSerializer):
     # books a facility TYPE; the server allocates the unit (see `_finalize`).
     facility = serializers.PrimaryKeyRelatedField(
         queryset=Facility.objects.all(), required=False, allow_null=True)
+    # A one-way flag rather than a writable `status`: a client may say "I have
+    # not finished this", and nothing else about the lifecycle. It is only
+    # honoured on creation, so an existing booking can never be turned back
+    # into an unfinished form and quietly give up its court.
+    save_as_draft = serializers.BooleanField(
+        write_only=True, required=False, default=False)
 
     class Meta:
         model = Booking
@@ -325,6 +377,7 @@ class BookingCreateSerializer(serializers.ModelSerializer):
             "promo_code_input",
             "recurrence",
             "customer_notes", "internal_notes", "special_instructions",
+            "save_as_draft",
         )
         read_only_fields = ("id",)
 
@@ -366,7 +419,14 @@ class BookingCreateSerializer(serializers.ModelSerializer):
                     raise self._closed_error()
 
         # Exactly one bookable target: a facility type or a facility category.
-        if sum(bool(eff(f)) for f in ("facility_type", "facility_category")) != 1:
+        #
+        # A draft is exempt, and only a draft. It is an unfinished form, so
+        # "you have not said what you are booking yet" is its normal state
+        # rather than an error; the same check runs again in `finish_draft`,
+        # when the booking actually has to mean something.
+        as_draft = bool(attrs.get("save_as_draft"))
+        if (not as_draft
+                and sum(bool(eff(f)) for f in ("facility_type", "facility_category")) != 1):
             raise serializers.ValidationError(
                 "Provide exactly one of `facility_type` or `facility_category`."
             )
@@ -376,8 +436,10 @@ class BookingCreateSerializer(serializers.ModelSerializer):
         club = eff("club")
         facility = eff("facility")
 
-        # Customer required unless walk-in (which captures a name snapshot).
-        if not is_walk_in and not customer:
+        # Customer required unless walk-in (which captures a name snapshot),
+        # or unless this is a draft: an unfinished form is allowed not to know
+        # yet. `finish_draft` asks again before the booking becomes real.
+        if not is_walk_in and not customer and not as_draft:
             raise serializers.ValidationError(
                 {"customer": "Select a customer, or set booking type to walk-in."}
             )
@@ -440,10 +502,17 @@ class BookingCreateSerializer(serializers.ModelSerializer):
         if add_ons is not None:
             booking.add_ons.set(add_ons)
         booking.compute_duration()
-        self._enforce_rules(booking)
-        # Allocation happens AFTER the duration is known: a 90-minute booking
-        # must be given a facility that is free for the whole 90 minutes.
-        self._allocate_facility(booking)
+        # A draft is an unfinished form the admin means to come back to, so
+        # neither the club's booking rules nor a court are applied to it yet.
+        # It holds nothing, and everything skipped here is enforced when it is
+        # finished, which is the moment it stops being a draft and becomes a
+        # real booking. Pricing still runs: an admin returning to a draft
+        # wants to see what it would cost.
+        if booking.status != BookingStatus.DRAFT:
+            self._enforce_rules(booking)
+            # Allocation happens AFTER the duration is known: a 90-minute
+            # booking must be given a facility free for the whole 90 minutes.
+            self._allocate_facility(booking)
         booking.compute_pricing()
         from apps.bookings.services import booking_amount_paid, sync_booking_payment_status
         if booking_amount_paid(booking) > 0:
@@ -472,23 +541,32 @@ class BookingCreateSerializer(serializers.ModelSerializer):
         except BookingRuleViolation as exc:
             raise serializers.ValidationError({"scheduled_date": exc.reasons})
 
-    @staticmethod
-    def _allocate_facility(booking):
-        """Pin the booking to a free facility, or fail with a clear field error."""
+    def _allocate_facility(self, booking):
+        """Pin the booking to a free facility, or fail with a clear field error.
+
+        `exclude_hold_id` in the context is the reservation this booking is
+        being created from. It must not block its own booking, and passing it
+        through the context rather than the payload keeps it out of reach of
+        the client: a caller cannot ask to ignore somebody else's hold.
+        """
         from apps.bookings.services import FacilityUnavailable, allocate_facility
         try:
-            allocate_facility(booking, commit=False)
+            allocate_facility(booking, commit=False,
+                              exclude_hold_id=self.context.get("exclude_hold_id"))
         except FacilityUnavailable as exc:
             raise serializers.ValidationError({"scheduled_time": str(exc)})
 
     def create(self, validated_data):
         from apps.settings_app.currency import get_default_currency
+        as_draft = validated_data.pop("save_as_draft", False)
         add_ons = validated_data.pop("add_ons", [])
         promo_input = (validated_data.pop("promo_code_input", "") or "").strip()
         request = self.context.get("request")
         if request and request.user.is_authenticated:
             validated_data["created_by"] = request.user
         validated_data.setdefault("currency", get_default_currency())
+        if as_draft:
+            validated_data["status"] = BookingStatus.DRAFT
         booking = Booking(**validated_data)
         try:
             booking.full_clean(exclude=["reference", "duration_minutes"])
@@ -498,6 +576,13 @@ class BookingCreateSerializer(serializers.ModelSerializer):
         booking = self._finalize(booking, add_ons)
         if promo_input:
             self._apply_promo(booking, promo_input, request)
+        # A booking that is covered by a membership, priced at nothing, or
+        # discounted to nothing owes the club nothing, so it is confirmed here
+        # rather than waiting for a payment that is never coming. After the
+        # promo, because the promo may be what took the balance to zero.
+        from apps.bookings.services import confirm_if_settled
+        confirm_if_settled(booking, actor=validated_data.get("created_by"),
+                           request=request)
         return booking
 
     def _apply_promo(self, booking, code, request):
@@ -523,6 +608,11 @@ class BookingCreateSerializer(serializers.ModelSerializer):
         promo_services.record_redemption(promo, booking, booking.promo_discount, user=user)
 
     def update(self, instance, validated_data):
+        # Creation-only. Editing a draft leaves it a draft, and editing a real
+        # booking must never be able to demote it back into one: that would
+        # hand its court to somebody else without cancelling anything. The
+        # only way out of draft is `services.finish_draft`.
+        validated_data.pop("save_as_draft", None)
         add_ons = validated_data.pop("add_ons", None)
         # Snapshot the catalogue selection BEFORE the edit so we can log exactly what
         # changed (who added/removed which item/add-on, and the price impact).
@@ -539,6 +629,10 @@ class BookingCreateSerializer(serializers.ModelSerializer):
             instance.updated_by = actor
         booking = self._finalize(instance, add_ons)
         self._log_service_change(booking, before, actor)
+        # An edit can settle a booking too: drop the last chargeable add-on and
+        # there is nothing left to collect.
+        from apps.bookings.services import confirm_if_settled
+        confirm_if_settled(booking, actor=actor, request=request)
         return booking
 
     @staticmethod
@@ -574,33 +668,51 @@ class BookingCreateSerializer(serializers.ModelSerializer):
 
 class BookingPolicySerializer(serializers.ModelSerializer):
     club_name = serializers.CharField(source="club.name", read_only=True, default=None)
+    facility_name = serializers.CharField(
+        source="facility.name", read_only=True, default=None)
     scope = serializers.SerializerMethodField()
+    # What actually applies here once inheritance is worked out, so the editor
+    # can show a placeholder value for anything this row leaves empty instead
+    # of making the operator guess what "inherit" means.
+    effective = serializers.SerializerMethodField()
 
     class Meta:
         model = BookingPolicy
         fields = (
-            "id", "club", "club_name", "is_default", "scope",
+            "id", "club", "club_name", "facility", "facility_name",
+            "is_default", "scope", "effective",
             "min_lead_minutes", "max_advance_days",
             "max_active_bookings_per_customer", "max_bookings_per_customer_per_day",
             "cancellation_cutoff_hours", "enforce_for_staff",
+            "allow_multiple_slots", "allow_multiple_dates",
+            "require_consecutive_slots",
+            "min_slots_per_booking", "max_slots_per_booking",
             "updated_at",
         )
-        read_only_fields = ("id", "club_name", "scope", "updated_at")
+        read_only_fields = (
+            "id", "club_name", "facility_name", "scope", "effective", "updated_at")
 
     def get_scope(self, obj) -> str:
-        return obj.club.name if obj.club_id else "Organization default"
+        return obj.scope_label
+
+    def get_effective(self, obj) -> dict:
+        from apps.bookings.services import resolve_slot_rules
+        return resolve_slot_rules(club=obj.club, facility=obj.facility)
 
     def validate(self, attrs):
         def eff(field):
             return attrs.get(field, getattr(self.instance, field, None))
 
-        is_default, club = eff("is_default"), eff("club")
-        if is_default and club:
+        is_default, club, facility = eff("is_default"), eff("club"), eff("facility")
+        named = [bool(is_default), bool(club), bool(facility)]
+        if sum(named) > 1:
             raise serializers.ValidationError(
-                {"club": "The organization default policy cannot belong to a club."})
-        if not is_default and not club:
+                "A booking policy belongs to one scope: the organization, a club, "
+                "or a facility.")
+        if not any(named):
             raise serializers.ValidationError(
-                {"club": "Choose a club, or mark this as the organization default."})
+                {"club": "Choose a club or a facility, or mark this as the "
+                         "organization default."})
 
         # One row per scope - report it as a field error rather than a 500.
         qs = BookingPolicy.objects.all()
@@ -612,6 +724,17 @@ class BookingPolicySerializer(serializers.ModelSerializer):
         if club and qs.filter(club=club).exists():
             raise serializers.ValidationError(
                 {"club": "This club already has its own policy."})
+        if facility and qs.filter(facility=facility).exists():
+            raise serializers.ValidationError(
+                {"facility": "This facility already has its own policy."})
+
+        # A floor above the ceiling would make every booking impossible.
+        lowest = eff("min_slots_per_booking")
+        highest = eff("max_slots_per_booking")
+        if lowest and highest and lowest > highest:
+            raise serializers.ValidationError(
+                {"max_slots_per_booking":
+                    "The maximum must be at least the minimum."})
         return attrs
 
 
@@ -644,3 +767,146 @@ class CompleteBookingSerializer(serializers.Serializer):
     reference = serializers.CharField(required=False, allow_blank=True, max_length=120)
     paid_at = serializers.DateTimeField(required=False)
     notes = serializers.CharField(required=False, allow_blank=True, max_length=500)
+
+
+class BookingHoldSlotSerializer(serializers.ModelSerializer):
+    """One court, one interval, inside a reservation."""
+
+    facility_name = serializers.CharField(source="facility.name", read_only=True,
+                                          default=None)
+
+    class Meta:
+        model = BookingHoldSlot
+        fields = ("id", "facility", "facility_name", "scheduled_date",
+                  "scheduled_time", "end_time")
+
+
+class BookingHoldSerializer(serializers.ModelSerializer):
+    """A reservation, as operations staff need to see it.
+
+    Read-only, and deliberately narrow. `token_hash` is absent and must stay
+    absent: it is the digest of a bearer token, and a listing that leaked it
+    would hand anybody who can read the page the ability to pay for, or give
+    away, somebody else's reservation.
+
+    `seconds_remaining` and `is_live` are computed from the clock rather than
+    the status, for the same reason every other read path does it: the sweep
+    runs every few minutes, so rows sit ACTIVE past their deadline in between
+    and a listing that believed the status would show courts as held that are
+    already back on sale.
+    """
+
+    club_name = serializers.CharField(source="club.name", read_only=True, default=None)
+    facility_type_name = serializers.CharField(
+        source="facility_type.name", read_only=True, default=None)
+    customer_name = serializers.CharField(
+        source="customer.full_name", read_only=True, default=None)
+    created_by_name = serializers.CharField(
+        source="created_by.full_name", read_only=True, default=None)
+    booking_reference = serializers.CharField(
+        source="booking.reference", read_only=True, default=None)
+    order_reference = serializers.CharField(
+        source="order.reference", read_only=True, default=None)
+    slots = BookingHoldSlotSerializer(many=True, read_only=True)
+    seconds_remaining = serializers.IntegerField(read_only=True)
+    is_live = serializers.BooleanField(read_only=True)
+
+    class Meta:
+        model = BookingHold
+        fields = (
+            "id", "reference", "status", "is_live",
+            "club", "club_name", "facility_type", "facility_type_name",
+            "customer", "customer_name", "source",
+            "created_by", "created_by_name",
+            "booking", "booking_reference", "order", "order_reference",
+            "slots",
+            "expires_at", "max_expires_at", "extended_at", "seconds_remaining",
+            "created_at", "ended_at",
+        )
+        read_only_fields = fields
+
+
+class BookingOrderSerializer(serializers.ModelSerializer):
+    """One checkout, in full, for the screen that explains it.
+
+    A multi-slot order is N ordinary bookings, which is what keeps the
+    calendar, capacity, refunds and the double-booking index working. The cost
+    of that choice is that no single screen showed the checkout as one thing:
+    staff saw three near-identical rows sharing a reference and had to open
+    each in turn to find out what had been paid.
+
+    Money is summed from the bookings here exactly as it is on the model. The
+    order stores no total of its own, so there is nothing that can drift.
+    """
+
+    customer_name = serializers.CharField(
+        source="customer.full_name", read_only=True, default=None)
+    customer_email = serializers.CharField(
+        source="customer.email", read_only=True, default=None)
+    customer_mobile = serializers.CharField(
+        source="customer.mobile_number", read_only=True, default=None)
+    club_name = serializers.CharField(source="club.name", read_only=True, default=None)
+    facility_type_name = serializers.CharField(
+        source="facility_type.name", read_only=True, default=None)
+    created_by_name = serializers.CharField(
+        source="created_by.full_name", read_only=True, default=None)
+    source_display = serializers.CharField(
+        source="get_source_display", read_only=True)
+
+    slot_count = serializers.IntegerField(read_only=True)
+    total_amount = serializers.DecimalField(
+        max_digits=13, decimal_places=3, read_only=True)
+    total_duration_minutes = serializers.IntegerField(read_only=True)
+    amount_paid = serializers.SerializerMethodField()
+    outstanding = serializers.SerializerMethodField()
+    slots = serializers.SerializerMethodField()
+
+    class Meta:
+        model = BookingOrder
+        fields = (
+            "id", "reference", "currency", "source", "source_display",
+            "customer", "customer_name", "customer_email", "customer_mobile",
+            "club", "club_name", "facility_type", "facility_type_name",
+            "created_by", "created_by_name", "created_at",
+            "slot_count", "total_amount", "total_duration_minutes",
+            "amount_paid", "outstanding", "slots",
+        )
+        read_only_fields = fields
+
+    def get_amount_paid(self, obj) -> str:
+        from apps.bookings.services import booking_amount_paid
+        return str(sum((booking_amount_paid(b) for b in obj.live_bookings),
+                       Decimal("0")))
+
+    def get_outstanding(self, obj) -> str:
+        from apps.bookings.services import booking_outstanding
+        return str(sum((booking_outstanding(b) for b in obj.live_bookings),
+                       Decimal("0")))
+
+    def get_slots(self, obj) -> list:
+        """Every slot, cancelled ones included.
+
+        `live_bookings` drives the MONEY, because a cancelled slot is not owed
+        for. It must not drive the LIST: a slot that was cancelled is the
+        thing somebody has opened this screen to ask about.
+        """
+        from apps.bookings.services import booking_amount_paid, booking_outstanding
+
+        rows = obj.bookings.select_related("facility", "assigned_to").order_by(
+            "scheduled_date", "scheduled_time")
+        return [{
+            "id": row.id,
+            "reference": row.reference,
+            "scheduled_date": row.scheduled_date.isoformat() if row.scheduled_date else "",
+            "scheduled_time": row.scheduled_time.strftime("%H:%M") if row.scheduled_time else "",
+            "end_time": row.end_time.strftime("%H:%M") if row.end_time else "",
+            "duration_minutes": row.duration_minutes,
+            "facility_name": row.facility.name if row.facility_id else None,
+            "assigned_to_name": (row.assigned_to.full_name
+                                 if row.assigned_to_id else None),
+            "status": row.status,
+            "payment_status": row.payment_status,
+            "total_amount": str(row.total_amount),
+            "amount_paid": str(booking_amount_paid(row)),
+            "outstanding": str(booking_outstanding(row)),
+        } for row in rows]

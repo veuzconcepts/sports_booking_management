@@ -14,6 +14,8 @@ import { PaymentSuccessModal } from '../../components/PaymentSuccessModal.jsx';
 import { RefundModal } from '../../components/RefundModal.jsx';
 import { ConfirmDialog } from '../../components/ConfirmDialog.jsx';
 import { CompletionPaymentWizard } from '../../components/CompletionPaymentWizard.jsx';
+import { SplitPaymentPanel } from './SplitPaymentPanel.jsx';
+import { OrderPanel } from './OrderPanel.jsx';
 import { Modal } from '../../components/Modal.jsx';
 import { FormField } from '../../components/FormField.jsx';
 import { Select2 } from '../../components/Select2.jsx';
@@ -37,6 +39,7 @@ import { formatTime, formatDateTime, formatDate } from '../../services/timeforma
 import { usePrompt } from '../../components/PromptDialog.jsx';
 import { apiErrorMessage } from '../../utils/apiError';
 import { actorLabel } from '../../utils/actor';
+import { ActivityThumb } from './ActivityThumb.jsx';
 
 const statusLabel = (t, v) => bookingStatuses(t).find((s) => s.value === v)?.label || v;
 const PRIORITY_TONE = { normal: 'muted', urgent: 'warning', vip: 'danger' };
@@ -68,7 +71,7 @@ export default function BookingDetailPage() {
   const [assignOpen, setAssignOpen] = useState(false);
   const [busy, setBusy] = useState(false);
   const [promoInput, setPromoInput] = useState('');
-  const [finance, setFinance] = useState({ invoices: [], payments: [] });
+  const [finance, setFinance] = useState({ invoices: [], payments: [], splits: [] });
   const [refundFor, setRefundFor] = useState(null);
   const [successInvoice, setSuccessInvoice] = useState(null);
   const [dup, setDup] = useState(null);   // duplicate prefill payload (null = closed)
@@ -80,6 +83,14 @@ export default function BookingDetailPage() {
   const [completeOpen, setCompleteOpen] = useState(false);
   const [billOpen, setBillOpen] = useState(false);          // Invoice & Receipt wizard
   const [confirmGenerate, setConfirmGenerate] = useState(false);
+  // { split, share } awaiting confirmation, then the id being issued.
+  const [linkFor, setLinkFor] = useState(null);
+  const [issuingShare, setIssuingShare] = useState(null);
+  const [issuedLink, setIssuedLink] = useState(null);
+  const [linkCopied, setLinkCopied] = useState(false);
+  // The bill wizard was opened BY a refused confirmation, so its success
+  // message should say the booking is confirmed rather than merely invoiced.
+  const [paymentToConfirm, setPaymentToConfirm] = useState(false);
   const seenPaidRef = useRef(new Set());
   const financeInitedRef = useRef(false);
 
@@ -107,12 +118,59 @@ export default function BookingDetailPage() {
         if (fresh) setSuccessInvoice(fresh);
       }
       paid.forEach((i) => seenPaidRef.current.add(i.id));
-      setFinance({ invoices, payments: data.payments || [] });
+      setFinance({ invoices, payments: data.payments || [], splits: data.splits || [] });
     } catch { /* ignore */ }
   }, [id, hasPerm]);
 
   useEffect(load, [load]);
   useEffect(() => { loadFinance(); }, [loadFinance]);
+
+  /**
+   * Issue a fresh payment link for one unpaid share and put it on the clipboard.
+   *
+   * The clipboard write can fail (an insecure origin, a browser that refuses
+   * without a user gesture it recognises), and a link that exists but was not
+   * copied must not be reported as copied: the old link has already stopped
+   * working by then, so a silent failure would leave the share unreachable.
+   * The URL is shown either way.
+   */
+  async function issueShareLink(target) {
+    if (!target) return;
+    setIssuingShare(target.share.id);
+    try {
+      const issued = await bookingsApi.splitShareLink(id, target.share.id);
+      let copied = false;
+      try {
+        await navigator.clipboard.writeText(issued.url);
+        copied = true;
+      } catch {
+        copied = false;
+      }
+      setLinkFor(null);
+      setLinkCopied(copied);
+      setIssuedLink({ ...issued, copied });
+      loadFinance();
+    } catch (e) {
+      toast.error(apiErrorMessage(e, t('split.issueLinkFailed')));
+    } finally {
+      setIssuingShare(null);
+    }
+  }
+
+  /** Put the issued link on the clipboard, and say whether it worked. */
+  async function copyIssuedLink() {
+    if (!issuedLink?.url) return;
+    try {
+      await navigator.clipboard.writeText(issuedLink.url);
+      setLinkCopied(true);
+    } catch {
+      // Some browsers refuse without a gesture they recognise, and any
+      // insecure origin refuses outright. The URL is on screen either way,
+      // so say so rather than claiming a copy that did not happen.
+      setLinkCopied(false);
+      toast.error(t('split.copyFailed'));
+    }
+  }
 
   async function doTransition(status) {
     setBusy(true);
@@ -122,6 +180,16 @@ export default function BookingDetailPage() {
       toast.success(`Moved to ${statusLabel(t, status)}`);
       loadFinance();   // completion may auto-raise an invoice/receipt → pops the success modal
     } catch (e) {
+      // A website checkout that chose to pay online is still refused, because
+      // the same predicate decides whether the slot sweep may release it. But
+      // the answer is to TAKE the payment, so offer that rather than leaving
+      // staff at a dead end with a message and nothing to click. Paying in
+      // full confirms the booking on its own, through `confirm_if_settled`.
+      if (e?.response?.data?.code === 'payment_required') {
+        setPaymentToConfirm(true);
+        setBillOpen(true);
+        return;
+      }
       toast.error(apiErrorMessage(e, t('unableUpdateBookingStatusPlease')));
     } finally {
       setBusy(false);
@@ -410,7 +478,16 @@ export default function BookingDetailPage() {
                 </div>
               </KV>
               <KV icon={LayoutGrid} label={t('common:labels.facility')}>
-                {booking.facility_type_name || booking.facility_category_name || '-'}
+                <span style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 0 }}>
+                  <ActivityThumb
+                    src={booking.facility_type_image}
+                    name={booking.facility_type_name || booking.facility_category_name}
+                    size={30}
+                  />
+                  <span style={{ minWidth: 0 }}>
+                    {booking.facility_type_name || booking.facility_category_name || '-'}
+                  </span>
+                </span>
               </KV>
               <KV icon={Calendar} label={t('scheduled')}>
                 {formatDate(booking.scheduled_date)} at {formatTime(booking.scheduled_time)}
@@ -442,6 +519,13 @@ export default function BookingDetailPage() {
               </KV>
             </div>
           </div>
+
+          {booking.order_summary?.slot_count > 1 && (
+            <>
+              <div style={{ height: 16 }} />
+              <OrderPanel order={booking.order_summary} orderId={booking.order} />
+            </>
+          )}
 
           <div style={{ height: 16 }} />
 
@@ -611,6 +695,16 @@ export default function BookingDetailPage() {
                     onDownloadReceipt={(inv) => inv.receipt && downloadDoc(() => receiptsApi.download(inv.receipt.id), inv.receipt.number)}
                     onDownloadCreditNote={(cn) => downloadDoc(() => creditNotesApi.download(cn.id), cn.number)}
                   />
+                  {/* Who actually paid. Only rendered when the customer split
+                      the booking, so an ordinary booking reads exactly as before. */}
+                  <SplitPaymentPanel
+                    splits={finance.splits}
+                    currency={booking.currency}
+                    issuingShare={issuingShare}
+                    onIssueLink={hasPerm('payments.add')
+                      ? (split, share) => setLinkFor({ split, share })
+                      : undefined}
+                  />
                 </div>
               )}
 
@@ -640,7 +734,29 @@ export default function BookingDetailPage() {
         <div className="col" style={{ flex: '1.4 1 420px' }}>
           {isStaff && !terminal && (
             <div className="card">
-              <div className="card-header"><h3 className="card-title">{t('actionsHeading')}</h3></div>
+              {/* The money, beside the buttons that act on it. Reception
+                  deciding whether to confirm, assign or cancel needs to know
+                  what has been paid, and that lived three cards further down
+                  in the Details column. The outstanding figure comes with it
+                  where there is one, because "partially paid" on its own does
+                  not say how much to ask for. */}
+              <div className="card-header" style={{
+                display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap',
+              }}>
+                <h3 className="card-title" style={{ margin: 0 }}>{t('actionsHeading')}</h3>
+                <span style={{
+                  marginInlineStart: 'auto', display: 'inline-flex',
+                  alignItems: 'center', gap: 8, flexWrap: 'wrap',
+                }}>
+                  <StatusBadge status={booking.payment_status} />
+                  {Number(booking.outstanding) > 0 && (
+                    <span className="muted" style={{ fontSize: 12.5, whiteSpace: 'nowrap' }}>
+                      {t('outstandingAmount')}{' '}
+                      <strong><Money amount={booking.outstanding} code={booking.currency} /></strong>
+                    </span>
+                  )}
+                </span>
+              </div>
               <div className="card-body" style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
                 {/* Assigned goes through the Assign dialog; Completed goes through
                     the Completion & Payment wizard - neither is a raw status jump,
@@ -826,6 +942,67 @@ export default function BookingDetailPage() {
 
       {/* Manual "Generate Invoice" - confirm first (booking not yet completed),
           then the same Invoice & Receipt wizard captures payment up front. */}
+      {/* Shown once. The raw token is never stored, so this is the only moment
+          anybody can read it; closing without copying means issuing another. */}
+      <Modal
+        open={Boolean(issuedLink)}
+        onClose={() => setIssuedLink(null)}
+        title={t('split.issuedLinkTitle')}
+        size="sm"
+        footer={
+          <>
+            {/* An explicit button, not only the automatic copy. The automatic
+                one fails silently on an insecure origin and in browsers that
+                want a gesture they recognise, and a link that exists but was
+                never copied is a link nobody can send: the old one has already
+                stopped working by then. */}
+            <button className="btn btn-secondary" type="button"
+              onClick={() => copyIssuedLink()}>
+              {linkCopied ? t('split.linkCopied') : t('split.copyLink')}
+            </button>
+            <button className="btn btn-primary" type="button"
+              onClick={() => setIssuedLink(null)}>{t('common:actions.close')}</button>
+          </>
+        }
+      >
+        <p style={{ marginTop: 0, fontSize: 13.5 }}>
+          {issuedLink?.copied
+            ? t('split.issuedLinkCopied', { name: issuedLink?.name })
+            : t('split.issuedLinkNotCopied', { name: issuedLink?.name })}
+        </p>
+        <p style={{
+          fontSize: 12.5, wordBreak: 'break-all', margin: 0, padding: '10px 12px',
+          borderRadius: 8, background: 'var(--color-surface-2)',
+          fontFamily: 'var(--font-mono, monospace)',
+        }}>
+          {issuedLink?.url}
+        </p>
+        {/* How long it is good for. A link with no stated deadline is one
+            somebody sends on tomorrow. Reissuing does not extend it: the
+            arrangement runs out, not the token. */}
+        {issuedLink?.expires_at && (
+          <p className="muted" style={{ fontSize: 12.5, margin: '10px 0 0' }}>
+            {t('split.linkExpires', { when: formatDateTime(issuedLink.expires_at) })}
+          </p>
+        )}
+      </Modal>
+
+      {/* Issuing a link invalidates the one the customer already has, which is
+          the point when a link has leaked and a trap when reception is only
+          being helpful. So it is said out loud before it happens. */}
+      <ConfirmDialog
+        open={Boolean(linkFor)}
+        title={t('split.issueLinkTitle')}
+        message={t('split.issueLinkWarning', {
+          name: linkFor?.share?.is_organizer
+            ? t('split.organizer')
+            : (linkFor?.share?.name || t('split.guest')),
+        })}
+        confirmLabel={t('split.issueLink')}
+        busy={Boolean(issuingShare)}
+        onConfirm={() => issueShareLink(linkFor)}
+        onClose={() => { if (!issuingShare) setLinkFor(null); }}
+      />
       <ConfirmDialog
         open={confirmGenerate}
         title={t('generateInvoiceNow')}
@@ -839,9 +1016,15 @@ export default function BookingDetailPage() {
         open={billOpen}
         mode="bill"
         booking={booking}
-        onClose={() => setBillOpen(false)}
+        onClose={() => { setBillOpen(false); setPaymentToConfirm(false); }}
         onChanged={(updated) => setBooking(updated)}   /* redeem/unapply: live sync, keep open */
-        onCompleted={onBilled}                          /* invoice+payment done: close + refresh */
+        onCompleted={(updated) => {
+          onBilled(updated);
+          if (paymentToConfirm) {
+            setPaymentToConfirm(false);
+            toast.success(t('confirmedOnPayment'));
+          }
+        }}
       />
     </>
   );

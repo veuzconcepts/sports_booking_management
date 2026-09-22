@@ -88,6 +88,10 @@ export default function PaymentDetailPage() {
             <Row label={t('mode')}>{p.method_display || p.method}</Row>
             <Row label={t('common:labels.date')}>{dt(p.paid_at || p.created_at)}</Row>
             <Row label={t('taken')}>{p.created_by_name || '-'}</Row>
+            {/* Only set when somebody other than the booking's own customer
+                handed the money over, which is a split share. The refund goes
+                back to this person, so it belongs on the payment they made. */}
+            {p.payer && <Row label={t('paidBy')}>{p.payer}</Row>}
           </div></div>
         </div>
 

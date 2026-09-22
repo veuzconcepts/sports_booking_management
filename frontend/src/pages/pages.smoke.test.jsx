@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { render, waitFor } from '@testing-library/react';
-import { MemoryRouter } from 'react-router-dom';
+import { MemoryRouter, Route, Routes } from 'react-router-dom';
 
 /**
  * Every listing page, actually rendered.
@@ -39,6 +39,8 @@ const RENDER_TIMEOUT_MS = 20000;
 
 const PAGES = [
   ['Bookings', () => import('./bookings/BookingsListPage.jsx')],
+  ['Reservations', () => import('./bookings/ReservationsListPage.jsx')],
+  ['Order detail', () => import('./bookings/OrderDetailPage.jsx')],
   ['Customers', () => import('./customers/CustomersListPage.jsx')],
   ['Staff', () => import('./staff/StaffListPage.jsx')],
   ['Payments', () => import('./payments/PaymentsPage.jsx')],
@@ -91,6 +93,62 @@ describe.each(PAGES)('%s page', (name, load) => {
     render(<MemoryRouter><Page /></MemoryRouter>);
     // Every listing page fetches something on mount; a page that never calls
     // the API is a page whose data wiring broke.
+    await waitFor(() => expect(api.get).toHaveBeenCalled());
+  }, RENDER_TIMEOUT_MS);
+});
+
+
+/**
+ * The CMS collections need a route, not just a render.
+ *
+ * `CmsResourcePage` reads `:resource` from the URL and shows an "unknown
+ * section" notice when it is missing, so mounting it bare would pass while
+ * proving nothing about the listing it actually draws. Each collection has
+ * its own columns, so each one is rendered.
+ */
+const CMS_RESOURCES = ['sections', 'banners', 'stats', 'testimonials',
+                       'brands', 'faqs', 'seo'];
+
+describe.each(CMS_RESOURCES)('Website CMS: %s', (resource) => {
+  it('renders its listing without throwing', async () => {
+    const Page = (await import('./website/CmsResourcePage.jsx')).default;
+    const errors = [];
+    const spy = vi.spyOn(console, 'error').mockImplementation((...args) => {
+      errors.push(String(args[0]));
+    });
+
+    let thrown = null;
+    try {
+      render(
+        <MemoryRouter initialEntries={[`/website/${resource}`]}>
+          <Routes>
+            <Route path="/website/:resource" element={<Page />} />
+          </Routes>
+        </MemoryRouter>,
+      );
+      await waitFor(() => {});
+    } catch (e) {
+      thrown = e;
+    } finally {
+      spy.mockRestore();
+    }
+
+    expect(thrown, `${resource} threw: ${thrown?.message}`).toBeNull();
+    const fatal = errors.filter((e) => /is not defined|is not a function|Cannot read/.test(e));
+    expect(fatal, `${resource} logged: ${fatal[0]}`).toEqual([]);
+  }, RENDER_TIMEOUT_MS);
+
+  it('asks the API for its rows', async () => {
+    const Page = (await import('./website/CmsResourcePage.jsx')).default;
+    const api = (await import('../services/apiClient')).default;
+    api.get.mockClear();
+    render(
+      <MemoryRouter initialEntries={[`/website/${resource}`]}>
+        <Routes>
+          <Route path="/website/:resource" element={<Page />} />
+        </Routes>
+      </MemoryRouter>,
+    );
     await waitFor(() => expect(api.get).toHaveBeenCalled());
   }, RENDER_TIMEOUT_MS);
 });

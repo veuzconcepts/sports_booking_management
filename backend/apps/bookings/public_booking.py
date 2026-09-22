@@ -10,6 +10,7 @@ pricing via the same `BookingCreateSerializer` the admin uses. Returns
 from datetime import date as date_cls, time as time_cls
 from decimal import Decimal, InvalidOperation
 
+from django.core import signing
 from django.db import transaction
 
 from apps.auditlogs.services import log_event
@@ -92,6 +93,123 @@ def _update_reused_customer(request, customer, *, name, via, by_label):
     return True
 
 
+def _public_contact_check(d, authenticated_customer):
+    """Validate the booker's contact details for a self-service checkout.
+
+    Shared by the single-slot and multi-slot paths so there is exactly one
+    place that decides what a website booker must supply. Returns
+    `(context, error)`; `error` is a ready `(status, payload)` tuple.
+    """
+    from apps.bookings import contacts
+
+    name = str(d.get("name") or (authenticated_customer.full_name
+                                 if authenticated_customer else "")).strip()
+    phone = str(d.get("phone") or (authenticated_customer.mobile_number
+                                   if authenticated_customer else "")).strip()
+    email = str(d.get("email") or (authenticated_customer.email
+                                   if authenticated_customer else "")).strip()
+
+    rules = contacts.rules_for("website")
+    contact_errs = contacts.missing_required(rules, email=email, phone=phone)
+    if contact_errs:
+        labels = []
+        if "phone" in contact_errs:
+            labels.append("mobile number")
+        if "email" in contact_errs:
+            labels.append("email")
+        return None, (400, {"detail": f"Please provide your {' and '.join(labels)}",
+                            "fields": contact_errs})
+    if phone and not contacts.phone_is_valid(phone):
+        return None, (400, {"detail": "Enter a valid phone number with its country code"})
+    if email and not contacts.email_looks_real(email):
+        return None, (400, {"detail": "Please enter a valid email, or leave it blank"})
+
+    token = str(d.get("verification_token") or "").strip()
+    token_data = contacts.read_verification_token(token, email=email, phone=phone)
+    return {"name": name, "phone": phone, "email": email,
+            "rules": rules, "token_data": token_data}, None
+
+
+def _resolve_public_customer(request, ctx, *, authenticated_customer,
+                             customer_source, update_via, update_by_label):
+    """Find or create the Customer behind a self-service checkout.
+
+    Must be called inside the transaction that holds the configuration lock,
+    because the guest branch decides whether a record already exists and two
+    concurrent bookings would otherwise both create one. Returns
+    `(customer, was_new, info_updated, error)`.
+    """
+    from apps.bookings import contacts
+    from apps.customers.models import Customer
+
+    name, phone, email = ctx["name"], ctx["phone"], ctx["email"]
+    rules, token_data = ctx["rules"], ctx["token_data"]
+
+    if authenticated_customer is not None:
+        customer = Customer.objects.select_for_update().get(pk=authenticated_customer.pk)
+        info_updated = _update_reused_customer(
+            request, customer, name=name, via=update_via, by_label=update_by_label)
+        return customer, False, info_updated, None
+
+    conflict = contacts.find_conflict(rules, email=email, phone=phone)
+    covered = bool(token_data) and token_data.get("field") == (conflict or {}).get("field")
+    if conflict and not covered:
+        label = "mobile number" if conflict["field"] == "phone" else "email"
+        return None, False, False, (409, {
+            "detail": f"This {label} is already registered. "
+                      "Verify the code to continue with your existing details.",
+            "duplicate": {"field": conflict["field"], "masked": conflict["masked"]},
+            "needs_otp": True,
+        })
+
+    customer = None
+    if conflict and conflict["source"] == "customer" and conflict["customer_id"]:
+        customer = Customer.objects.select_for_update().filter(
+            pk=conflict["customer_id"]).first()
+    if customer is None and phone:
+        customer = Customer.objects.select_for_update().filter(mobile_number=phone).first()
+    if customer is None and email:
+        customer = Customer.objects.select_for_update().filter(email__iexact=email).first()
+
+    if customer is None:
+        return (Customer.objects.create(full_name=name, mobile_number=phone,
+                                        email=email, source=customer_source),
+                True, False, None)
+    info_updated = _update_reused_customer(
+        request, customer, name=name, via=update_via, by_label=update_by_label)
+    return customer, False, info_updated, None
+
+
+def _resolve_reservation(data, *, club, slots):
+    """The reservation this checkout is completing, or a refusal.
+
+    Returns `(hold, error)`. No token at all is not an error: a checkout that
+    never reserved anything still works exactly as it did, so this stays
+    backward compatible with any client that has not been updated.
+
+    A token that has run out IS an error, and a loud one, because the courts
+    behind it have already gone back on sale. Telling the customer at the
+    payment step is the whole point of having a deadline.
+    """
+    from apps.bookings import reservations
+
+    token = str(data.get("reservation") or "").strip()
+    if not token:
+        return None, None
+    try:
+        hold = reservations.require_live(token)
+    except reservations.HoldExpired as exc:
+        return None, (409, {"detail": str(exc), "code": exc.code})
+    if hold.club_id != club.id:
+        return None, (409, {"detail": "This reservation is for a different club.",
+                            "code": "hold_mismatch"})
+    if not reservations.covers(hold, slots):
+        return None, (409, {
+            "detail": "This reservation does not cover the times you are booking.",
+            "code": "hold_mismatch"})
+    return hold, None
+
+
 def create_public_booking(data, *, request, source="website",
                           authenticated_customer=None, customer_source="web",
                           update_via="website_booking", update_by_label="Customer (website)"):
@@ -103,7 +221,7 @@ def create_public_booking(data, *, request, source="website",
       no OTP/uniqueness gate. Missing name/phone/email default from their profile.
 
     `source` tags `Booking.source`. Returns `(status_code, payload_dict)`."""
-    from apps.bookings import contacts, services as booking_services
+    from apps.bookings import contacts, reservations, services as booking_services
     from apps.bookings.models import ACTIVE_STATUSES, Booking
     from apps.bookings.serializers import BookingCreateSerializer
     from apps.customers.models import Customer
@@ -120,9 +238,10 @@ def create_public_booking(data, *, request, source="website",
         return 400, {"detail": f"Invalid {exc} value"}
 
     # Effective contact/name - default from the logged-in profile when omitted.
-    name = str(d.get("name") or (authenticated_customer.full_name if authenticated_customer else "")).strip()
-    phone = str(d.get("phone") or (authenticated_customer.mobile_number if authenticated_customer else "")).strip()
-    email = str(d.get("email") or (authenticated_customer.email if authenticated_customer else "")).strip()
+    ctx, contact_error = _public_contact_check(d, authenticated_customer)
+    if contact_error:
+        return contact_error
+    name = ctx["name"]
 
     required = ["facility_type", "club", "date", "time", "name"]
     eff = {**{k: d.get(k) for k in required}, "name": name}
@@ -152,26 +271,14 @@ def create_public_booking(data, *, request, source="website",
     if rule_errors:
         return 400, {"detail": " ".join(rule_errors), "rules": rule_errors}
 
+    hold, hold_error = _resolve_reservation(d, club=club, slots=[(on_date, at_time)])
+    if hold_error:
+        return hold_error
+
     if not booking_services.slot_is_available(
-            on_date, at_time, club=club, facility_type=item):
+            on_date, at_time, club=club, facility_type=item,
+            exclude_hold_id=hold.id if hold else None):
         return 409, {"detail": "That time slot was just taken - please pick another"}
-
-    rules = contacts.rules_for("website")
-    contact_errs = contacts.missing_required(rules, email=email, phone=phone)
-    if contact_errs:
-        labels = []
-        if "phone" in contact_errs:
-            labels.append("mobile number")
-        if "email" in contact_errs:
-            labels.append("email")
-        return 400, {"detail": f"Please provide your {' and '.join(labels)}", "fields": contact_errs}
-    if phone and not contacts.phone_is_valid(phone):
-        return 400, {"detail": "Enter a valid phone number with its country code"}
-    if email and not contacts.email_looks_real(email):
-        return 400, {"detail": "Please enter a valid email, or leave it blank"}
-
-    token = str(d.get("verification_token") or "").strip()
-    token_data = contacts.read_verification_token(token, email=email, phone=phone)
 
     valid_addon_ids = set(item.add_ons.filter(is_active=True).values_list("id", flat=True))
     addon_ids = [int(x) for x in (d.get("add_ons") or [])
@@ -183,39 +290,13 @@ def create_public_booking(data, *, request, source="website",
         # self-service bookings (lock the single config row).
         BookingConfiguration.objects.select_for_update().first()
 
-        if authenticated_customer is not None:
-            # Trusted, logged-in customer - no OTP/uniqueness gate.
-            customer = Customer.objects.select_for_update().get(pk=authenticated_customer.pk)
-            customer_was_new = False
-            customer_info_updated = _update_reused_customer(
-                request, customer, name=name, via=update_via, by_label=update_by_label)
-        else:
-            # Guest: a unique-contact conflict must be covered by a verification token
-            # for the SAME field (email priority).
-            conflict = contacts.find_conflict(rules, email=email, phone=phone)
-            covered = bool(token_data) and token_data.get("field") == (conflict or {}).get("field")
-            if conflict and not covered:
-                label = "mobile number" if conflict["field"] == "phone" else "email"
-                return 409, {
-                    "detail": f"This {label} is already registered. Verify the code to continue with your existing details.",
-                    "duplicate": {"field": conflict["field"], "masked": conflict["masked"]},
-                    "needs_otp": True,
-                }
-            customer = None
-            if conflict and conflict["source"] == "customer" and conflict["customer_id"]:
-                customer = Customer.objects.select_for_update().filter(pk=conflict["customer_id"]).first()
-            if customer is None and phone:
-                customer = Customer.objects.select_for_update().filter(mobile_number=phone).first()
-            if customer is None and email:
-                customer = Customer.objects.select_for_update().filter(email__iexact=email).first()
-            customer_was_new = customer is None
-            customer_info_updated = False
-            if customer is None:
-                customer = Customer.objects.create(
-                    full_name=name, mobile_number=phone, email=email, source=customer_source)
-            else:
-                customer_info_updated = _update_reused_customer(
-                    request, customer, name=name, via=update_via, by_label=update_by_label)
+        customer, customer_was_new, customer_info_updated, customer_error = (
+            _resolve_public_customer(
+                request, ctx, authenticated_customer=authenticated_customer,
+                customer_source=customer_source, update_via=update_via,
+                update_by_label=update_by_label))
+        if customer_error:
+            return customer_error
 
         # Idempotency: same customer can't double-book the same club + slot.
         if Booking.objects.filter(
@@ -241,16 +322,32 @@ def create_public_booking(data, *, request, source="website",
         }
         if coupon:
             payload["promo_code_input"] = coupon
-        ser = BookingCreateSerializer(data=payload, context={"request": request})
+        ser = BookingCreateSerializer(
+            data=payload,
+            context={"request": request,
+                     "exclude_hold_id": hold.id if hold else None})
         ser.is_valid(raise_exception=True)
         booking = ser.save()
         booking.customer_was_new = customer_was_new
         booking.customer_info_updated = customer_info_updated
         booking.save(update_fields=["customer_was_new", "customer_info_updated", "updated_at"])
+        # Inside the transaction, AFTER the booking exists and is already
+        # blocking the slot. There is therefore no instant at which the court
+        # looks free, and a rollback takes the conversion with it.
+        if hold is not None:
+            reservations.convert(hold, booking=booking)
 
     # Self-service bookings stay PENDING (Booked) until staff confirm them.
     from apps.notifications.services import notify_booking_created
     notify_booking_created(booking)
+
+    # Payment runs after the booking transaction has committed, so a rollback can
+    # never discard a booking whose card was genuinely charged. A decline leaves
+    # the booking standing and unpaid, exactly like a cash booking, so the
+    # customer keeps their slot while they find another card.
+    payment_result = collect_checkout_payment(
+        booking, d.get("payment"), request=request)
+    booking.refresh_from_db()
 
     return 201, {
         "reference": booking.reference,
@@ -262,4 +359,631 @@ def create_public_booking(data, *, request, source="website",
         "promo_applied": bool(booking.promo_code_id),
         "currency": booking.currency,
         "booking_id": booking.id,
+        "payment_status": booking.payment_status,
+        "payment": payment_result,
+        # Lets the confirmation screen retry a declined card, or settle later,
+        # without re-posting the booking (which the duplicate guard would reject).
+        "checkout_token": make_checkout_token(booking),
+    }
+
+
+def create_public_order(data, *, request, source="website",
+                        authenticated_customer=None, customer_source="web",
+                        update_via="website_booking",
+                        update_by_label="Customer (website)"):
+    """Create a multi-slot booking from a self-service channel.
+
+    Same contract as `create_public_booking` and the same helpers for contacts,
+    club resolution and customer resolution. What differs is only the shape of
+    the purchase: a set of slots becomes one `BookingOrder` and one ordinary
+    `Booking` per slot, through `multi_slot.create_order`, which in turn uses
+    the same `BookingCreateSerializer` as everything else. No second booking
+    engine, no second price, no second availability check.
+
+    Returns `(status_code, payload_dict)`.
+    """
+    from apps.bookings import multi_slot, reservations, services as booking_services
+    from apps.bookings.models import ACTIVE_STATUSES, Booking
+    from apps.facilities.models import FacilityType
+    from apps.settings_app.models import BookingConfiguration
+
+    d = data
+
+    try:
+        latitude = _coord(d.get("latitude"), "latitude")
+        longitude = _coord(d.get("longitude"), "longitude")
+    except ValueError as exc:
+        return 400, {"detail": f"Invalid {exc} value"}
+
+    ctx, contact_error = _public_contact_check(d, authenticated_customer)
+    if contact_error:
+        return contact_error
+    if not ctx["name"]:
+        return 400, {"detail": "Please fill in: name"}
+
+    item = FacilityType.objects.filter(
+        pk=d.get("facility_type"), is_active=True, online_booking_enabled=True).first()
+    if not item:
+        return 404, {"detail": "This facility isn't available for booking"}
+    club, club_error = _resolve_club(d, latitude, longitude)
+    if club_error:
+        return club_error
+
+    try:
+        slots = multi_slot.parse_slots(d.get("slots"))
+    except multi_slot.SelectionError as exc:
+        return 400, {"detail": str(exc), "code": exc.code}
+
+    hold, hold_error = _resolve_reservation(d, club=club, slots=slots)
+    if hold_error:
+        return hold_error
+
+    # Shape, booking window and availability, before anything is written and
+    # before the customer record is touched.
+    try:
+        multi_slot.validate_selection(
+            slots, club=club, facility_type=item,
+            customer=authenticated_customer, staff_booking=False,
+            exclude_hold_id=hold.id if hold else None)
+    except multi_slot.SelectionError as exc:
+        return (409 if exc.code == "slot_unavailable" else 400), {
+            "detail": str(exc), "code": exc.code, "slots": exc.slots}
+
+    valid_addon_ids = set(item.add_ons.filter(is_active=True).values_list("id", flat=True))
+    addon_ids = [int(x) for x in (d.get("add_ons") or [])
+                 if str(x).isdigit() and int(x) in valid_addon_ids]
+    coupon = str(d.get("coupon") or d.get("promo") or "").strip()
+    notes = str(d.get("notes") or "").strip()
+
+    with transaction.atomic():
+        BookingConfiguration.objects.select_for_update().first()
+
+        customer, customer_was_new, customer_info_updated, customer_error = (
+            _resolve_public_customer(
+                request, ctx, authenticated_customer=authenticated_customer,
+                customer_source=customer_source, update_via=update_via,
+                update_by_label=update_by_label))
+        if customer_error:
+            return customer_error
+
+        # Same idempotency guard as a single booking, per slot: a customer
+        # cannot hold two bookings for one club and time.
+        clashes = [
+            {"date": on_date.isoformat(), "time": at_time.strftime("%H:%M")}
+            for on_date, at_time in slots
+            if Booking.objects.filter(
+                customer=customer, club=club, scheduled_date=on_date,
+                scheduled_time=at_time, status__in=ACTIVE_STATUSES).exists()
+        ]
+        if clashes:
+            return 409, {
+                "detail": "You already have a booking for this club and time.",
+                "code": "already_booked", "slots": clashes}
+
+        # Per-customer caps, now that a guest's Customer row exists.
+        for on_date, at_time in slots:
+            cap_errors = booking_services.check_booking_rules(
+                club=club, on_date=on_date, at_time=at_time,
+                customer=customer, staff_booking=False)
+            if cap_errors:
+                return 400, {"detail": " ".join(cap_errors), "rules": cap_errors}
+
+        try:
+            order, bookings = multi_slot.create_order(
+                customer=customer, club=club, facility_type=item, slots=slots,
+                addons=addon_ids, promo_input=coupon, notes=notes,
+                source=source, request=request,
+                exclude_hold_id=hold.id if hold else None)
+        except multi_slot.SelectionError as exc:
+            return (409 if exc.code == "slot_unavailable" else 400), {
+                "detail": str(exc), "code": exc.code, "slots": exc.slots}
+
+        if hold is not None:
+            reservations.convert(hold, order=order)
+
+        first = bookings[0]
+        first.customer_was_new = customer_was_new
+        first.customer_info_updated = customer_info_updated
+        first.save(update_fields=["customer_was_new", "customer_info_updated",
+                                  "updated_at"])
+
+    from apps.notifications.services import notify_booking_created
+    for booking in bookings:
+        notify_booking_created(booking)
+
+    # Payment after commit, for the same reason as a single booking: a rollback
+    # must never be able to discard slots whose card was genuinely charged.
+    payment_result = collect_order_payment(
+        order, bookings, d.get("payment"), request=request)
+    for booking in bookings:
+        booking.refresh_from_db()
+
+    return 201, {
+        "order_reference": order.reference,
+        "order_id": order.id,
+        "slot_count": len(bookings),
+        "currency": order.currency,
+        "total_amount": str(order_total(bookings)),
+        "promo_discount": str(sum(
+            (Decimal(str(b.promo_discount or 0)) for b in bookings), Decimal("0"))),
+        "promo_applied": any(b.promo_code_id for b in bookings),
+        "bookings": [{
+            "reference": b.reference,
+            "booking_id": b.id,
+            "status": b.status,
+            "scheduled_date": b.scheduled_date.isoformat(),
+            "scheduled_time": b.scheduled_time.strftime("%H:%M"),
+            "end_time": b.end_time.strftime("%H:%M") if b.end_time else "",
+            "total_amount": str(b.total_amount),
+            "payment_status": b.payment_status,
+        } for b in bookings],
+        "payment": payment_result,
+        "checkout_token": make_order_checkout_token(order),
+    }
+
+
+def order_total(bookings):
+    return sum((Decimal(str(b.total_amount or 0)) for b in bookings), Decimal("0"))
+
+
+# --------------------------------------------------------------------------- #
+# Checkout payment
+# --------------------------------------------------------------------------- #
+# Signed, short-lived proof that the holder is the person who just made this
+# booking, so they may pay its outstanding balance from the confirmation screen
+# or retry a card that was declined. It carries no card data and no customer
+# details, only the booking it refers to, and it expires with the checkout.
+#
+# A signed token rather than another table: this is a claim about the session
+# that just happened, not a record worth keeping, and the project already trusts
+# `django.core.signing` for exactly this shape of proof (see `contacts`).
+_CHECKOUT_SALT = "bookings.checkout.pay.v1"
+CHECKOUT_TOKEN_MAX_AGE = 60 * 60          # seconds
+
+
+_ORDER_CHECKOUT_SALT = "bookings.checkout.order.pay.v1"
+
+
+def make_checkout_token(booking) -> str:
+    return signing.dumps({"booking_id": booking.id}, salt=_CHECKOUT_SALT)
+
+
+def make_order_checkout_token(order) -> str:
+    return signing.dumps({"order_id": order.id}, salt=_ORDER_CHECKOUT_SALT)
+
+
+def read_order_checkout_token(token):
+    """The order a checkout token refers to, or None. Same reasoning as
+    `read_checkout_token`: never trust a client-supplied id."""
+    from apps.bookings.models import BookingOrder
+
+    if not str(token or "").strip():
+        return None
+    try:
+        data = signing.loads(token, salt=_ORDER_CHECKOUT_SALT,
+                             max_age=CHECKOUT_TOKEN_MAX_AGE)
+    except signing.BadSignature:
+        return None
+    return BookingOrder.objects.filter(pk=data.get("order_id")).first()
+
+
+def read_checkout_token(token):
+    """The booking a checkout token refers to, or None.
+
+    Returns the booking itself rather than an id so every caller goes through the
+    same lookup and none of them can be tempted to trust a client-supplied id.
+    """
+    from apps.bookings.models import Booking
+
+    if not str(token or "").strip():
+        return None
+    try:
+        data = signing.loads(token, salt=_CHECKOUT_SALT, max_age=CHECKOUT_TOKEN_MAX_AGE)
+    except signing.BadSignature:
+        return None
+    return Booking.objects.filter(pk=data.get("booking_id")).first()
+
+
+def _equal_split_participants(total, people, currency, *, organizer_name,
+                              organizer_included, friends):
+    """Turn the organizer's choices into a validated participant list.
+
+    The amounts are computed HERE, on the server, from the booking's own
+    outstanding balance. Whatever figures the browser displayed are ignored: they
+    were only ever a preview of this calculation.
+    """
+    from apps.payments.split import allocate_equal
+
+    amounts = allocate_equal(total, people, currency)
+    rows, index = [], 0
+    if organizer_included:
+        rows.append({"amount": amounts[0], "name": organizer_name,
+                     "is_organizer": True})
+        index = 1
+    for offset in range(index, people):
+        friend = friends[offset - index] if (offset - index) < len(friends) else {}
+        rows.append({
+            "amount": amounts[offset],
+            "name": str(friend.get("name") or "").strip(),
+            "email": str(friend.get("email") or "").strip(),
+            "phone": str(friend.get("phone") or "").strip(),
+        })
+    return rows
+
+
+def _custom_split_participants(entries, organizer_name):
+    """Custom amounts, passed through unchanged for the service to validate.
+
+    Deliberately does NOT adjust anything to make the numbers add up: if the
+    allocation is wrong the organizer must see that and fix it, because silently
+    reshaping their intent is how a friend ends up charged the wrong amount.
+    """
+    rows = []
+    for entry in (entries or []):
+        is_organizer = bool(entry.get("is_organizer"))
+        rows.append({
+            "amount": entry.get("amount"),
+            "name": (organizer_name if is_organizer and not entry.get("name")
+                     else str(entry.get("name") or "").strip()),
+            "email": str(entry.get("email") or "").strip(),
+            "phone": str(entry.get("phone") or "").strip(),
+            "is_organizer": is_organizer,
+        })
+    return rows
+
+
+#: How the customer said they would pay. Recorded even when the payment then
+#: fails, because "they chose to pay at the club" and "their card was declined"
+#: are different situations and afterwards look identical on the booking.
+_INTENT = {"cash": "cash", "card": "card", "split": "online"}
+
+
+def _record_intent(booking, method) -> None:
+    """Remember the payment method the customer chose.
+
+    Only ever written once, and never over a method that a real payment
+    already set, so retrying a declined card cannot rewrite history.
+    """
+    intent = _INTENT.get(method)
+    if not intent or booking.payment_method:
+        return
+    booking.payment_method = intent
+    booking.save(update_fields=["payment_method", "updated_at"])
+
+
+
+
+def _no_provider(method, club, outstanding):
+    """No card provider is configured. Say what is actually left.
+
+    Telling somebody they can pay at the club is only true where the club takes
+    cash. At a card-only club there is genuinely nothing they can do right now,
+    and saying so is better than sending them to a desk that will turn them
+    away.
+    """
+    from apps.payments.gateway import checkout_payment_options
+
+    detail = "Online payment is not available at the moment."
+    if checkout_payment_options(club)["cash_enabled"]:
+        detail += " You can still pay at the club."
+    else:
+        detail += " Please try again shortly."
+    return {"method": method, "status": "unavailable", "detail": detail,
+            "code": "provider_unavailable", "outstanding": str(outstanding)}
+
+
+def _resolve_checkout_method(payment_request, *, club, outstanding):
+    """Which method this checkout is using, or why it cannot be used.
+
+    Returns `(method, refusal)`. `refusal` is a ready payment block when the
+    club does not offer what was asked for, and None otherwise.
+
+    The website hides a method the club has switched off, but hiding is not
+    enforcing: a stale tab, a replayed request or a direct API call still
+    arrives here. This is where the club's answer is actually applied, and it
+    reads the same `checkout_payment_options` the website was given, so a
+    customer can never be refused for something the page told them was fine.
+    """
+    from apps.payments.gateway import checkout_payment_options, default_checkout_method
+
+    options = checkout_payment_options(club)
+    method = str((payment_request or {}).get("method") or "").strip().lower()
+    if not method:
+        method = default_checkout_method(club)
+
+    # Nothing to collect, so no method can be wrong.
+    if outstanding <= 0:
+        return method, None
+
+    if method == "cash" and not options["cash_enabled"]:
+        return method, {
+            "method": "cash", "status": "unavailable",
+            "detail": "This club does not take payment at the venue. "
+                      "Please pay online to confirm your booking.",
+            "code": "cash_disabled", "outstanding": str(outstanding)}
+
+    if method == "split" and not options["split_enabled"]:
+        return method, {
+            "method": "split", "status": "unavailable",
+            "detail": "Splitting a payment is not available for this booking.",
+            "code": "split_disabled", "outstanding": str(outstanding)}
+
+    return method, None
+
+
+def collect_checkout_payment(booking, payment_request, *, request=None):
+    """Settle a freshly created booking according to the chosen method.
+
+    Returns the `payment` block for the checkout response. Never raises for a
+    declined card: a decline is an outcome the customer has to see, not a server
+    error, and the booking stays in place so their slot is not lost while they
+    find another card.
+
+    A note for whoever integrates a real provider: the authorisation happens here
+    AFTER the booking transaction has committed, deliberately. Charging inside
+    the booking transaction would mean a rollback could discard the booking while
+    the customer's card had genuinely been charged.
+    """
+    from apps.bookings.services import (
+        PaymentDeclined, booking_outstanding, settle_booking_payment,
+    )
+    from apps.payments.gateway import card_payment_available
+    from apps.website.split_views import read_card
+
+    outstanding = booking_outstanding(booking)
+    method, refusal = _resolve_checkout_method(
+        payment_request, club=booking.club, outstanding=outstanding)
+    if refusal is not None:
+        # Nothing is recorded: the customer has not chosen a method the club
+        # offers, so the booking must not look like it is waiting for cash.
+        return refusal
+    _record_intent(booking, method)
+
+    if method == "cash" or outstanding <= 0:
+        # Unchanged behaviour: nothing is collected online and the booking waits
+        # for the club to confirm it.
+        return {"method": "cash", "status": "due_at_venue",
+                "outstanding": str(outstanding)}
+
+    if not card_payment_available():
+        # No provider is configured. Say so plainly rather than confirming a
+        # booking as paid that nobody has actually paid for.
+        return _no_provider(method, booking.club, outstanding)
+
+    if method == "split":
+        return _start_split(booking, payment_request, outstanding, request=request)
+
+    if method != "card":
+        return {"method": method, "status": "unavailable",
+                "detail": "That payment method is not supported.",
+                "outstanding": str(outstanding)}
+
+    card = read_card(payment_request)
+    if card is None:
+        return {"method": "card", "status": "failed",
+                "detail": "Enter your card details to pay.",
+                "code": "missing_card", "outstanding": str(outstanding)}
+    try:
+        payment, invoice = settle_booking_payment(
+            booking, method="card", amount=outstanding, request=request, card=card)
+    except PaymentDeclined as exc:
+        return {"method": "card", "status": "failed", "detail": str(exc),
+                "code": "declined", "outstanding": str(outstanding)}
+    return {
+        "method": "card", "status": "paid",
+        "amount": str(payment.amount), "reference": payment.reference,
+        "invoice": invoice.number,
+        "card_brand": payment.card_brand, "card_last4": payment.card_last4,
+        "outstanding": str(booking_outstanding(booking)),
+    }
+
+
+def collect_order_payment(order, bookings, payment_request, *, request=None):
+    """Settle a multi-slot order according to the chosen method.
+
+    The order holds no money, so there is nothing here to charge against it:
+    every slot keeps its own total, its own payment and its own invoice, which
+    is what makes a later per-slot refund return the right amount. Paying the
+    order therefore means settling each of its bookings.
+
+    A card is charged per slot rather than once for the order. That is a
+    deliberate trade against one authorisation for the lot: invoices are per
+    booking in this system, and a single payment row spanning several bookings
+    would have no invoice it could belong to. A decline stops the run and says
+    how far it got, so the customer keeps every slot and can retry the rest
+    from the confirmation screen.
+    """
+    from apps.bookings.services import (
+        PaymentDeclined, booking_outstanding, settle_booking_payment,
+    )
+    from apps.payments.gateway import card_payment_available
+    from apps.website.split_views import read_card
+
+    outstanding = sum((booking_outstanding(b) for b in bookings), Decimal("0"))
+    method, refusal = _resolve_checkout_method(
+        payment_request, club=order.club, outstanding=outstanding)
+    if refusal is not None:
+        return refusal
+    for booking in bookings:
+        _record_intent(booking, method)
+
+    if method == "cash" or outstanding <= 0:
+        return {"method": "cash", "status": "due_at_venue",
+                "outstanding": str(outstanding)}
+
+    if not card_payment_available():
+        return _no_provider(method, order.club, outstanding)
+
+    if method == "split":
+        return _start_order_split(order, bookings, payment_request, outstanding,
+                                  request=request)
+
+    if method != "card":
+        return {"method": method, "status": "unavailable",
+                "detail": "That payment method is not supported.",
+                "outstanding": str(outstanding)}
+
+    card = read_card(payment_request)
+    if card is None:
+        return {"method": "card", "status": "failed",
+                "detail": "Enter your card details to pay.",
+                "code": "missing_card", "outstanding": str(outstanding)}
+
+    paid, invoices, failure = [], [], None
+    for booking in bookings:
+        due = booking_outstanding(booking)
+        if due <= 0:
+            continue
+        try:
+            payment, invoice = settle_booking_payment(
+                booking, method="card", amount=due, request=request, card=card)
+        except PaymentDeclined as exc:
+            failure = str(exc)
+            break
+        paid.append(payment)
+        invoices.append(invoice.number)
+
+    remaining = sum((booking_outstanding(b) for b in bookings), Decimal("0"))
+    if failure:
+        return {
+            "method": "card",
+            # "partial" is its own outcome: some slots are paid and the rest
+            # are not, and telling the customer "failed" would be a lie.
+            "status": "partial" if paid else "failed",
+            "detail": failure, "code": "declined",
+            "slots_paid": len(paid), "slots_total": len(bookings),
+            "invoices": invoices, "outstanding": str(remaining),
+        }
+    return {
+        "method": "card", "status": "paid",
+        "amount": str(sum((p.amount for p in paid), Decimal("0"))),
+        "reference": paid[0].reference if paid else "",
+        "invoices": invoices,
+        "slots_paid": len(paid), "slots_total": len(bookings),
+        "card_brand": paid[0].card_brand if paid else "",
+        "card_last4": paid[0].card_last4 if paid else "",
+        "outstanding": str(remaining),
+    }
+
+
+def _start_order_split(order, bookings, payment_request, outstanding, *, request=None):
+    """Split a multi-slot order between friends.
+
+    Confirmed policy: a share is an AMOUNT of the order, not a set of slots.
+    Paying it spreads that amount across the slots in proportion to what each
+    still owes, so one share can raise several invoices. Refunds still follow
+    the payer, because every payment records who handed the money over.
+    """
+    from apps.payments import split as split_service
+    from apps.website.split_views import read_card, split_payload
+
+    config = (payment_request or {}).get("split") or {}
+    mode = str(config.get("mode") or "equal").strip().lower()
+    organizer_name = order.customer.full_name if order.customer_id else ""
+
+    try:
+        if mode == "custom":
+            participants = _custom_split_participants(
+                config.get("participants"), organizer_name)
+        else:
+            people = int(config.get("people") or 0)
+            participants = _equal_split_participants(
+                outstanding, people, order.currency,
+                organizer_name=organizer_name,
+                organizer_included=bool(config.get("include_me", True)),
+                friends=list(config.get("friends") or []))
+        split, links = split_service.create_split(
+            order, participants, request=request)
+    except (TypeError, ValueError):
+        return {"method": "split", "status": "failed",
+                "detail": "Check the split details and try again.",
+                "code": "invalid_split", "outstanding": str(outstanding)}
+    except split_service.SplitError as exc:
+        return {"method": "split", "status": "failed", "detail": str(exc),
+                "code": exc.code, "outstanding": str(outstanding)}
+
+    organizer_result = None
+    if config.get("pay_my_share_now"):
+        organizer_share = next(
+            (s for s in split.shares.all() if s.is_organizer), None)
+        if organizer_share is not None and links.get(organizer_share.id):
+            card = read_card(payment_request)
+            try:
+                split_service.pay_share(
+                    links[organizer_share.id], card=card, method="card",
+                    request=request)
+                organizer_result = {"status": "paid"}
+            except split_service.SplitError as exc:
+                organizer_result = {"status": "failed", "detail": str(exc),
+                                    "code": exc.code}
+
+    split.refresh_from_db()
+    return {
+        "method": "split", "status": "started",
+        "manage_token": links["organizer"],
+        "manage_url": split_service.manage_link(links["organizer"]),
+        "organizer_payment": organizer_result,
+        "links": {str(share_id): split_service.share_link(raw)
+                  for share_id, raw in links.items() if share_id != "organizer"},
+        "split": split_payload(split, links=links),
+    }
+
+
+def _start_split(booking, payment_request, outstanding, *, request=None):
+    """Create the split arrangement, and take the organizer's share if asked."""
+    from apps.payments import split as split_service
+    from apps.website.split_views import read_card, split_payload
+
+    config = (payment_request or {}).get("split") or {}
+    mode = str(config.get("mode") or "equal").strip().lower()
+    organizer_name = booking.customer.full_name if booking.customer_id else ""
+
+    try:
+        if mode == "custom":
+            participants = _custom_split_participants(
+                config.get("participants"), organizer_name)
+        else:
+            people = int(config.get("people") or 0)
+            participants = _equal_split_participants(
+                outstanding, people, booking.currency,
+                organizer_name=organizer_name,
+                organizer_included=bool(config.get("include_me", True)),
+                friends=list(config.get("friends") or []))
+        split, links = split_service.create_split(
+            booking, participants, request=request)
+    except (TypeError, ValueError):
+        return {"method": "split", "status": "failed",
+                "detail": "Check the split details and try again.",
+                "code": "invalid_split", "outstanding": str(outstanding)}
+    except split_service.SplitError as exc:
+        return {"method": "split", "status": "failed", "detail": str(exc),
+                "code": exc.code, "outstanding": str(outstanding)}
+
+    organizer_result = None
+    if config.get("pay_my_share_now"):
+        organizer_share = next(
+            (s for s in split.shares.all() if s.is_organizer), None)
+        if organizer_share is not None and links.get(organizer_share.id):
+            card = read_card(payment_request)
+            try:
+                split_service.pay_share(
+                    links[organizer_share.id], card=card, method="card",
+                    request=request)
+                organizer_result = {"status": "paid"}
+            except split_service.SplitError as exc:
+                # The arrangement still stands: the friends' links work, and the
+                # organizer can retry their own share from the progress page.
+                organizer_result = {"status": "failed", "detail": str(exc),
+                                    "code": exc.code}
+
+    split.refresh_from_db()
+    payload = split_payload(split, links=links)
+    return {
+        "method": "split", "status": "started",
+        "manage_token": links["organizer"],
+        "manage_url": split_service.manage_link(links["organizer"]),
+        "organizer_payment": organizer_result,
+        "links": {str(share_id): split_service.share_link(raw)
+                  for share_id, raw in links.items() if share_id != "organizer"},
+        "split": payload,
     }

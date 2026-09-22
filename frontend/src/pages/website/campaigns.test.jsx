@@ -7,6 +7,9 @@ vi.mock('../../services/timeformat.jsx', () => ({
   useTimeFormat: () => ({ format24: true }),
   formatDateTime: (value) => String(value || ''),
   formatDate: (value) => String(value || ''),
+  // The editor shows and reads campaign times in the organization's zone, so
+  // the mock has to provide one or the module import is undefined.
+  orgTimezone: () => 'Asia/Riyadh',
 }));
 
 const created = vi.fn();

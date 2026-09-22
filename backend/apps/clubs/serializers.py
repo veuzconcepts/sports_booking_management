@@ -11,6 +11,7 @@ class ClubSerializer(serializers.ModelSerializer):
     facility_count = serializers.SerializerMethodField()
     schedule_source = serializers.SerializerMethodField()
     effective_schedule = serializers.SerializerMethodField()
+    effective_booking_policy = serializers.SerializerMethodField()
 
     class Meta:
         model = Club
@@ -19,6 +20,12 @@ class ClubSerializer(serializers.ModelSerializer):
             "latitude", "longitude", "is_active",
             "booking_hours", "slot_minutes",
             "buffer_before_minutes", "buffer_after_minutes",
+            # Null in any of these means "inherit the organization", so they are
+            # deliberately nullable rather than defaulted here.
+            "hold_unpaid_minutes", "hold_partly_paid_minutes", "hold_max_minutes",
+            "split_enabled", "split_hold_minutes", "split_max_shares",
+            "cash_enabled", "show_hold_countdown",
+            "effective_booking_policy",
             "schedule_source", "effective_schedule",
             "facilities", "facility_count",
             "created_at", "updated_at",
@@ -27,6 +34,15 @@ class ClubSerializer(serializers.ModelSerializer):
 
     def get_facility_count(self, obj) -> int:
         return obj.facilities.count()
+
+    def get_effective_booking_policy(self, obj) -> dict:
+        """What this club's reservations and payments actually resolve to.
+
+        The admin screen shows the inherited value in the empty override field,
+        so somebody can see what a blank box means without opening the
+        organization settings in another tab.
+        """
+        return sched.resolve_booking_policy(obj)
 
     def get_schedule_source(self, obj) -> str:
         """"organization" while this club overrides nothing, else "club"."""

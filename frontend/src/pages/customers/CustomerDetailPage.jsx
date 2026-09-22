@@ -208,7 +208,17 @@ export default function CustomerDetailPage() {
                       {bookings.map((b) => (
                         <tr key={b.id} style={{ cursor: 'pointer' }}
                           onClick={() => navigate(`/bookings/${b.id}`)}>
-                          <td style={{ fontWeight: 600 }}>{b.reference}</td>
+                          <td style={{ fontWeight: 600 }}>
+                            {b.reference}
+                            {/* Several slots bought in one checkout are several
+                                bookings. Naming the order here is what stops a
+                                customer's history reading as unrelated visits. */}
+                            {b.order_reference && (
+                              <div className="muted" style={{ fontSize: 11.5, fontWeight: 500 }}>
+                                {b.order_reference}
+                              </div>
+                            )}
+                          </td>
                           <td>{b.facility_type_name || b.facility_category_name || '-'}</td>
                           <td>
                             {formatDate(b.scheduled_date)}

@@ -13,7 +13,7 @@ import { setupApp } from './support.js';
  */
 
 const PAGES = [
-  '/dashboard', '/bookings', '/customers', '/staff', '/facilities',
+  '/dashboard', '/bookings', '/reservations', '/customers', '/staff', '/facilities',
   '/payments', '/invoices', '/promo-codes', '/subscriptions', '/users',
   '/reports', '/organization', '/booking-config', '/website/campaigns',
   '/auditlogs', '/notifications',

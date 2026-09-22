@@ -2,7 +2,8 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { useTranslation } from 'react-i18next';
 import {
-  ChevronDown, ChevronRight, Coffee, Copy, MoreVertical, Plus, RotateCcw, X,
+  ChevronDown, ChevronRight, Coffee, Copy, MoreVertical, Plus, RotateCcw,
+  Snowflake, Sun, X,
 } from 'lucide-react';
 
 import { TimePicker } from './TimePicker.jsx';
@@ -174,6 +175,16 @@ function DayRow({
             {displayTime(s.open, format24)}
             <span className="sch-row__sep"> - </span>
             {displayTime(s.close, format24)}
+            {/* Readable without expanding the day, which is the whole point of
+                classifying a shift in the first place. */}
+            {s.period === 'hot' && (
+              <Sun size={12} className="sch-row__period sch-row__period--hot"
+                aria-label={t('periodHot')} />
+            )}
+            {s.period === 'cold' && (
+              <Snowflake size={12} className="sch-row__period sch-row__period--cold"
+                aria-label={t('periodCold')} />
+            )}
             {i < day.shifts.length - 1 ? ',' : ''}
           </span>
         ))}
@@ -226,6 +237,46 @@ function DayRow({
 }
 
 /* ------------------------------------------------------- expanded editor -- */
+/** Normal, Hot or Cold for one operating shift.
+ *
+ * Compact by necessity: this sits on a row that already carries two time
+ * pickers, an overnight badge and a remove button, and it has to stay
+ * usable on a phone. Icons carry the meaning, with the name in the title
+ * and the accessible label so it is never icon-only.
+ */
+const PERIODS = [
+  { value: 'normal', icon: null, key: 'periodNormal' },
+  { value: 'hot', icon: Sun, key: 'periodHot' },
+  { value: 'cold', icon: Snowflake, key: 'periodCold' },
+];
+
+export function PeriodPicker({ value, disabled, onChange }) {
+  const { t } = useTranslation('schedule');
+  const current = value || 'normal';
+  return (
+    <span className="sch-period" role="group" aria-label={t('timeType')}>
+      {PERIODS.map((option) => {
+        const Icon = option.icon;
+        const on = current === option.value;
+        return (
+          <button
+            key={option.value}
+            type="button"
+            disabled={disabled}
+            aria-pressed={on}
+            title={t(option.key)}
+            aria-label={t(option.key)}
+            className={`sch-period__b sch-period__b--${option.value}${on ? ' is-on' : ''}`}
+            onClick={() => onChange(option.value)}
+          >
+            {Icon ? <Icon size={13} /> : <span aria-hidden="true">&ndash;</span>}
+          </button>
+        );
+      })}
+    </span>
+  );
+}
+
 function DayDetail({ dayKey, cfg, inherited, canEdit, onChange }) {
   const { t } = useTranslation('schedule');
   const day = normalizeDay(cfg ?? inherited);
@@ -261,6 +312,20 @@ function DayDetail({ dayKey, cfg, inherited, canEdit, onChange }) {
             {spansMidnight(s.open, s.close) && (
               <span className="sch-badge sch-badge--overnight">{t('nextDay')}</span>
             )}
+            {/* Peak or off-peak. Classification only: it changes no price on
+                its own, and a pricing rule has to ask for it by name. */}
+            <PeriodPicker
+              value={s.period} disabled={!canEdit}
+              onChange={(period) => set({
+                shifts: shifts.map((x, j) => (j === i
+                  ? (period === 'normal'
+                    // Leave the key off a normal shift so an untouched
+                    // schedule document stays exactly as it was.
+                    ? (({ period: _drop, ...rest }) => rest)(x)
+                    : { ...x, period })
+                  : x)),
+                breaks,
+              })} />
             {canEdit && shifts.length > 1 && (
               <button type="button" className="icon-btn" title={t('removeShift')}
                 onClick={() => set({ shifts: shifts.filter((_, j) => j !== i), breaks })}>
@@ -358,8 +423,8 @@ export function WeeklyTimeline({ week, format24 }) {
       <div className="sch-tl-scale">
         <span />
         <div className="sch-tl-scale__marks">
-          {['00:00', '06:00', '12:00', '18:00', '24:00'].map((t) => (
-            <span key={t}>{t === '24:00' ? t : displayTime(t, format24)}</span>
+          {['00:00', '06:00', '12:00', '18:00', '24:00'].map((mark) => (
+            <span key={mark}>{mark === '24:00' ? mark : displayTime(mark, format24)}</span>
           ))}
         </div>
       </div>

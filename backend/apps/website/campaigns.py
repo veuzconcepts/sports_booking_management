@@ -34,17 +34,19 @@ def invalidate() -> None:
     cache.delete(CACHE_KEY)
 
 
-def _live_queryset(now=None):
-    """Published, enabled, not archived, and inside its window right now.
+def _candidates():
+    """Every campaign that is switched on, regardless of the clock.
 
-    The comparison is made against an aware `now`, so the window means what the
-    organization meant by it rather than whatever the visitor's device says.
+    Deliberately NOT filtered by time. Caching a time-filtered list meant the
+    cached answer outlived the boundary it was computed at: a campaign due to
+    start at 12:06 stayed invisible until the entry expired, and an explicit
+    `now` was ignored entirely whenever the cache was warm. What rarely changes
+    is which campaigns are switched on, so that is what gets cached; the window
+    is then applied on every call, where it costs nothing.
     """
-    now = now or timezone.now()
-    return (
+    return list(
         WebsiteCampaign.objects
-        .filter(is_published=True, is_enabled=True, is_archived=False,
-                starts_at__lte=now, ends_at__gte=now)
+        .filter(is_published=True, is_enabled=True, is_archived=False)
         .select_related("image", "mobile_image", "promo_code")
         .prefetch_related("clubs", "facilities")
         .order_by("-priority", "display_order", "-starts_at")
@@ -87,11 +89,12 @@ def eligible(*, placement: str, club_id=None, signed_in: bool = False, now=None)
     """
     rows = cache.get(CACHE_KEY)
     if rows is None:
-        rows = list(_live_queryset(now))
+        rows = _candidates()
         cache.set(CACHE_KEY, rows, CACHE_TTL_SECONDS)
 
-    # A cached row could have aged past its end between requests, so the window
-    # is re-checked here rather than trusted from the cache alone.
+    # The window is applied here, never in the cached query, so a campaign
+    # becomes visible the moment it starts rather than whenever the cache
+    # happens to expire.
     moment = now or timezone.now()
     return [
         campaign for campaign in rows

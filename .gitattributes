@@ -1,0 +1,42 @@
+# Files that belong in the repository but not on a server.
+#
+# `export-ignore` is honoured by `git archive`, so a deployment built from an
+# archive receives none of these while every checkout keeps all of them. That
+# is the point: the tests guard things that are expensive to get wrong (double
+# booking, bearer tokens leaking, payment integrity) and they only guard
+# anything if they stay runnable for CI and for whoever works on this next.
+#
+# It does NOT affect `git clone` or `git pull`. A deployment that pulls gets
+# everything; see deploy/DEPLOYMENT.md, which builds from an archive for
+# exactly this reason.
+
+# ---------------------------------------------------------------- backend --
+backend/**/test_*.py         export-ignore
+backend/**/tests.py          export-ignore
+backend/**/tests/**          export-ignore
+backend/conftest.py          export-ignore
+backend/pytest.ini           export-ignore
+backend/requirements-dev.txt export-ignore
+
+# --------------------------------------------------------------- frontend --
+frontend/**/*.test.js        export-ignore
+frontend/**/*.test.jsx       export-ignore
+frontend/**/*.spec.js        export-ignore
+frontend/**/*.spec.jsx       export-ignore
+frontend/e2e/**              export-ignore
+frontend/e2e                 export-ignore
+frontend/playwright.config.js export-ignore
+frontend/vitest.setup.js     export-ignore
+
+# ------------------------------------------------------- customer website --
+web/**/*.test.js             export-ignore
+web/**/*.test.mjs            export-ignore
+web/scripts/**               export-ignore
+
+# ------------------------------------------------------------------ repo --
+# Notes for whoever is changing this code, not for the machine running it.
+docs/**                      export-ignore
+docs                         export-ignore
+scripts/**                   export-ignore
+scripts                      export-ignore
+CLAUDE.md                    export-ignore

@@ -28,6 +28,18 @@ import pytest  # noqa: E402
 
 
 @pytest.fixture(autouse=True)
+def _public_site_url(settings):
+    """Every test runs as a correctly configured deployment.
+
+    Django forces DEBUG off under test, so anything that refuses to work with
+    an unconfigured public address (split payment links) would otherwise
+    refuse in every test. A real address here is what a server actually has;
+    the tests that care about the unconfigured case set it back themselves.
+    """
+    settings.PUBLIC_WEBSITE_URL = "https://book.testclub.example"
+
+
+@pytest.fixture(autouse=True)
 def _clear_cache():
     """Reset throttle + lockout counters between tests for isolation."""
     from django.core.cache import cache

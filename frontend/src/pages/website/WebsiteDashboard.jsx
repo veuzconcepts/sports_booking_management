@@ -47,10 +47,12 @@ export default function WebsiteDashboard() {
             <ExternalLink size={15} /> {t('previewWebsite')}
           </a>
         ) : (
-          <button className="btn btn-secondary" disabled
-            title={t('setCustomerWebsiteUrlOrganization')}>
-            <ExternalLink size={15} /> {t('previewWebsite')}
-          </button>
+          /* A dead button with a tooltip leaves somebody wondering what is
+             broken. Nothing is: the address has simply never been set, so
+             this goes to the one screen where it can be. */
+          <Link className="btn btn-secondary" to="/organization">
+            <ExternalLink size={15} /> {t('setWebsiteUrl')}
+          </Link>
         )}
       />
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))', gap: 14 }}>

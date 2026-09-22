@@ -30,6 +30,11 @@ const STATUS_TONE = {
   no_show:       'warning',
   inactive:      'muted',
   draft:         'muted',
+  // A reservation that became a booking did its job; one that was let go or
+  // ran out is simply history, and reads like the other spent states.
+  converted:     'success',
+  released:      'muted',
+  expired:       'muted',
 };
 
 /**

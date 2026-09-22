@@ -119,7 +119,14 @@ export function ListTable({
       const next = Math.min(MAX_WIDTH,
         Math.max(MIN_WIDTH, state.startWidth + (event.clientX - state.startX)));
       const cells = document.querySelectorAll(`[data-col="${state.key}"]`);
-      cells.forEach((cell) => { cell.style.width = `${next}px`; });
+      // Min and max as well as width, for the same reason `cellStyle` sets all
+      // three: under `table-layout: auto` a lone `width` is a hint the browser
+      // is free to ignore, so the column did not follow the pointer.
+      cells.forEach((cell) => {
+        cell.style.width = `${next}px`;
+        cell.style.minWidth = `${next}px`;
+        cell.style.maxWidth = `${next}px`;
+      });
       state.width = next;
     };
     const onUp = () => {
@@ -449,8 +456,25 @@ function cellClass(c) {
 
 function cellStyle(c) {
   const style = {};
-  if (c.width) style.width = typeof c.width === 'number' ? `${c.width}px` : c.width;
-  if (c.minWidth) style.minWidth = typeof c.minWidth === 'number' ? `${c.minWidth}px` : c.minWidth;
+  if (c.width) {
+    // The table lays out `auto` and is 100% wide, so a bare `width` on a cell
+    // is only a HINT: the browser distributes columns by content and quietly
+    // ignores it, which is why a resized column snapped back to its old size
+    // even though the drag, the inline style and the saved preference were all
+    // correct. Pinning min and max to the same figure is what makes an
+    // explicit width authoritative without moving the whole table to
+    // `table-layout: fixed`, which would re-size every column on every listing
+    // in the application.
+    //
+    // A width set this way came from the user dragging the column, so it also
+    // beats the column's own `minWidth`: they asked for that size.
+    const width = typeof c.width === 'number' ? `${c.width}px` : c.width;
+    style.width = width;
+    style.minWidth = width;
+    style.maxWidth = width;
+  } else if (c.minWidth) {
+    style.minWidth = typeof c.minWidth === 'number' ? `${c.minWidth}px` : c.minWidth;
+  }
   if (c.align && c.align !== 'left') style.textAlign = c.align;
   return Object.keys(style).length ? style : undefined;
 }

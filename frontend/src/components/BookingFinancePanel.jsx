@@ -120,7 +120,17 @@ export function BookingFinancePanel({
                   <tr key={p.id} style={{ borderTop: '1px solid var(--color-border,#eee)' }}>
                     <td style={cell}>{dt(p.paid_at || p.created_at)}</td>
                     <td style={cell}>{methodLabel(p.method)}</td>
-                    <td style={cell}><button className="link-btn" onClick={() => navigate(`/payments/${p.id}`)}>{p.reference}</button></td>
+                    <td style={cell}>
+                      <button className="link-btn" onClick={() => navigate(`/payments/${p.id}`)}>{p.reference}</button>
+                      {/* Who handed the money over, when that is not the
+                          booking's own customer. A refund follows the payer,
+                          and a split share that straddles slots raises more
+                          than one payment, so the answer has to be on each
+                          payment rather than only on the share. */}
+                      {p.payer && (
+                        <div className="muted" style={{ fontSize: 11.5 }}>{p.payer}</div>
+                      )}
+                    </td>
                     <td style={{ ...cell, textAlign: 'right' }}><Money amount={p.amount} code={p.currency} /></td>
                     <td style={cell}><StatusBadge tone={PAY_TONE[p.status] || 'muted'} label={p.status_display || p.status} /></td>
                     <td style={cell}>{p.created_by_name || '-'}</td>

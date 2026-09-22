@@ -367,7 +367,7 @@ function PromoFormModal({ open, promo, onClose, onSaved }) {
   }
 
   return (
-    <Modal open={open} onClose={onClose} title={editing ? t('editPromoCode') : t('newPromoCode')} size="lg"
+    <Modal open={open} onClose={onClose} title={editing ? t('editPromoCode') : t('newPromoCode')} side size="lg"
       footer={<>
         <button className="btn btn-secondary" type="button" onClick={onClose}>{t('common:actions.cancel')}</button>
         <button className="btn btn-primary" onClick={submit} disabled={busy}>{busy ? 'Saving…' : (editing ? t('update') : t('common:actions.create'))}</button>
@@ -413,7 +413,7 @@ function BulkPromoModal({ open, onClose, onSaved }) {
   }
 
   return (
-    <Modal open={open} onClose={onClose} title={t('bulkGeneratePromoCodes')} size="lg"
+    <Modal open={open} onClose={onClose} title={t('bulkGeneratePromoCodes')} side size="lg"
       footer={<>
         <button className="btn btn-secondary" type="button" onClick={onClose}>{t('common:actions.cancel')}</button>
         <button className="btn btn-primary" onClick={submit} disabled={busy}>{busy ? t('generating') : t('generate')}</button>

@@ -1,0 +1,124 @@
+/* --------------------------------------------------------------------------
+   Clubs and facilities: the master page
+   --------------------------------------------------------------------------
+   This was one full-width card per club, stacked. Four clubs filled the
+   screen and you could not see the estate at a glance, which is the one
+   thing a master page is for. It is a grid now, so clubs sit beside each
+   other and each card carries only what you scan for: who it is, whether it
+   is on, where it is, and what it has.
+
+   The grid is intrinsically responsive (`auto-fill` + `minmax`), so it
+   reflows at every width without a media query telling it to, and collapses
+   to a single column on a phone without any fixed track to fight.
+   -------------------------------------------------------------------------- */
+.clubs-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+  gap: var(--space-4);
+  align-items: start;
+}
+
+@media (max-width: 480px) {
+  /* Below this a 320px track plus the page gutter overflows, and a master
+     page that scrolls sideways is worse than one that stacks. */
+  .clubs-grid { grid-template-columns: minmax(0, 1fr); }
+}
+
+.club-card {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  min-width: 0;
+  padding: 16px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  background: var(--color-surface, #fff);
+  transition: border-color .15s, box-shadow .15s;
+}
+
+.club-card:hover {
+  border-color: var(--color-primary-300, var(--color-border));
+  box-shadow: 0 6px 18px rgba(17, 17, 40, .06);
+}
+
+/* An inactive club stays legible but stops competing for attention. */
+.club-card.is-off { background: var(--color-surface-2); }
+
+.club-card__head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px;
+  min-width: 0;
+}
+
+.club-card__name {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--color-text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.club-card__code {
+  display: inline-block;
+  margin-top: 3px;
+  padding: 1px 7px;
+  border-radius: 999px;
+  background: var(--color-surface-2);
+  border: 1px solid var(--color-border-soft);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 11px;
+  color: var(--color-text-muted);
+}
+
+.club-card__meta {
+  display: flex;
+  align-items: flex-start;
+  gap: 7px;
+  margin: 0;
+  min-width: 0;
+  font-size: 12.5px;
+  line-height: 1.45;
+  color: var(--color-text-muted);
+}
+
+.club-card__meta svg { flex: 0 0 auto; margin-top: 2px; }
+.club-card__meta span { min-width: 0; }
+
+.club-card__chips { display: flex; flex-wrap: wrap; gap: 6px; }
+
+.club-card__chip {
+  padding: 2px 9px;
+  border-radius: 999px;
+  border: 1px solid var(--color-border-soft);
+  background: var(--color-surface-2);
+  font-size: 11.5px;
+  color: var(--color-text);
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.club-card__chip.is-off { color: var(--color-text-muted); opacity: .7; }
+/* "+3 more" is a count, not a facility: it must not read as one. */
+.club-card__chip--more { background: none; border-style: dashed; }
+
+.club-card__none { margin: 0; font-size: 12.5px; color: var(--color-text-muted); }
+
+.club-card__foot {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin-top: auto;            /* actions sit on the floor of every card, so
+                                  a row of cards has one button line */
+  padding-top: 12px;
+  border-top: 1px solid var(--color-border-soft);
+}
+
+.club-card__foot .btn { flex: 0 1 auto; }
+.club-card__spacer { flex: 1 1 auto; }

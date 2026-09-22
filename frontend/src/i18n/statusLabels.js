@@ -39,6 +39,11 @@ const KEYS = {
   draft: 'common:state.draft',
   failed: 'common:state.failed',
   expired: 'common:state.expired',
+
+  // Reservation (BookingHold) outcomes. `active`, `expired` and `cancelled`
+  // above already say the right thing for a hold; these two are its own.
+  converted: 'bookings:reservations.status.converted',
+  released: 'bookings:reservations.status.released',
 };
 
 /** Humanise an unknown code rather than showing it raw. */

@@ -45,6 +45,24 @@ const closedWeekdaySet = (hours) => {
 
 const todayISO = () => new Date().toISOString().slice(0, 10);
 
+/**
+ * What to say about a slot's capacity.
+ *
+ * "Full" and "somebody is part way through paying for it" are different
+ * facts, and staff need to tell them apart: one is gone for the day, the
+ * other is very likely free again in a few minutes. The customer website
+ * withdraws a held slot instead, because a customer only needs to pick
+ * something else; a receptionist with a person at the desk needs to know
+ * whether it is worth waiting.
+ *
+ * `held` counts courts a live reservation is holding. A payload without it
+ * (an older backend) reads exactly as it always did.
+ */
+export function slotState(slot) {
+  if (slot.available > 0) return `${slot.available} free`;
+  return slot.held > 0 ? 'being booked' : 'full';
+}
+
 const makeDefaults = () => ({
   scheduled_date: todayISO(),
   recurrence: 'none',
@@ -63,9 +81,16 @@ export function BookingFormModal({ open, onClose, onSaved, initial = null, editI
   const isEdit = Boolean(editId);
   const { hasPerm } = useAuth();
   const {
-    register, handleSubmit, watch, reset, setValue, control,
+    register, handleSubmit, watch, reset, setValue, control, getValues,
     formState: { errors, isSubmitting },
   } = useForm({ defaultValues: makeDefaults() });
+
+  // Editing something the admin already parked. The lifecycle is the same as
+  // a new booking's; what differs is that "finish" is now a real step.
+  const editingDraft = isEdit && initial?.status === 'draft';
+  // Drafts are for taking a booking, not for revisiting one, so the option
+  // only appears where it means something.
+  const canDraft = (!isEdit || editingDraft) && hasPerm(isEdit ? 'bookings.edit' : 'bookings.add');
 
   const customerId = watch('customer');
   const scheduledDate = watch('scheduled_date');
@@ -304,7 +329,8 @@ export function BookingFormModal({ open, onClose, onSaved, initial = null, editI
     onClose?.();
   }
 
-  async function onSubmit(values, override = false) {
+  async function onSubmit(values, override = false, asDraft = false,
+                          finishing = false) {
     try {
       const walkIn = values.booking_type === 'walk_in';
       const payload = {
@@ -325,6 +351,10 @@ export function BookingFormModal({ open, onClose, onSaved, initial = null, editI
         club: values.club ? Number(values.club) : null,
       };
       if (override) payload.override = true;   // force past an availability conflict
+      // Creation only, and the backend ignores it on an edit: a real booking
+      // must never be demoted back into an unfinished form, which would take
+      // its court away without cancelling anything.
+      if (asDraft) payload.save_as_draft = true;
       if (walkIn) {
         payload.walk_in_name = values.walk_in_name || '';
         payload.walk_in_phone = values.walk_in_phone || '';
@@ -340,6 +370,19 @@ export function BookingFormModal({ open, onClose, onSaved, initial = null, editI
         booking = await bookingsApi.duplicate(payload);        // gated by bookings.duplicate
       } else {
         booking = await bookingsApi.create(payload);
+      }
+      // Finishing is a separate step because it is the first moment the
+      // court is claimed, and it can legitimately fail when the slot has gone
+      // while the draft was sitting there. Saving the edits first means the
+      // admin never loses their typing to that refusal.
+      if (finishing && booking?.id) {
+        try {
+          booking = await bookingsApi.finishDraft(booking.id);
+        } catch (err) {
+          toast.error(apiErrorMessage(err, t('unableSaveBookingPleaseTry')));
+          onSaved?.(booking);
+          return;
+        }
       }
       reset();
       setAppliedCode('');
@@ -369,10 +412,24 @@ export function BookingFormModal({ open, onClose, onSaved, initial = null, editI
     <>
     <Modal
       open={open} onClose={close}
-      title={isEdit ? 'Edit booking' : initial ? t('duplicateBooking') : t('newBooking')} size="lg"
+      title={isEdit ? 'Edit booking' : initial ? t('duplicateBooking') : t('newBooking')} side size="lg"
       footer={
         <>
           <button className="btn btn-secondary" onClick={close} type="button">{t('common:actions.cancel')}</button>
+          {canDraft && (
+            /* Deliberately NOT behind handleSubmit: a draft exists precisely
+               because the form is not finished, so running the required-field
+               rules over it would refuse to save the thing it is for.
+               `getValues` takes whatever has been typed so far. */
+            <button
+              className="btn btn-secondary"
+              onClick={() => onSubmit(getValues(), false, true)}
+              disabled={isSubmitting}
+              type="button"
+            >
+              {isSubmitting ? t('common:state.saving') : t('saveAsDraft')}
+            </button>
+          )}
           {conflict ? (
             <button
               className="btn btn-warning"
@@ -385,12 +442,13 @@ export function BookingFormModal({ open, onClose, onSaved, initial = null, editI
           ) : (
             <button
               className="btn btn-primary"
-              onClick={handleSubmit(onSubmit)}
+              onClick={handleSubmit((v) => onSubmit(v, false, false, editingDraft))}
               disabled={isSubmitting}
             >
               {isSubmitting
                 ? (isEdit ? t('common:state.saving') : t('creating'))
-                : (isEdit ? t('common:actions.saveChanges') : t('createBooking'))}
+                : (editingDraft ? t('finishBooking')
+                  : isEdit ? t('common:actions.saveChanges') : t('createBooking'))}
             </button>
           )}
         </>
@@ -652,7 +710,7 @@ export function BookingFormModal({ open, onClose, onSaved, initial = null, editI
                 <Select2
                   options={slots.map((s) => ({
                     value: s.time,
-                    label: `${formatTime(s.time)} - ${s.available > 0 ? `${s.available} free` : 'full'}`,
+                    label: `${formatTime(s.time)} - ${slotState(s)}`,
                     disabled: s.available <= 0,
                   }))}
                   value={field.value || ''} onChange={field.onChange}

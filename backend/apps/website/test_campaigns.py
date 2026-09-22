@@ -340,3 +340,97 @@ def test_a_campaign_carries_no_pricing_or_discount_of_its_own(db):
     forbidden = {"discount", "discount_type", "discount_value", "price", "amount",
                  "entitlement", "slot", "availability"}
     assert not fields & forbidden
+
+
+# --------------------------------------------------------------------------- #
+# The clock a campaign is set by
+# --------------------------------------------------------------------------- #
+def test_a_zone_less_time_is_read_as_the_organizations_own(db):
+    """The admin form is a `datetime-local`, which carries no timezone.
+
+    An operator in Riyadh typing 12:06 means 12:06 there. Read as UTC instead,
+    the campaign goes live three hours late, which is exactly how a scheduled
+    campaign appears not to work.
+    """
+    from datetime import timezone as dt_timezone
+
+    from apps.settings_app.models import Organization
+    from apps.website.serializers import WebsiteCampaignSerializer
+
+    org = Organization.get_solo()
+    org.timezone = "Asia/Riyadh"
+    org.save(update_fields=["timezone"])
+
+    serializer = WebsiteCampaignSerializer(data={
+        "name": "Ramadan", "starts_at": "2027-03-01T12:06", "ends_at": "2027-03-30T23:59",
+    })
+    assert serializer.is_valid(), serializer.errors
+    starts = serializer.validated_data["starts_at"]
+    # 12:06 in Riyadh is 09:06 UTC, not 12:06 UTC.
+    assert starts.astimezone(dt_timezone.utc).hour == 9
+    assert starts.utcoffset().total_seconds() == 3 * 3600
+
+
+def test_an_explicit_offset_is_respected(db):
+    """A client that does send a zone is believed, not overridden."""
+    from datetime import timezone as dt_timezone
+
+    from apps.website.serializers import WebsiteCampaignSerializer
+
+    serializer = WebsiteCampaignSerializer(data={
+        "name": "Explicit", "starts_at": "2027-03-01T12:06:00Z",
+        "ends_at": "2027-03-30T23:59:00Z",
+    })
+    assert serializer.is_valid(), serializer.errors
+    assert serializer.validated_data["starts_at"].astimezone(dt_timezone.utc).hour == 12
+
+
+def test_saving_a_campaign_twice_does_not_move_it(auth_api, db):
+    """The round trip must be stable: read a campaign, save it unchanged, and
+    the window is where it was. A form that showed UTC while the operator read
+    it as local time shifted the start by the offset on every save."""
+    now = timezone.now()
+    created = auth_api.post(ADMIN, {
+        "name": "Stable", "starts_at": (now + timedelta(days=1)).isoformat(),
+        "ends_at": (now + timedelta(days=2)).isoformat(),
+    }, format="json").json()
+
+    again = auth_api.patch(f"{ADMIN}{created['id']}/",
+                           {"starts_at": created["starts_at"]}, format="json").json()
+    assert again["starts_at"] == created["starts_at"]
+
+
+def test_a_warm_cache_does_not_hide_a_campaign_that_has_just_started(db):
+    """The cache must not outlive the boundary it was computed at.
+
+    Caching the time-filtered list meant a campaign due to start at 12:06 stayed
+    invisible until the entry expired, and an explicit `now` was ignored
+    whenever the cache was warm. Both made a correctly scheduled campaign look
+    broken.
+    """
+    now = timezone.now()
+    campaign = make(starts_at=now + timedelta(hours=1), ends_at=now + timedelta(hours=2))
+
+    # Warm the cache while nothing is live.
+    assert rules.eligible(placement=WebsiteCampaign.Placement.HOME) == []
+
+    # Without invalidating anything, ask again at a moment inside the window.
+    inside = campaign.starts_at + timedelta(minutes=1)
+    live = rules.eligible(placement=WebsiteCampaign.Placement.HOME, now=inside)
+    assert [c.name for c in live] == [campaign.name]
+
+
+def test_the_window_edges_are_exact(db):
+    now = timezone.now()
+    campaign = make(starts_at=now + timedelta(hours=1), ends_at=now + timedelta(hours=2))
+    home = WebsiteCampaign.Placement.HOME
+
+    just_before = rules.eligible(placement=home, now=campaign.starts_at - timedelta(seconds=1))
+    at_start = rules.eligible(placement=home, now=campaign.starts_at)
+    at_end = rules.eligible(placement=home, now=campaign.ends_at)
+    just_after = rules.eligible(placement=home, now=campaign.ends_at + timedelta(seconds=1))
+
+    assert just_before == []
+    assert [c.name for c in at_start] == [campaign.name]
+    assert [c.name for c in at_end] == [campaign.name]
+    assert just_after == []

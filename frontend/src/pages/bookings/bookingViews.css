@@ -5,6 +5,7 @@
    One colour per booking status, used by BOTH views. `--bk-a` is the strong
    accent (left bar, event border, legend dot), `--bk-bg` the tint behind an
    event, `--bk-fg` text that stays readable on that tint. */
+.bk-st--draft       { --bk-a: #64748b; --bk-bg: #f1f5f9; --bk-fg: #334155; }
 .bk-st--booked      { --bk-a: #d97706; --bk-bg: #fffbeb; --bk-fg: #92400e; }
 .bk-st--confirmed   { --bk-a: #059669; --bk-bg: #ecfdf5; --bk-fg: #065f46; }
 .bk-st--assigned    { --bk-a: #4f46b5; --bk-bg: #eef0fb; --bk-fg: #3730a3; }
@@ -989,3 +990,29 @@
   .bk-rail { grid-auto-flow: row; grid-auto-columns: auto; overflow-x: visible; }
   .bk-cal__now-time { inset-inline-start: 2px; }
 }
+
+/* ------------------------------------------------- booked activity thumbnail */
+/* The same square on the listing, the board and the detail page, so a booking
+   is recognised the same way wherever it appears. `--bk-bg`/`--bk-fg` come
+   from the status colour on the board; elsewhere they fall back to neutral
+   surface tokens, which is why both are written with a default. */
+.activity-thumb {
+  flex-shrink: 0;
+  border-radius: 9px;
+  object-fit: cover;              /* a wide catalogue photo must not stretch */
+  background: var(--bk-bg, var(--color-surface-2));
+  border: 1px solid var(--color-border-soft);
+}
+
+.activity-thumb--mark {
+  display: grid;
+  place-items: center;
+  color: var(--bk-fg, var(--color-text-muted));
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: .02em;
+}
+
+/* On the board the thumbnail takes the slot the initials square had, so it
+   keeps that size rather than introducing a second one. */
+.bkb-card__facility .activity-thumb { width: 30px; height: 30px; }

@@ -1,4 +1,5 @@
 ---
+import { fromAstro } from '../i18n/index.js';
 /**
  * Club and venue discovery.
  *
@@ -7,7 +8,8 @@
  * one disappears. Each card deep-links into the booking wizard with that club
  * already chosen.
  */
-const { clubs = [], sports = [] } = Astro.props;
+const { clubs = [] } = Astro.props;
+const { t } = fromAstro(Astro);
 
 /** Initials for the card mark, so a club with no logo still has an identity. */
 function initials(name) {
@@ -19,10 +21,20 @@ function initials(name) {
     .join('') || 'CB';
 }
 
-// Sports are shown as tags on every card: the public API does not say which
-// facility types a club actually runs, so presenting them per club would be a
-// guess. These are the sports bookable across the organization.
-const tags = sports.slice(0, 4);
+/**
+ * What a club offers, in the words the operator used.
+ *
+ * Capped at four so a large venue does not turn its card into a list; the count
+ * keeps the remainder honest rather than hiding it.
+ */
+function clubTags(club) {
+  // ACTIVITIES: what a customer can actually book here, named the way the
+  // catalogue names them. Categories are the fallback for a club whose
+  // activities are somehow unnamed, so a card still says something.
+  const activities = club.facility_types || [];
+  const all = activities.length ? activities : (club.sports || []);
+  return { shown: all.slice(0, 4), extra: Math.max(0, all.length - 4) };
+}
 ---
 <div class="clubs">
   {clubs.map((club) => (
@@ -32,23 +44,28 @@ const tags = sports.slice(0, 4);
         <div>
           <h3 class="club__name">{club.name}</h3>
           <p class="club__where">
-            {[club.city, club.address].filter(Boolean).join(' - ') || 'Location on request'}
+            {[club.city, club.address].filter(Boolean).join(' - ') || t('home.locationOnRequest')}
           </p>
         </div>
       </div>
 
-      {tags.length > 0 && (
+      {clubTags(club).shown.length > 0 && (
         <div class="club__tags">
-          {tags.map((s) => <span class="club__tag">{s.name}</span>)}
+          {clubTags(club).shown.map((sport) => (
+            <span class="club__tag">{sport.name}</span>
+          ))}
+          {clubTags(club).extra > 0 && (
+            <span class="club__tag club__tag--more">+{clubTags(club).extra}</span>
+          )}
         </div>
       )}
 
       <div class="club__foot">
         {club.phone
           ? <a class="muted" href={`tel:${club.phone}`}>{club.phone}</a>
-          : <span class="muted">Book online</span>}
+          : <span class="muted">{t('home.bookOnline')}</span>}
         <a class="club__link" href={`/book?club=${club.id}&step=1`}>
-          Check availability &rsaquo;
+          {t('home.checkAvailability')} &rsaquo;
         </a>
       </div>
     </article>

@@ -7,6 +7,7 @@ import { Modal } from '../../components/Modal.jsx';
 import { FormField } from '../../components/FormField.jsx';
 import { Toggle } from '../../components/Toggle.jsx';
 import { Select2 } from '../../components/Select2.jsx';
+import { orgTimezone } from '../../services/timeformat.jsx';
 import { MediaPicker } from '../../components/MediaPicker.jsx';
 import { useFilterOptions, asOptions } from '../../hooks/useFilterOptions.js';
 import {
@@ -65,8 +66,28 @@ const BLANK = {
 const WIDE = { aspect: 16 / 10, output: { width: 1280, height: 800, type: 'image/jpeg', quality: 0.9 } };
 const TALL = { aspect: 3 / 4, output: { width: 900, height: 1200, type: 'image/jpeg', quality: 0.9 } };
 
-/** `2027-03-01T00:00:00Z` -> `2027-03-01T00:00`, what a datetime-local wants. */
-const toLocalInput = (value) => (value ? String(value).slice(0, 16) : '');
+/**
+ * A stored instant -> `2027-03-01T00:00`, what a datetime-local wants, expressed
+ * in the ORGANIZATION's timezone.
+ *
+ * Slicing the raw ISO string returned UTC into a field an operator reads as
+ * their own local time, so opening a campaign and saving it shifted the start
+ * by the offset every time. The organization's timezone is what decides when a
+ * campaign runs, so it is what the field must show.
+ */
+function toOrgInput(value) {
+  if (!value) return '';
+  const when = new Date(value);
+  if (Number.isNaN(when.getTime())) return '';
+  const parts = new Intl.DateTimeFormat('en-CA', {
+    timeZone: orgTimezone(),
+    year: 'numeric', month: '2-digit', day: '2-digit',
+    hour: '2-digit', minute: '2-digit', hour12: false,
+  }).formatToParts(when).reduce((acc, p) => ({ ...acc, [p.type]: p.value }), {});
+  // `hour12: false` can yield 24 for midnight in some engines.
+  const hour = parts.hour === '24' ? '00' : parts.hour;
+  return `${parts.year}-${parts.month}-${parts.day}T${hour}:${parts.minute}`;
+}
 
 const DEVICES = [
   { key: 'desktop', Icon: Monitor },
@@ -91,8 +112,8 @@ export function CampaignFormModal({ open, record, onClose, onSaved }) {
     setForm({
       ...BLANK,
       ...source,
-      starts_at: toLocalInput(source.starts_at),
-      ends_at: toLocalInput(source.ends_at),
+      starts_at: toOrgInput(source.starts_at),
+      ends_at: toOrgInput(source.ends_at),
       clubs: source.clubs || [],
     });
     setMedia({
@@ -170,7 +191,7 @@ export function CampaignFormModal({ open, record, onClose, onSaved }) {
     <Modal
       open={open}
       onClose={busy ? () => {} : onClose}
-      size="xl"
+      side size="xl"
       title={editing ? t('campaigns.editCampaign') : t('campaigns.newCampaign')}
       footer={(
         <>
@@ -207,7 +228,8 @@ export function CampaignFormModal({ open, record, onClose, onSaved }) {
               <input className="form-input" type="datetime-local" value={form.starts_at}
                 onChange={(e) => set({ starts_at: e.target.value })} />
             </FormField>
-            <FormField label={`${t('campaigns.ends')} *`} hint={t('campaigns.timezoneHint')}>
+            <FormField label={`${t('campaigns.ends')} *`}
+              hint={t('campaigns.timezoneHint', { zone: orgTimezone() })}>
               <input className="form-input" type="datetime-local" value={form.ends_at}
                 min={form.starts_at || undefined}
                 onChange={(e) => set({ ends_at: e.target.value })} />

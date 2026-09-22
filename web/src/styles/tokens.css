@@ -51,6 +51,11 @@
   --muted: #6d7a71;
   --line: #e3dfd2;
   --track: #e8e4d8;
+  /* Offer badge ink, and the warm/cool accents behind a peak or off-peak
+     marker. Defined per theme so both stay legible in dark mode. */
+  --offer-ink: #2f6b1f;
+  --warm-soft: rgba(196, 106, 24, 0.14);
+  --cool-soft: rgba(38, 112, 150, 0.14);
   --soft-accent: #eaf6d8;       /* lime at rest */
   --soft-active: #dff0c2;       /* lime, selected */
   --faq-open-bg: #f1f6e8;
@@ -63,6 +68,14 @@
   --err-bg: #fdecec;
   --err-border: #f5c2c2;
   --err-ink: #b3261e;
+  /* Payment states. Deliberately NOT branding: "paid" must read as settled and
+     "pending" as waiting whatever colours a club chooses for itself. */
+  --ok-bg: #e6f6ec;
+  --ok-border: #bfe6cd;
+  --ok-ink: #168a47;
+  --warn-bg: #fff3e0;
+  --warn-border: #f3dcb8;
+  --warn-ink: #9a6400;
   --price-grad: linear-gradient(135deg, var(--brand-deep), var(--brand-soft));
   --hover-glow: 0 18px 42px rgba(21, 64, 44, 0.16), 0 10px 26px rgba(11, 31, 23, 0.10);
   --hover-border: var(--brand-soft);
@@ -94,6 +107,9 @@
   --muted: #8ea194;
   --line: rgba(255, 255, 255, 0.10);
   --track: #1b4130;
+  --offer-ink: #cff56a;
+  --warm-soft: rgba(238, 164, 84, 0.20);
+  --cool-soft: rgba(116, 190, 226, 0.20);
   --soft-accent: rgba(207, 245, 106, 0.14);
   --soft-active: rgba(207, 245, 106, 0.24);
   --faq-open-bg: rgba(207, 245, 106, 0.10);
@@ -106,6 +122,12 @@
   --err-bg: rgba(210, 59, 59, 0.14);
   --err-border: rgba(210, 59, 59, 0.40);
   --err-ink: #ff8f8f;
+  --ok-bg: rgba(46, 176, 106, 0.16);
+  --ok-border: rgba(46, 176, 106, 0.42);
+  --ok-ink: #6fe3a3;
+  --warn-bg: rgba(226, 160, 61, 0.16);
+  --warn-border: rgba(226, 160, 61, 0.40);
+  --warn-ink: #f0c274;
   --price-grad: linear-gradient(135deg, var(--accent), var(--accent-strong));
   --hover-glow: 0 18px 42px rgba(207, 245, 106, 0.18), 0 10px 26px rgba(0, 0, 0, 0.38);
   --hover-border: rgba(207, 245, 106, 0.85);
@@ -127,6 +149,10 @@
   --navy-700: var(--brand-deep);
   --indigo: var(--brand-soft);
   --indigo-600: var(--brand-soft);
+  /* Used for card hover borders. It was only ever a hard-coded purple
+     fallback, which showed a leftover palette on a green-branded site
+     and could not follow the theme. */
+  --indigo-400: var(--brand-soft);
   --amber: var(--accent);
   --amber-600: var(--accent-strong);
   --plate: var(--logo-plate);

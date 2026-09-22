@@ -168,20 +168,23 @@ export default function LoyaltyConfiguration() {
                   <th>{t('discount')}</th><th>{t('priority')}</th><th>{t('common:state.active')}</th>{canTiers && <th></th>}
                 </tr></thead>
                 <tbody>
-                  {tiers.map((t) => (
-                    <tr key={t.id}>
-                      <td>{t.rank}</td>
-                      <td style={{ fontWeight: 600 }}>{t.name} <span className="muted" style={{ fontWeight: 400, fontSize: 12 }}>{t.slug}</span></td>
-                      <td>{t.min_points ?? '-'}</td>
-                      <td>{t.min_spend ?? '-'}</td>
-                      <td>{t.discount_percent}</td>
-                      <td>{t.priority_booking ? 'Yes' : '-'}</td>
-                      <td>{t.is_active ? 'Yes' : 'No'}</td>
+                  {/* Named `tier`, not `t`: a row variable called `t` shadows the
+                      translation function, and the row actions below then call a
+                      plain object, which throws and blanks the whole page. */}
+                  {tiers.map((tier) => (
+                    <tr key={tier.id}>
+                      <td>{tier.rank}</td>
+                      <td style={{ fontWeight: 600 }}>{tier.name} <span className="muted" style={{ fontWeight: 400, fontSize: 12 }}>{tier.slug}</span></td>
+                      <td>{tier.min_points ?? '-'}</td>
+                      <td>{tier.min_spend ?? '-'}</td>
+                      <td>{tier.discount_percent}</td>
+                      <td>{tier.priority_booking ? t('common:state.yes') : '-'}</td>
+                      <td>{tier.is_active ? t('common:state.yes') : t('common:state.no')}</td>
                       {canTiers && (
                         <td style={{ textAlign: 'right', whiteSpace: 'nowrap' }}>
-                          <button className="icon-btn" title={t('common:actions.edit')} onClick={() => setTierModal({ ...t })}><Pencil size={15} /></button>
+                          <button className="icon-btn" title={t('common:actions.edit')} onClick={() => setTierModal({ ...tier })}><Pencil size={15} /></button>
                           <button className="icon-btn" title={t('common:actions.delete')} style={{ color: 'var(--color-danger,#dc2626)' }}
-                            onClick={() => setTierDelete(t)}><Trash2 size={15} /></button>
+                            onClick={() => setTierDelete(tier)}><Trash2 size={15} /></button>
                         </td>
                       )}
                     </tr>

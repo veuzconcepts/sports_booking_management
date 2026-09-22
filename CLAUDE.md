@@ -194,6 +194,105 @@ Every booking entry point must use the same backend availability engine and reva
 
 Do not trust a slot simply because it appeared available earlier.
 
+## Availability-Aware Calendar
+
+Customer booking calendars must not present a date as selectable unless the
+authoritative backend availability engine confirms that at least one valid
+booking option exists for that date under the current booking rules.
+
+Do not require customers to click dates just to discover there are no slots.
+
+Use efficient date-range availability summaries, preserve final backend
+revalidation, and avoid duplicate availability logic.
+
+## A closed date says why, when the club has said why
+
+`date_availability_summary` carries a `reason` and, for a date closed by a
+named `ScheduleException`, a `label` holding that name. A greyed square tells a
+customer nothing: it cannot distinguish "the club chose to close for National
+Day" from "this date is simply not on offer", so they either ring up to ask or
+assume the club is unreliable.
+
+Only the exception's `name` is exposed. Its `notes` are written for staff and
+never leave the server.
+
+The calendar marks such a date and explains it on hover, on keyboard focus and
+on tap, and it distinguishes the reasons rather than rendering one grey square
+for all of them. Three different facts used to look identical: every court has
+gone, the club chose to close, and the date is not on offer at all. Sold out
+carries a BAR, a holiday carries a DOT, so they are told apart by shape as well
+as colour for anyone who cannot rely on hue, and a sold-out date stays legible
+instead of fading to the grey of a date out of range, because a customer who
+can see a day sold out will try the one either side.
+
+Closed dates take `--warn-ink`, never `--amber-600`: that alias resolves to the
+LIME accent in this theme, so the mark came out the same colour family as an
+available day, which is the one thing a closed date must not look like.
+
+A calendar that opens on an unbookable date moves the selection to the first
+bookable one in the month, so nobody is shown a day of "Fully booked" and left
+to hunt. It runs once per club, activity and month, so it never fights a
+customer who has deliberately chosen a date.
+
+## Scarcity is shown on two days and no others
+
+One court left and two courts left change what a customer does; three do not.
+A day with plenty carries nothing, because decorating it spends attention on
+nothing and leaves none for the day that matters.
+
+Two tiers, separated by weight rather than by shouting. "2 left" is a quiet
+note in the colour the day already uses. "1 left" is amber AND the cell takes
+an inset ring, which is what makes it findable while scanning a month rather
+than only once you are looking straight at it. The ring is inset so the grid
+does not shift, and it outranks today's ring: "this is today" is information
+the customer already has.
+
+**A day never carries two badges.** The cell is a 40px circle. Where an OFFER
+already has the words, the count label is suppressed and the last court is
+marked by the ring alone, so the most urgent day of the month reads as both
+without two labels fighting for the same space. The label follows the text
+colour on the chosen day and on hover, where the cell is filled and a fixed
+hue would disappear into it.
+
+The figure is `slot_count` from the backend. Nothing here decides availability;
+it only reports what the availability engine already said. A date with something to explain is therefore `aria-disabled` with a
+guarded click rather than natively `disabled`: a `disabled` button cannot be
+focused or tapped, so on a phone, where there is no hover at all, the
+explanation could never be reached. A date with nothing to explain, one in the
+past or beyond the booking window, stays plainly `disabled` so most of the
+month does not become a row of keyboard stops.
+
+The explanation sits in a fixed-height line UNDER the grid, not in a floating
+tooltip. Near the edge of a phone a tooltip either overflows the viewport or
+covers the dates either side of the one it explains, and the reserved height
+stops the calendar jumping as the pointer moves.
+
+`availability_cache._PREFIX` ends in a shape version. The VERSION counter
+retires entries whose availability may have changed, but it lives in the cache,
+so a deploy does not bump it and a summary cached by the previous release would
+be served with its new fields missing. Bump the prefix whenever the per-day
+dict gains or loses a key.
+
+## Calendar Offer and Time Classification Standard
+
+Customer booking calendars may display compact offer indicators only when the
+backend confirms a customer-visible promotion is applicable to that booking
+context.
+
+Offer indicators are informational. They must never create availability and
+must never perform a pricing calculation in the frontend: availability is
+resolved first, the offer second, and both the label and the price come from
+the backend.
+
+Business-hour periods may be classified as Normal, Hot or Cold using the
+existing schedule architecture, stored on the shift so the classification
+inherits and is replaced exactly as the hours are. The classification may be
+used by pricing, reporting and customer UI, but must not change pricing unless
+an explicit pricing rule names the period it applies to.
+
+Reuse the existing schedule, pricing, promotion and availability engines. Do
+not create duplicate logic.
+
 # 13. Concurrency and Transaction Safety
 
 Use transactions for operations that must succeed or fail together, especially:
@@ -205,6 +304,58 @@ Use transactions for operations that must succeed or fail together, especially:
 
 Prevent double booking and race conditions. Revalidate availability before final creation and use locking/constraints where appropriate.
 
+## Booking Workflow Integrity
+
+All booking entry points, including the customer website, admin, manual
+booking, reschedule, multi-slot and API flows, must use the same authoritative
+backend availability, pricing, entitlement and payment rules.
+
+A confirmed or otherwise slot-blocking booking must make that exclusive slot
+unavailable to all other bookings until it is validly cancelled, expired or
+released.
+
+Never rely on frontend availability. Revalidate and protect slots atomically
+before booking confirmation.
+
+Allocation reads which facilities are free and then writes a booking. Those
+two steps must be one step as far as any other booking is concerned. Row locks
+do not achieve that, because the thing being protected is the ABSENCE of a
+conflicting row: the club/day advisory lock in `allocate_facility` is what
+serialises it, and the partial unique index on (facility, date, start) is the
+backstop, not the protection.
+
+Prevent double booking, duplicate payment, duplicate entitlement consumption,
+duplicate loyalty posting and duplicate notifications through transactions,
+concurrency protection and idempotency.
+
+Pricing, promo, offers, holidays, subscriptions, packages, loyalty, add-ons,
+tax and finance must be integrated into the same booking lifecycle and must
+not operate as isolated parallel logic.
+### Slot occupancy, payment window and discount order
+
+Three rules that were previously implicit and are now fixed.
+
+**What occupies a slot** is `SLOT_BLOCKING_STATUSES` in `apps.bookings.models`,
+and nothing else. It is wider than `ACTIVE_STATUSES`: a completed or closed
+booking still held that court for its period, so marking a booking complete
+early must not hand the court to somebody else while it is in use. Cancelled
+and no-show release the slot. Availability, allocation and the database
+constraint all read that one set.
+
+**An unpaid booking is released only when it is certainly abandoned.** A
+website checkout that chose to pay online, took no money, has no live split
+arrangement, is still in the opening status and is past
+`BOOKING_PAYMENT_WINDOW_MINUTES` is cancelled by
+`expire_unpaid_bookings`. A pay-at-venue booking, a part-paid booking, an
+admin or walk-in booking, and a booking whose payment method was never
+recorded are never released by the clock. Not knowing is a reason to leave a
+booking alone, not a reason to cancel somebody's court.
+
+**Discounts compose in one order**: catalogue price, then automatic pricing
+rules (offers), then the promo code on the already-discounted subtotal, then
+loyalty, then VAT. Offers and promo codes stack; neither replaces the other,
+and the total can never go below zero.
+
 # 14. Date, Time, and Money
 
 Use timezone-aware datetimes. Do not treat browser time as authoritative.
@@ -212,6 +363,173 @@ Use timezone-aware datetimes. Do not treat browser time as authoritative.
 Use configured Organization/Club timezone where applicable. Handle overnight schedules, date boundaries, UTC conversion, and DST where relevant.
 
 Never use floating-point arithmetic for money. Use Decimal/proper monetary fields and consistent rounding, tax, discount, refund, and currency handling.
+
+## Payment Integrity
+
+Booking totals, paid amounts and outstanding balances are backend-authoritative.
+
+Split payments may divide a valid final payable amount between multiple payment transactions but must never create a second booking total, bypass availability, bypass pricing, or allow overpayment.
+
+All payment actions must be idempotent, concurrency-safe, permission/scope validated and integrated with the existing payment/refund architecture.
+
+Never store or log CVV or raw sensitive card details.
+
+Demo payment behavior must never operate in production.
+
+### Split payment: confirmed financial policy
+
+These two rules were undefined until they were decided explicitly. Do not change
+them, and do not add automated financial behavior around them, without asking.
+
+**Expiry is inert.** When a split payment deadline passes with only part of the
+balance collected, the payment links stop working and nothing else happens. No
+refund is issued, no booking is cancelled, no slot is released, no status
+changes. A human resolves a part-paid booking using the existing cancellation
+and credit note tools.
+
+Money already collected is refunded MANUALLY by an administrator through the
+credit note flow, honouring `Organization.require_refund_approval`. Never
+automatically, and never as a side effect of the deadline passing. This was
+asked and answered explicitly; it is not an unfinished corner.
+
+**Refunds follow the payer.** A booking settled by several people is refunded
+per participant, each against their own payment, through the normal credit note
+flow and honouring `Organization.require_refund_approval`. Cancelling such a
+booking does not refund anybody automatically, and the full amount is never
+returned to the organizer alone.
+
+**The payer lives on the PAYMENT, not only on the share.** `Payment.payer`
+names who handed the money over whenever that is not the booking's own
+customer, and it is set in `settle_booking_payment`, the one place any payment
+is recorded. `BookingPaymentShare.payment` is a one-to-one and holds only the
+FIRST payment a share produced; a share that does not divide evenly into the
+slots it covers raises a second, which was previously attributable only by
+reading the Booking Log. A refund cannot be aimed from a log entry, and
+refunding the wrong person is what this prevents.
+
+It is a display name, never an identity: the Payment still belongs to the
+booking's customer, because the invoice is raised against the booking. An
+ordinary booking leaves it blank rather than repeating the customer on every
+receipt in the system. Each share's payment still raises its own invoice.
+
+## Multi-Slot Booking Integrity
+
+A multi-slot checkout is ONE `BookingOrder` and one ordinary `Booking` per
+slot. It is not a new booking type and not a second booking engine.
+
+Every slot goes through the existing availability engine, the existing
+`BookingCreateSerializer`, the existing pricing and the existing
+`(facility, date, time)` uniqueness guarantee. Creation is atomic: if any slot
+fails, the whole order unwinds.
+
+The order holds no money. Each booking keeps its own authoritative price
+snapshot, because slots can be priced differently and refunding one slot must
+return what that slot actually cost. Order totals are summed from the bookings,
+never stored.
+
+How many slots may be booked, whether they may span dates and whether they must
+run back to back are resolved by the backend from the Organization, Club and
+Facility chain, one setting at a time. The browser never works this out.
+
+The website books an ACTIVITY at a club, not a named facility, so the offer is
+the most permissive of what the eligible facilities allow. The allocation is
+then re-checked against each facility's own rules after the allocator has run,
+inside the same transaction, so a permissive court can never be used to
+overfill one that caps itself.
+
+A promo is validated, redeemed and capped ONCE per order, then allocated across
+the slots in proportion to price.
+
+### Multi-slot payment and refunds: confirmed policy
+
+These were decided explicitly. Do not change them without asking.
+
+**A split share is an amount of the ORDER, and it settles WHOLE SLOTS.**
+`allocate_across` fills the slots earliest first, so a friend paying a third of
+a three-slot order clears the first court outright and only the slot their
+money runs out on is left part paid. Every payment records its payer, so
+refunds still follow the payer.
+
+This replaces spreading each share proportionally across every slot. That was
+arithmetically correct and unreadable: three friends settling three slots
+produced NINE payments and NINE invoices, left all three slots "Partially
+paid" until the last person paid, and gave every slot three payers to unpick
+at refund time. Filling slots gives one payment and one invoice per slot, one
+payer per slot, and a slot that confirms itself through `confirm_if_settled`
+the moment its own payer has paid. The amount each person owes is unchanged.
+
+**A split covers either one booking or one order, and the slot is what staff
+open.** Anything reading splits must look for BOTH (`Q(booking=...) |
+Q(order=...)`), or every slot of a split multi-slot order shows no payers at
+all. Split lifecycle events go to each slot's own Booking Log through
+`split._timeline`, not only to the order-level audit trail, because a timeline
+reading "payment recorded" with no mention of the other two payers is what
+sends staff looking for an explanation that is not there.
+
+**A participant's email and phone need `payments.view_payer_contacts`.** They
+are a third party's contact details sitting on somebody else's booking, so
+seeing WHO paid what (`payments.view`) is separated from being able to contact
+them. It is opt-in, so not even Admin holds it by default. The API omits the
+keys entirely rather than blanking them, so a missing permission never looks
+like a payer who gave no address.
+
+**A payment link must be reachable, or the arrangement is refused.** Links are
+built from `PUBLIC_WEBSITE_URL`, which defaults to localhost so a developer
+needs no configuration. On a server that default is a trap: the links are
+issued, copied into a group chat and resolve for nobody, while the court stays
+held. Outside DEBUG, `split._site_base` refuses to create the split before any
+row is written, which the checkout reports and which leaves the booking payable
+the ordinary way. `manage.py check --deploy` reports the same thing earlier
+(`payments.E001`).
+
+**The organizer is NAMED, and marked.** The split panel printed "Organizer"
+where the name belongs, which told staff nothing and read like a second,
+anonymous participant sitting above the real people. Who arranged the split is
+a crown on their name with a tooltip, never a replacement for it. The finance
+endpoint falls back to the split's organizer customer when the share itself
+carries no participant name, because that person IS the booking's customer and
+their name is always known.
+
+**The payment state sits beside the actions.** Reception deciding whether to
+confirm, assign or cancel needs to know what has been paid, and that lived
+three cards down the page. The outstanding figure comes with the badge wherever
+there is one, because "partially paid" on its own does not say how much to ask
+for.
+
+**A payment link lasts as long as the CLUB says.** `split_hold_minutes`,
+resolved through `resolve_booking_policy` and already clamped there to
+`hold_max_minutes`, decides the deadline in `create_split`. It used to read
+`SPLIT_PAYMENT_MINUTES` from the environment while the checkout showed the
+customer the configured figure from the same policy, so a club that set thirty
+minutes told its customers thirty and expired the links in sixty: the setting
+was real everywhere except where it counted.
+
+Reissuing a link does NOT extend the deadline. The arrangement runs out, not
+the token, and a link that outlived the reservation would keep collecting for
+a court already released and resold.
+
+**Staff ISSUE a payment link, they cannot read the existing one.** Raw tokens
+are stored only as digests, so the link a customer was given cannot be looked
+up by anybody, including us. `POST /bookings/{id}/split-share-link/` mints a
+fresh one for an unpaid share, which stops the previous link working: that is
+the point when a link has leaked and a trap when reception is only being
+helpful, so the UI says so before doing it. Gated on `payments.add`, and the
+share must be reachable through this booking or its order so an id in the
+request body cannot mint a link for somebody else's booking.
+
+**An order is read-only and reached from a booking.** `/orders/:id` shows one
+checkout: every slot with its own money and status, and the totals summed from
+them. It holds no money and no status of its own, so there is nothing to edit;
+the way to change any of it is to act on the slot. There is deliberately no
+listing, because a listing nobody opens is a listing nobody scopes either. A
+CANCELLED slot stays in the list while dropping out of the money, because it is
+usually the thing somebody opened the screen to ask about.
+
+**Cancelling one slot of a paid order refunds nothing automatically.** The slot
+is cancelled and the money stays where it is. A human issues a credit note
+through the existing flow, honouring `Organization.require_refund_approval`.
+This matches the precedent set for split expiry being inert: money never moves
+without a person deciding.
 
 # 15. APIs, Queries, and Performance
 
@@ -553,7 +871,373 @@ switched off stops appearing at once.
 Do not create duplicate promotion, CMS, popup, preview or analytics systems when
 existing infrastructure can be reused.
 
-# 38. Final Quality Check
+# 38. Reservation Holds and Payment Methods
+
+A court is claimed by a `BookingHold` while the customer pays, not by an unpaid
+booking row. The hold owns the deadline; the booking owns the commerce. When
+payment lands the hold CONVERTS and the confirmed booking takes over blocking
+the slot; when the clock runs out the hold EXPIRES and the court is free again.
+
+A hold is all or nothing. Reserving two of three chosen slots and reporting
+failure would lock a court for a booking that is not going to happen.
+
+Acquisition and allocation take the SAME club/day advisory lock, so a hold and
+a booking can never be handed the same court. Availability, allocation and the
+range summary all subtract live holds.
+
+Expiry is read, never assumed. The sweep runs every few minutes, so rows sit
+ACTIVE past their deadline in between. Every read asks the clock as well as the
+status.
+
+## Reservations are for the website only
+
+Asked and answered explicitly: the admin booking flow does NOT take a
+reservation, and this is not an unfinished corner.
+
+A reservation exists to protect a court across a payment window. The website
+has one; a member of staff filling in the booking form does not. Adding holds
+there would take courts out of circulation whenever somebody opened a form and
+wandered off, for no gain.
+
+Admin bookings are already safe from double booking without one, because
+`allocate_facility` takes the same club/day advisory lock the website takes:
+two members of staff reaching for one court at the same instant, and a member
+of staff racing a customer's checkout, are both covered by threaded tests in
+`test_reservations_concurrency.py`.
+
+## Confirmed the moment there is nothing left to pay
+
+The other half of the gate below. Nothing used to move a SETTLED booking out
+of the opening status, so a customer who owed the club nothing sat at Pending
+until somebody noticed and clicked.
+
+`services.confirm_if_settled` is the one rule, and how the balance reached
+zero does not change it: money taken, a membership absorbing the booking, a
+promo or loyalty points clearing it, or an activity that was free to begin
+with. It confirms only from the opening status and only when nothing is
+outstanding, so a part-paid split has not bought the court and a booking
+already Assigned is not dragged backwards. It is idempotent, which is why it
+sits at the end of every path that can settle a booking:
+
+- `settle_booking_payment`, the one place any payment is recorded, so the
+  website, a split share and staff taking cash at the desk agree;
+- `BookingCreateSerializer.create` and `.update`, for a booking that is
+  covered, free, or discounted to nothing before anyone pays;
+- `redeem-subscription` and `apply-promo`, and `loyalty.redeem_points`, where
+  an existing booking's balance can drop to zero without money.
+
+The Booking Log says which of those it was, because "Confirmed on payment"
+against a booking nobody paid for reads like a bug.
+
+The rule cannot tell a genuinely free activity from one whose price was never
+configured. Both are worth zero and both confirm.
+
+## Membership coverage has ONE key: `covered_service_item`
+
+`payments.services.coverage_for_booking` returns it and the Redeem
+Subscription override builds it. `Booking.compute_pricing` and
+`_coverage_snapshot` read it. All four must agree, because nothing fails
+loudly when they do not: pricing reads it with `.get`, so a wrong name is
+merely falsy and the member is quietly charged full price for a court their
+plan covers.
+
+That is exactly what happened from the first commit until this was fixed. The
+two reads in `Booking` asked for `covered_facility_type`, which nothing has
+ever produced, so court coverage silently overcharged and add-on coverage
+raised KeyError out of `compute_pricing`.
+
+`apps/payments/test_membership_coverage.py` pins this by the BILL rather than
+by the key, so renaming either side again cannot bring it back quietly.
+
+## Confirmation requires the money, for one case only
+
+A website checkout that chose to pay online and has collected nothing may not
+become Confirmed. That is the same condition `expire_unpaid_bookings` uses to
+release a slot, read from one predicate, `services.awaiting_online_payment`, so
+the two can never disagree about a booking.
+
+Nothing else is gated. Pay-at-venue, admin and walk-in bookings, part-paid,
+covered and zero-value bookings, and anything whose payment method was never
+recorded all confirm as before. Staff committing a court in person is a
+decision, not an oversight. A gate that refuses too much is not the safer gate.
+
+Assigning a worker walks a booking through Confirmed, so it asks the same gate,
+BEFORE it writes anything.
+
+## A refused confirmation offers to take the payment
+
+The gate is unchanged: a website checkout that chose to pay online and has
+collected nothing is still refused, because the same predicate decides whether
+`expire_unpaid_bookings` may release its slot. Pay-at-venue, admin and walk-in
+bookings confirm freely, and asking them for money up front would stop
+reception holding a court for a regular who pays on arrival. Asked and answered
+explicitly.
+
+What changed is that the refusal is identifiable. `BookingPaymentRequired`
+carries `code="payment_required"` and is still a `ValueError`, so every
+existing caller behaves as before; the transition endpoint passes the code on,
+and the booking screen opens the payment wizard instead of showing a message
+with nothing to click. Paying in full then confirms the booking on its own
+through `confirm_if_settled`. Staff meeting a rule with no way forward is what
+made this read as a bug.
+
+## Part paid is not paid
+
+A website checkout that has collected half the money is not a booking the club
+has committed a court to, and confirming it hides an outstanding balance behind
+a status that says everything is settled. `services.online_payment_incomplete`
+refuses it; the payment wizard opens instead, and paying the balance confirms
+the booking on its own.
+
+This is the one place where the confirmation gate and the expiry sweep stopped
+reading a single predicate, and the reason is worth keeping. Cancelling a
+part-paid booking would take a court from somebody who has handed over real
+money, so `awaiting_online_payment`, which the sweep reads, stays as narrow as
+it was. Refusing to confirm takes nothing away, so the gate is allowed to be
+wider.
+
+What replaces the shared predicate is CONTAINMENT, asserted directly in
+`test_confirmation_gate.py`: anything the sweep would release, the gate also
+refuses. A booking can therefore never be Confirmed at the moment its court is
+about to be handed to somebody else, which is the only thing the shared
+predicate was protecting.
+
+`awaiting_online_payment` now carries its own `source == WEBSITE` check. That
+lived only in the sweep's queryset, so the predicate answered True for an admin
+booking the sweep would never touch. Nothing was broken by it, because the one
+caller pre-filtered, but it made the rule impossible to reason about alone and
+any second caller would have inherited a bug.
+
+The gate reads the outstanding BALANCE, not `payment_status`. The label is
+derived from the ledger, so money is the authoritative figure; a booking marked
+PAID with no payment behind it is a state no real path produces.
+
+## Money settles the arrangement, however it arrives
+
+`settle_booking_payment` is the one place any payment is recorded, and it knew
+nothing about splits, so an admin taking the balance at the desk left the
+arrangement ACTIVE with every unpaid link live. Nobody was double charged,
+because paying a share re-reads the balance and refuses, but the friends met an
+unexplained refusal instead of a link that had finished its job.
+`split.close_if_settled` now closes it from that one place.
+
+One payment therefore reaches `_settle_if_complete` twice. It closes the split
+with a CONDITIONAL update rather than trusting the instance it was handed,
+whose in-memory status is stale by then; deciding from that attribute wrote the
+completion, and its Booking Log entry, a second time.
+
+## Payment links are 256 bits, and throttled on their own scope
+
+`secrets.token_urlsafe(32)` stored only as a SHA-256 digest, never logged, and
+destroyed on payment, cancellation or expiry. Guessing is not the threat.
+
+Reading and paying a share therefore has its OWN throttle scope,
+`public_split`, for the same reason reservations do: sharing `public_booking`
+meant a friend opening their link a few times exhausted the allowance and the
+PAYMENT was then refused, which costs the club the money it is collecting.
+
+## Draft is an unfinished form, not a reservation
+
+A draft exists because an admin gets interrupted halfway through taking a
+booking and would rather keep what they typed. Only an admin creates one, and
+only through `save_as_draft` on creation: `status` is not client-writable, and
+the flag is ignored on an edit, because demoting a real booking back to a
+draft would take its court away without cancelling anything.
+
+**A draft holds NO court.** There is no clock on a draft, so one that is
+forgotten would take a court off sale for ever. The slot stays on sale and
+availability is checked in `services.finish_draft`, which is the moment the
+draft stops being a form and starts occupying something. That check can fail,
+and failing there is the point: the alternative is a court promised twice.
+
+`DRAFT` is outside `ACTIVE_STATUSES` and `SLOT_BLOCKING_STATUSES`, so it also
+counts against no per-customer cap. It moves only to BOOKED or CANCELLED, and
+nothing moves into it.
+
+A draft is excused the COMPLETENESS rules in `Booking.clean` and the
+serializer (no customer, no activity) and nothing else. Consistency rules
+still apply, because naming a court at the wrong club is a mistake rather
+than an omission, and date and time stay required: the slot index, the
+filters and every listing assume a booking has a when. `finish_draft` runs
+every excused rule again before the booking becomes real.
+
+## Staff see a hold; customers do not
+
+The same fact, two audiences, two right answers. A customer only needs to
+pick something else, so the website withdraws a held slot. A receptionist
+with somebody at the desk needs to know whether it is worth waiting, so the
+admin slot picker labels it "being booked" rather than "full".
+
+A refusal from `allocate_facility` says how long the reservation has left
+when a reservation is the reason. Staff refused on a calendar with nothing on
+it conclude the software is broken: a reservation leaves no booking row, so
+there is nothing on the day view to explain it. `services.minutes_held` is
+for that message only, never for deciding availability, and it reports
+relative minutes so it needs no timezone conversion and cannot be an hour
+wrong.
+
+`expire-holds` runs on the beat every five minutes. It is housekeeping, not
+protection: every read already enforces a deadline from the clock, so a court
+is never blocked by a row the sweep has not reached. Without it the table
+fills with rows still claiming to be active, and every "what is held right
+now?" question gets the wrong answer.
+
+## The reservations screen
+
+`/reservations` is where "why will that court not take a booking?" gets an
+answer. A reservation leaves no booking row, so without it a held court shows
+on the day view as a slot that simply refuses, with nothing on screen to
+explain it.
+
+It is READ-ONLY with one exception: releasing puts the courts back on sale
+before the deadline, for the reservation that is plainly abandoned. That is
+`bookings.edit`, not `bookings.view`, and it asks for a confirmation, because
+it also refuses a customer who is still paying.
+
+The listing is scoped by `scoped_club_ids()`, the same as `BookingViewSet`. A
+reservation names a customer and the courts they hold, and `release` resolves
+through the same queryset, so the boundary covers reading it and giving the
+court away. The API had no scoping while it had no screen; unreachable is not
+a boundary.
+
+Countdowns anchor on the server's `seconds_remaining` as of the moment the
+response arrived, never on `expires_at` against the browser clock. A reception
+PC running fast would otherwise report live reservations as expired, and staff
+would tell customers on the phone that their court had gone.
+
+## A held slot is not a booked slot
+
+Availability merges holds and bookings, because both make a court
+unavailable. The slot payload keeps them apart: `held` is how many courts a
+live reservation is holding, and a court that is both booked and held counts
+as booked, since that is the state a clock running out will not change.
+
+The website WITHDRAWS a slot that is only held rather than labelling it.
+"Fully booked" is untrue when nobody has booked it, and the slot may be free
+again within minutes: a customer who reads "booked" writes that time off, one
+who sees nothing picks another. A genuinely booked slot keeps its place and
+its label, because that one is not coming back today.
+
+An expired reservation is sticky per selection. A refresh must not silently
+start a new window, or the deadline means nothing to anybody willing to press
+F5. The mark clears when the customer leaves the checkout, which is the
+explicit act the "Pick times again" message asks for.
+
+A reload after expiry therefore opens the PICKER, not the payment step
+(`selectionFinished` -> clamp to `STEP_WHEN` -> `clearFinishedSelection`).
+Landing there is that explicit act. Restoring to the payment step left the
+customer at a dead countdown beside a Pay button that would be refused, with
+nothing on the page asking the server again. This grants nobody another ten
+minutes on the spot: they still have to choose and press Continue, exactly as
+the button has always required. A LIVE reservation is untouched by a reload and
+keeps its own deadline.
+
+**A refusal clears the selection; an expiry keeps it.** Times that were refused
+are times somebody else has taken, so keeping them selected sends the customer
+back to read the same message again. Times that merely ran out may well still
+be free, so they are kept and choosing again is one press.
+
+**A lapsed reservation does not block the payment.** If the slot is still
+free, the customer finishes and gets the booking. A reservation protects the
+court while they pay; once it has lapsed that protection is gone, and it was
+never a punishment. Refusing somebody standing there with their card out, for
+a court nobody else wants, loses the club a booking for no reason. This was
+asked and answered explicitly.
+
+What the checkout must NOT do is spend the dead token: it drops it and books
+normally. Converting a lapsed reservation would claim a court on the strength
+of a claim that has expired, so the endpoint still refuses an expired token
+with `hold_expired`. Losing the race is a real outcome of this policy and is
+reported plainly when somebody else took the slot meanwhile.
+
+## The countdown is presentation, the hold is not
+
+`show_hold_countdown` (Organization, overridable per club) decides whether the
+customer sees the clock. It changes NOTHING else: the court is held for the
+same length of time either way. A setting that quietly stopped holding courts
+would reintroduce the double booking this whole feature exists to prevent.
+
+Hiding it still shows the expiry and refusal messages. A customer whose
+reservation ran out has to be told something, or they meet an unexplained
+refusal at the Pay button.
+
+Reservations have their OWN throttle scope, `public_reservation`. They are
+claimed far more often than bookings are made, so sharing `public_booking`
+meant ordinary browsing exhausted the allowance and the booking itself was
+then refused. Reading and releasing a reservation are not throttled at all:
+rate limiting the operation that FREES a court leaves it locked until its
+deadline, which costs the club a slot it could have sold.
+
+Only a 409 from the reservation endpoint is shown to the customer. A throttle,
+a server error or a dropped connection is our problem, not theirs, and
+checkout still works because the backend revalidates before it writes.
+
+Leaving the checkout releases the courts, but "leaving" is a TRANSITION. Every
+page load renders the wizard at its first step while it reads the URL, so an
+unguarded check releases the reservation on mount, before the restore reaches
+the payment step. That is what made a language switch restart the countdown at
+ten minutes and put the court back on sale in between.
+
+## Spending a reservation
+
+The checkout sends its reservation token with the booking. Two things follow
+from that and neither is optional.
+
+The customer's OWN hold must not block their own booking, so `exclude_hold_id`
+is threaded explicitly from `create_public_booking` and `create_public_order`
+down through `validate_selection`, `slot_is_available`, the
+`BookingCreateSerializer` context and `allocate_facility`. It travels in the
+serializer CONTEXT, never the payload, so a caller cannot ask to ignore
+somebody else's hold.
+
+A token may only be spent on slots it actually holds (`reservations.covers`).
+Otherwise a token for 7pm could be used to book 8pm, and converting it would
+quietly give away the 7pm court.
+
+Conversion happens inside the booking transaction, after the booking exists
+and is already blocking the slot, so there is no instant at which the court
+looks free and a rollback takes the conversion with it.
+
+A booking with no token still works exactly as before. Rubbish in the field
+does not: silently ignoring an unreadable token would book a court that was
+never held.
+
+## The countdown
+
+`expires_at` is issued by the server and always sent with `server_time`. The
+browser anchors its countdown on the difference between the two, because a
+device whose clock is twenty minutes fast would otherwise declare a live
+reservation dead.
+
+The token is kept in `sessionStorage` under a signature of what was reserved,
+and the signature ignores the order slots were clicked in. A reload on the
+payment step re-reads the existing reservation rather than claiming a second
+one, which would be refused by the customer's own hold and would look exactly
+like somebody else taking the slot.
+
+Leaving the checkout releases the courts at once instead of making the next
+customer wait out a timer nobody is watching.
+
+## Timeouts and payment methods are settings, not constants
+
+`hold_unpaid_minutes`, `hold_partly_paid_minutes`, `hold_max_minutes`,
+`split_enabled`, `split_hold_minutes`, `split_max_shares` and `cash_enabled`
+live on the Organization, and a Club may override any of them one at a time. A
+null club value inherits. `settings_app.schedule.resolve_booking_policy` is the
+only place that chain is resolved; nothing reads the fields directly.
+
+`split_hold_minutes` is clamped to `hold_max_minutes`, because payment links
+that outlive the reservation would keep collecting for a court already resold.
+
+Pay at venue is offered only where `cash_enabled`. The website hides the tile
+and the server refuses the method, from the same
+`gateway.checkout_payment_options` payload, so a customer is never refused for
+something the page said was fine. A checkout that names no method gets the
+club's default rather than cash: a cash booking is deliberately exempt from the
+expiry sweep, so recording one where cash is not accepted would hold a court
+that nobody could ever pay for.
+
+# 39. Final Quality Check
 
 Before considering a task complete, confirm:
 - Existing code was inspected first.

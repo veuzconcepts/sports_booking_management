@@ -81,6 +81,9 @@
   "opens": "يفتح",
   "operatingHours": "ساعات العمل",
   "overnight": "يمتد لليوم التالي",
+  "periodCold": "خارج وقت الذروة",
+  "periodHot": "وقت الذروة",
+  "periodNormal": "عادي",
   "presets": {
     "alwaysOpen": "مفتوح ٢٤/٧",
     "alwaysOpenDetail": "لا وقت إغلاق في أي يوم",
@@ -163,6 +166,7 @@
   },
   "startFrom": "ابدأ من",
   "templates": "القوالب",
+  "timeType": "نوع الوقت",
   "to": "إلى",
   "useParent": "استخدام جدول {{parent}}",
   "validation": {

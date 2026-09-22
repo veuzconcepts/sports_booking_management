@@ -120,6 +120,8 @@
     "no": "No",
     "none": "None",
     "notSet": "Not set",
+    "off": "Off",
+    "on": "On",
     "open": "Open",
     "optional": "Optional",
     "required": "Required",

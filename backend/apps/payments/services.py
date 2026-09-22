@@ -18,7 +18,7 @@ from apps.settings_app.currency import (
 
 from django.conf import settings
 
-from .gateway import get_gateway
+from .gateway import CardDetails, get_backoffice_gateway, get_gateway
 from .models import (
     CreditNote,
     CreditNoteStatus,
@@ -80,11 +80,20 @@ def topup_wallet(customer, amount, *, request=None, note="Wallet top-up") -> Wal
 # Payments
 # --------------------------------------------------------------------------- #
 @transaction.atomic
-def charge(customer, amount, method, *, booking=None, request=None) -> Payment:
+def charge(customer, amount, method, *, booking=None, request=None,
+           card: CardDetails | None = None) -> Payment:
     """Take a payment for a booking (or ad-hoc) via the selected method.
 
     Wallet payments debit the ledger; card/cash go through the gateway adapter.
     Returns a persisted `Payment` whose `status` reflects the outcome.
+
+    Pass `card` for a customer-facing online card authorisation: that routes to
+    the CONFIGURED online provider, which refuses the charge when none is set up
+    (see `gateway.resolve_payment_mode`). Without it the caller is recording
+    money taken at the counter or on a physical terminal, which is not an online
+    authorisation and keeps using the permissive back-office adapter it always
+    has. The card object is transient - only its brand and last four digits are
+    ever persisted, and the PAN and CVV are neither stored nor logged.
     """
     currency = getattr(booking, "currency", None) or get_default_currency()
     amount = quantize_money(amount, currency)
@@ -117,9 +126,11 @@ def charge(customer, amount, method, *, booking=None, request=None) -> Payment:
         return payment
 
     # Card / cash → gateway adapter.
-    gw = get_gateway()
-    result = gw.charge(amount, currency=payment.currency, method=method)
+    gw = get_gateway() if card is not None else get_backoffice_gateway()
+    result = gw.charge(amount, currency=payment.currency, method=method, card=card)
     payment.gateway = gw.name
+    payment.card_brand = result.card_brand
+    payment.card_last4 = result.card_last4
     if result.success:
         payment.status = PaymentStatus.PAID
         payment.gateway_reference = result.reference
@@ -173,7 +184,9 @@ def refund(payment, amount, *, reason="", method=None, request=None) -> Refund:
     if amount <= 0 or amount > payment.refundable_amount:
         raise ValueError("Refund amount exceeds the refundable balance.")
 
-    gw = get_gateway()
+    # Refunds reverse money the back office already holds, so they must not be
+    # blocked by the ONLINE provider being unconfigured.
+    gw = get_backoffice_gateway()
     if payment.method != PaymentMethod.WALLET:
         result = gw.refund(payment.gateway_reference, amount)
         if not result.success:

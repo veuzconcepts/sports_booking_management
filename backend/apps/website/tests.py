@@ -57,6 +57,138 @@ def test_public_clubs_list(api, club):
     assert [c["code"] for c in body["clubs"]] == ["riverside"]
 
 
+def test_a_club_advertises_only_what_it_actually_offers(api, bookable, club, facilities):
+    """Reported from the field: every club card showed the same list of sports.
+
+    The tags were the organization-wide catalogue, so a venue with only a tennis
+    court advertised aquatics. They now come from that club's own facilities.
+    """
+    # Declared explicitly, which is what a configured club looks like.
+    facilities[0].facility_types.add(bookable)
+
+    body = api.get("/api/v1/website/public/clubs/").json()
+    entry = body["clubs"][0]
+    assert [t["name"] for t in entry["facility_types"]] == ["Tennis Court"]
+    assert [s["name"] for s in entry["sports"]] == ["Racket Sports"]
+
+
+def test_a_club_with_no_facilities_advertises_nothing(api, bookable, db):
+    """Better an empty card than a promise the venue cannot keep."""
+    from apps.clubs.models import Club
+
+    empty = Club.objects.create(code="empty", name="Empty Club", is_active=True)
+    body = api.get("/api/v1/website/public/clubs/").json()
+    entry = next(c for c in body["clubs"] if c["id"] == empty.id)
+    assert entry["sports"] == []
+    assert entry["facility_types"] == []
+
+
+def test_an_unconfigured_facility_does_not_promise_the_whole_catalogue(
+        api, bookable, club, facilities, facility_category):
+    """Reported from the field: a club with two courts advertised Aquatics.
+
+    One of its facilities had no types assigned. An empty `facility_types` means
+    the facility CAN serve anything, which availability honours, but it is the
+    operator not having said yet rather than a claim that the venue has a pool.
+    """
+    from apps.facilities.models import Facility, FacilityType
+
+    pool = FacilityType.objects.create(
+        name="Swimming Lane", price="50.000", duration_minutes=60,
+        is_active=True, online_booking_enabled=True)
+    pool.categories.add(facility_category)
+    facilities[0].facility_types.add(bookable)
+    # A second facility at the same club, left unconfigured.
+    Facility.objects.create(club=club, name="Spare Court", is_active=True)
+
+    entry = api.get("/api/v1/website/public/clubs/").json()["clubs"][0]
+    names = [t["name"] for t in entry["facility_types"]]
+    assert "Swimming Lane" not in names, "an unconfigured court promised a pool"
+    assert names == ["Tennis Court"], names
+
+
+def test_a_club_whose_facilities_declare_nothing_advertises_nothing(
+        api, bookable, club, db):
+    """Better a quiet card than a false one. The card still links to booking,
+    and availability still lets the flexible facility take any type."""
+    from apps.clubs.models import Club
+    from apps.facilities.models import Facility
+
+    flexible = Club.objects.create(code="flex", name="Flexible Club", is_active=True)
+    Facility.objects.create(club=flexible, name="Multi Court", is_active=True)
+
+    body = api.get("/api/v1/website/public/clubs/").json()["clubs"]
+    entry = next(c for c in body if c["id"] == flexible.id)
+    assert entry["facility_types"] == []
+    assert entry["sports"] == []
+
+
+def test_an_unrestricted_facility_can_still_be_booked_for_any_type(
+        db, club, facilities, bookable):
+    """The advertising change must not narrow AVAILABILITY. These are two
+    different questions and only the marketing one got more careful."""
+    from apps.bookings.services import eligible_facilities
+    from apps.facilities.models import Facility
+
+    spare = Facility.objects.create(club=club, name="Spare Court", is_active=True)
+    eligible = eligible_facilities(club=club, facility_type=bookable)
+    assert spare in eligible, "an unrestricted facility stopped being eligible"
+
+
+def test_booking_offers_only_what_the_club_can_serve(api, bookable, club, facilities,
+                                                     facility_category):
+    """Reported from the field: picking a club still listed every activity.
+
+    The catalogue is organization-wide, so the booking step offered a swimming
+    lane at a club with three courts, and the customer reached the calendar to
+    find every slot unavailable.
+    """
+    from apps.facilities.models import FacilityType
+
+    pool = FacilityType.objects.create(
+        name="Swimming Lane", price="50.000", duration_minutes=60,
+        is_active=True, online_booking_enabled=True)
+    pool.categories.add(facility_category)
+    for unit in facilities:
+        unit.facility_types.add(bookable)
+
+    entry = api.get("/api/v1/website/public/clubs/").json()["clubs"][0]
+    names = [t["name"] for t in entry["facility_types"]]
+    assert names == ["Tennis Court"], names
+
+
+def test_a_club_that_configured_nothing_offers_nothing(api, bookable, db):
+    """One rule for the card and the booking flow alike.
+
+    An unconfigured facility could technically serve anything, but offering a
+    swimming lane at a club with none sends the customer to a calendar where
+    every slot is unavailable. Better to offer nothing and say so; the admin
+    explains the cause on the facility row.
+    """
+    from apps.clubs.models import Club
+    from apps.facilities.models import Facility
+
+    flexible = Club.objects.create(code="flex2", name="Flexible Club", is_active=True)
+    Facility.objects.create(club=flexible, name="Multi Court", is_active=True)
+
+    body = api.get("/api/v1/website/public/clubs/").json()["clubs"]
+    entry = next(c for c in body if c["id"] == flexible.id)
+    assert entry["facility_types"] == []
+    assert entry["sports"] == []
+
+
+def test_a_type_taken_offline_disappears_from_its_club(api, bookable, club, facilities):
+    """The card follows the operational flags, like the rest of the site."""
+    facilities[0].facility_types.add(bookable)
+    assert api.get("/api/v1/website/public/clubs/").json()["clubs"][0]["facility_types"]
+
+    bookable.online_booking_enabled = False
+    bookable.save()
+    entry = api.get("/api/v1/website/public/clubs/").json()["clubs"][0]
+    assert entry["facility_types"] == []
+    assert entry["sports"] == []
+
+
 def test_inactive_clubs_are_hidden(api, club):
     club.is_active = False
     club.save()
@@ -70,7 +202,17 @@ def test_public_availability_for_a_club(api, bookable, club, facilities):
     body = resp.json()
     assert body["date"] == on_date
     assert body["closed"] is False
-    assert all({"time", "end", "available"} == set(s) for s in body["slots"])
+    # `period` is the peak/off-peak classification of the shift the slot
+    # falls in; `offer` is the customer-visible discount covering it, or
+    # None. `held` is how many courts a live reservation is holding, which is
+    # what lets the website withdraw a slot somebody is mid-checkout on rather
+    # than calling it fully booked. All three are informational and none of
+    # them affects availability.
+    #
+    # An exact set, not a subset: this payload is public, and a field added
+    # here is a field every visitor receives for ever.
+    assert all({"time", "end", "available", "held", "period", "offer"} == set(s)
+               for s in body["slots"])
 
 
 def test_public_availability_404s_for_an_unknown_club(api, bookable):

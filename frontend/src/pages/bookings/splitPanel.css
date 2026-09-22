@@ -1,0 +1,142 @@
+/* Split payment breakdown on the booking detail page.
+   Colours come from the theme tokens only, so an organization's branding and
+   dark mode both follow without this file knowing anything about either. */
+
+.split-panel__block {
+  margin-top: 14px;
+  padding: 12px 14px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md, 10px);
+  background: var(--color-surface-2, var(--color-surface));
+}
+
+.split-panel__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-bottom: 10px;
+}
+
+.split-panel__title {
+  margin: 0;
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+  color: var(--color-text-muted);
+}
+
+/* minmax(0, 1fr): a grid item will not shrink below its content unless the
+   track says so, which is how a long amount overflows a narrow side column. */
+.split-panel__totals {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(110px, 1fr));
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+.split-panel__totals > div {
+  min-width: 0;
+  padding: 8px 10px;
+  border-radius: var(--radius-sm, 8px);
+  background: var(--color-bg);
+}
+
+.split-panel__totals span {
+  display: block;
+  font-size: 11px;
+  color: var(--color-text-muted);
+}
+
+.split-panel__totals strong {
+  font-size: 14px;
+  color: var(--color-text);
+  overflow-wrap: anywhere;
+}
+
+.split-panel__table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+
+.split-panel__table th,
+.split-panel__table td {
+  padding: 7px 8px;
+  text-align: start;
+  border-bottom: 1px solid var(--color-border);
+  vertical-align: middle;
+}
+
+.split-panel__table th {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+  color: var(--color-text-muted);
+}
+
+.split-panel__table tr:last-child td { border-bottom: 0; }
+
+.split-panel__ref {
+  font-size: 11.5px;
+  color: var(--color-text-muted);
+  overflow-wrap: anywhere;
+}
+
+@media (max-width: 640px) {
+  /* The table becomes a stack of labelled rows: four columns of money detail
+     cannot stay legible at phone width, and a horizontal scrollbar inside a
+     side panel is worse than reflowing. */
+  .split-panel__table thead { display: none; }
+
+  .split-panel__table tr {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 2px 8px;
+    padding: 8px 0;
+    border-bottom: 1px solid var(--color-border);
+  }
+
+  .split-panel__table td {
+    padding: 0;
+    border: 0;
+  }
+
+  .split-panel__table td:nth-child(4) {
+    grid-column: 1 / -1;
+  }
+}
+
+/* A payer's own contact, under their name. Only rendered for a reader with
+   `payments.view_payer_contacts`; see SplitPaymentPanel. */
+.split-panel__contact {
+  margin-top: 2px;
+  font-size: 12px;
+  color: var(--color-text-muted);
+  word-break: break-word;
+}
+
+/* Who arranged the split, as a mark on their NAME rather than in place of it.
+   The panel used to print "Organizer" where the name belongs, which told staff
+   nothing and read like a second, anonymous participant. */
+.split-panel__who {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.split-panel__org {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  inline-size: 18px;
+  block-size: 18px;
+  border-radius: 50%;
+  background: var(--color-warning-50, var(--color-surface-2));
+  color: var(--color-warning-700, var(--color-text-muted));
+  cursor: help;
+}

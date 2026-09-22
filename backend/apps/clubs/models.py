@@ -42,6 +42,34 @@ class Club(models.Model):
         null=True, blank=True,
         help_text="Changeover time held after each booking. Empty inherits the organization.")
 
+    # --- Reservation and payment overrides -----------------------------------
+    # Same shape as the scheduling overrides above: empty means follow the
+    # organization, so a club that differs stores only what differs.
+    hold_unpaid_minutes = models.PositiveSmallIntegerField(
+        null=True, blank=True,
+        help_text="Unpaid reservation hold, in minutes. Empty inherits the organization.")
+    hold_partly_paid_minutes = models.PositiveSmallIntegerField(
+        null=True, blank=True,
+        help_text="Part-paid reservation hold, in minutes. Empty inherits the organization.")
+    hold_max_minutes = models.PositiveSmallIntegerField(
+        null=True, blank=True,
+        help_text="Longest any reservation may live, in minutes. Empty inherits the organization.")
+    split_enabled = models.BooleanField(
+        null=True, blank=True,
+        help_text="Offer split payment. Empty inherits the organization.")
+    split_hold_minutes = models.PositiveSmallIntegerField(
+        null=True, blank=True,
+        help_text="Split collection window, in minutes. Empty inherits the organization.")
+    split_max_shares = models.PositiveSmallIntegerField(
+        null=True, blank=True,
+        help_text="Most people a booking may be split between. Empty inherits the organization.")
+    cash_enabled = models.BooleanField(
+        null=True, blank=True,
+        help_text="Offer paying at the venue. Empty inherits the organization.")
+    show_hold_countdown = models.BooleanField(
+        null=True, blank=True,
+        help_text="Show the reservation countdown. Empty inherits the organization.")
+
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 

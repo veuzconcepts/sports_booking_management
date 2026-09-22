@@ -298,3 +298,195 @@ def test_the_booking_payload_reports_the_cancellation_state(auth_api, booking_on
     assert body["cancellation"]["cutoff_hours"] == 24
     assert body["cancellation"]["customer_can_cancel"] is True
     assert body["cancellation"]["deadline"]
+
+
+# --------------------------------------------------------------------------- #
+# Effective multi-slot rules
+# --------------------------------------------------------------------------- #
+def test_effective_rules_answer_without_a_row_existing(auth_api, court, db):
+    """The normal case: a facility inherits everything and has no row at all.
+
+    The settings panel asks this to show what "inherit" would give, so it has
+    to answer for a scope that has never been configured.
+    """
+    resp = auth_api.get(f"/api/v1/bookings/policies/effective/?facility={court.id}")
+    assert resp.status_code == 200, resp.content
+    body = resp.json()
+    assert body["has_own_policy"] is False
+    assert body["policy"] is None
+    # A fresh install books one slot at a time.
+    assert body["rules"]["allow_multiple_slots"] is False
+    assert body["rules"]["max_slots_per_booking"] == 1
+
+
+def test_effective_rules_for_a_club(auth_api, club, db):
+    resp = auth_api.get(f"/api/v1/bookings/policies/effective/?club={club.id}")
+    assert resp.status_code == 200, resp.content
+    assert resp.json()["rules"]["allow_multiple_slots"] is False
+
+
+def test_effective_rules_for_the_organization(auth_api, db):
+    resp = auth_api.get("/api/v1/bookings/policies/effective/")
+    assert resp.status_code == 200, resp.content
+    assert "rules" in resp.json()
+
+
+def test_effective_rules_merge_down_the_chain(auth_api, club, court, db):
+    """Section 48: the facility overrides only what it states."""
+    BookingPolicy.objects.create(
+        is_default=True, allow_multiple_slots=True, max_slots_per_booking=4,
+        allow_multiple_dates=True)
+    BookingPolicy.objects.create(facility=court, max_slots_per_booking=2)
+
+    body = auth_api.get(
+        f"/api/v1/bookings/policies/effective/?facility={court.id}").json()
+    assert body["has_own_policy"] is True
+    rules = body["rules"]
+    assert rules["max_slots_per_booking"] == 2        # the override
+    assert rules["allow_multiple_slots"] is True      # inherited
+    assert rules["allow_multiple_dates"] is True      # inherited
+
+
+def test_effective_rules_reject_an_unknown_facility(auth_api, db):
+    resp = auth_api.get("/api/v1/bookings/policies/effective/?facility=999999")
+    assert resp.status_code == 404
+
+
+def test_a_facility_policy_can_be_created_and_removed(auth_api, court, db):
+    """What the settings panel does: write an override, then reset it."""
+    created = auth_api.post("/api/v1/bookings/policies/", {
+        "facility": court.id, "allow_multiple_slots": True,
+        "max_slots_per_booking": 3,
+    }, format="json")
+    assert created.status_code == 201, created.content
+    assert created.json()["scope"] == court.name
+
+    removed = auth_api.delete(f"/api/v1/bookings/policies/{created.json()['id']}/")
+    assert removed.status_code == 204
+    # Back to inheriting.
+    body = auth_api.get(
+        f"/api/v1/bookings/policies/effective/?facility={court.id}").json()
+    assert body["has_own_policy"] is False
+
+
+def test_a_policy_cannot_claim_two_scopes(auth_api, club, court, db):
+    resp = auth_api.post("/api/v1/bookings/policies/", {
+        "club": club.id, "facility": court.id,
+    }, format="json")
+    assert resp.status_code == 400
+
+
+def test_a_floor_above_the_ceiling_is_refused(auth_api, court, db):
+    resp = auth_api.post("/api/v1/bookings/policies/", {
+        "facility": court.id, "allow_multiple_slots": True,
+        "min_slots_per_booking": 4, "max_slots_per_booking": 2,
+    }, format="json")
+    assert resp.status_code == 400
+
+
+# --------------------------------------------------------------------------- #
+# Managing many scopes at once
+# --------------------------------------------------------------------------- #
+def test_effective_at_the_organization_scope_returns_its_own_row(auth_api, db):
+    """"All clubs" is a real scope, not the absence of one.
+
+    The editor needs a row id to save against, and the organization default is
+    created on first access, so this scope always has one.
+    """
+    body = auth_api.get("/api/v1/bookings/policies/effective/").json()
+    assert body["has_own_policy"] is True
+    assert body["policy"]["is_default"] is True
+
+
+def test_overrides_below_a_scope_are_counted(auth_api, club, court, db):
+    """What stops a change here from reaching everything below it."""
+    empty = auth_api.get("/api/v1/bookings/policies/effective/").json()
+    assert empty["overrides"] == {"clubs": 0, "facilities": 0}
+
+    BookingPolicy.objects.create(club=club, allow_multiple_slots=True)
+    BookingPolicy.objects.create(facility=court, max_slots_per_booking=2)
+
+    body = auth_api.get("/api/v1/bookings/policies/effective/").json()
+    assert body["overrides"] == {"clubs": 1, "facilities": 1}
+
+    # From the club's own point of view only the facility below it counts.
+    scoped = auth_api.get(
+        f"/api/v1/bookings/policies/effective/?club={club.id}").json()
+    assert scoped["overrides"] == {"clubs": 0, "facilities": 1}
+
+    # Nothing is more specific than a facility.
+    leaf = auth_api.get(
+        f"/api/v1/bookings/policies/effective/?facility={court.id}").json()
+    assert leaf["overrides"] == {"clubs": 0, "facilities": 0}
+
+
+def test_a_row_that_states_no_slot_rule_is_not_an_override(auth_api, club, db):
+    """A club row that only changes the lead time is not overriding slots."""
+    BookingPolicy.objects.create(club=club, min_lead_minutes=90)
+    body = auth_api.get("/api/v1/bookings/policies/effective/").json()
+    assert body["overrides"] == {"clubs": 0, "facilities": 0}
+
+
+def test_clearing_overrides_makes_facilities_follow_the_club_again(
+        auth_api, club, court, db):
+    BookingPolicy.objects.create(club=club, allow_multiple_slots=True,
+                                 max_slots_per_booking=5)
+    BookingPolicy.objects.create(facility=court, max_slots_per_booking=2)
+
+    resp = auth_api.post("/api/v1/bookings/policies/clear-overrides/",
+                         {"club": club.id}, format="json")
+    assert resp.status_code == 200, resp.content
+    assert resp.json()["cleared"] == 1
+    assert resp.json()["affected"] == [court.name]
+
+    rules = auth_api.get(
+        f"/api/v1/bookings/policies/effective/?facility={court.id}").json()["rules"]
+    assert rules["max_slots_per_booking"] == 5      # the club's number now
+
+
+def test_clearing_overrides_keeps_the_rows_other_settings(auth_api, club, court, db):
+    """Only the slot fields are cleared. A facility that also sets its own
+    cancellation window keeps it: the operator asked for one set of slot rules,
+    not for the row to be thrown away."""
+    own = BookingPolicy.objects.create(facility=court, max_slots_per_booking=2,
+                                       min_lead_minutes=45)
+    auth_api.post("/api/v1/bookings/policies/clear-overrides/",
+                  {"club": club.id}, format="json")
+    own.refresh_from_db()
+    assert own.max_slots_per_booking is None
+    assert own.min_lead_minutes == 45
+
+
+def test_clearing_at_the_organization_scope_reaches_club_rows(
+        auth_api, club, court, db):
+    BookingPolicy.objects.create(club=club, allow_multiple_slots=True)
+    BookingPolicy.objects.create(facility=court, max_slots_per_booking=2)
+
+    resp = auth_api.post("/api/v1/bookings/policies/clear-overrides/", {},
+                         format="json")
+    assert resp.status_code == 200, resp.content
+    assert resp.json()["cleared"] == 2
+
+    body = auth_api.get("/api/v1/bookings/policies/effective/").json()
+    assert body["overrides"] == {"clubs": 0, "facilities": 0}
+
+
+def test_clearing_never_touches_the_organization_default(auth_api, policy, db):
+    policy.allow_multiple_slots = True
+    policy.max_slots_per_booking = 6
+    policy.save()
+    auth_api.post("/api/v1/bookings/policies/clear-overrides/", {}, format="json")
+    policy.refresh_from_db()
+    assert policy.allow_multiple_slots is True
+    assert policy.max_slots_per_booking == 6
+
+
+def test_clearing_overrides_requires_authentication(api):
+    resp = api.post("/api/v1/bookings/policies/clear-overrides/", {}, format="json")
+    assert resp.status_code == 401
+
+
+def test_clearing_overrides_rejects_an_unknown_club(auth_api, db):
+    resp = auth_api.post("/api/v1/bookings/policies/clear-overrides/",
+                         {"club": 999999}, format="json")
+    assert resp.status_code == 404

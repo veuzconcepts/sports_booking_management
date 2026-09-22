@@ -71,6 +71,11 @@ class PaymentMethod(models.TextChoices):
 
 
 class BookingStatus(models.TextChoices):
+    # An admin's unfinished form, kept deliberately. It is NOT a reservation:
+    # a draft holds no court, so a half-filled booking somebody forgets about
+    # cannot take a court off sale for ever. Availability is checked when the
+    # draft is finished, which is the moment it becomes a real booking.
+    DRAFT = "draft", _("Draft")
     BOOKED = "booked", _("Pending")
     CONFIRMED = "confirmed", _("Confirmed")
     ASSIGNED = "assigned", _("Assigned")
@@ -86,6 +91,11 @@ class BookingStatus(models.TextChoices):
 # separately). Used by the API to reject illegal jumps. A customer can be
 # marked NO_SHOW any time before the booking has started.
 STATUS_TRANSITIONS = {
+    # A draft goes forward into the ordinary lifecycle or it is thrown away.
+    # Nothing moves INTO draft: a booking that has been made cannot become an
+    # unfinished form again, and letting it would take a live booking's court
+    # away without cancelling anything.
+    BookingStatus.DRAFT: {BookingStatus.BOOKED, BookingStatus.CANCELLED},
     BookingStatus.BOOKED: {BookingStatus.CONFIRMED, BookingStatus.CANCELLED, BookingStatus.NO_SHOW},
     BookingStatus.CONFIRMED: {BookingStatus.ASSIGNED, BookingStatus.CANCELLED, BookingStatus.NO_SHOW},
     BookingStatus.ASSIGNED: {BookingStatus.ARRIVED, BookingStatus.IN_PROGRESS,
@@ -99,6 +109,7 @@ STATUS_TRANSITIONS = {
 }
 
 # Statuses that count against slot capacity (i.e. still occupy a facility).
+# DRAFT is deliberately absent: an unfinished form is not a claim on a court.
 ACTIVE_STATUSES = {
     BookingStatus.BOOKED,
     BookingStatus.CONFIRMED,
@@ -109,6 +120,19 @@ ACTIVE_STATUSES = {
 
 # A booking that has finished service (completed, and then optionally closed).
 COMPLETED_STATUSES = {BookingStatus.COMPLETED, BookingStatus.CLOSED}
+
+# THE definition of "this facility is spoken for at this time".
+#
+# Wider than ACTIVE_STATUSES on purpose. A completed booking used the court for
+# its period; releasing the slot the moment it is marked complete meant staff
+# closing a booking a few minutes early handed the court to somebody else while
+# it was still in use. Cancelled and no-show are excluded: nobody is there, and
+# the club should be able to resell the time.
+#
+# Availability, allocation and the database constraint all read this one set.
+# Keep `ACTIVE_STATUSES` for "a live booking the customer still holds", which
+# is a different question and drives per-customer caps and upcoming lists.
+SLOT_BLOCKING_STATUSES = ACTIVE_STATUSES | COMPLETED_STATUSES
 
 # Statuses that mean the booking was confirmed (or has progressed past it). A
 # customer with any booking in one of these is treated as a real, verified
@@ -143,6 +167,86 @@ class RecurrenceRule(models.TextChoices):
     NONE = "none", _("One-off")
     WEEKLY = "weekly", _("Weekly")
     FORTNIGHTLY = "fortnightly", _("Fortnightly")
+
+
+class BookingOrder(models.Model):
+    """One customer checkout that produced several bookings.
+
+    A multi-slot selection stays N ordinary `Booking` rows, one per slot. That
+    is deliberate: availability, the calendar, staff assignment, reports,
+    notifications and the `(facility, date, time)` unique index that prevents
+    double-booking all work per booking, and every one of them keeps working
+    untouched. The order is only the thread that ties them to a single
+    checkout.
+
+    It holds NO money. Each booking keeps its own authoritative price snapshot,
+    because slots can be priced differently (a peak evening costs more than an
+    afternoon) and a later refund of one slot has to return what that slot
+    actually cost. Totals here are summed from the bookings, so there is never
+    a second figure that can drift from them.
+    """
+
+    reference = models.CharField(
+        max_length=14, unique=True, editable=False, db_index=True,
+    )
+    customer = models.ForeignKey(
+        "customers.Customer", on_delete=models.PROTECT, related_name="booking_orders",
+    )
+    # Every slot in one order shares a club and an activity. Mixing facilities
+    # in one checkout is a shopping cart, which is deliberately out of scope.
+    club = models.ForeignKey(
+        "clubs.Club", on_delete=models.PROTECT, related_name="booking_orders",
+    )
+    facility_type = models.ForeignKey(
+        "facilities.FacilityType", on_delete=models.PROTECT,
+        related_name="booking_orders", null=True, blank=True,
+    )
+    currency = models.CharField(max_length=3, default=get_default_currency)
+    source = models.CharField(
+        max_length=20, choices=BookingSource.choices, default=BookingSource.WEBSITE,
+    )
+    created_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.SET_NULL,
+        related_name="created_booking_orders", null=True, blank=True,
+    )
+    created_at = models.DateTimeField(auto_now_add=True, db_index=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ("-created_at",)
+        indexes = [models.Index(fields=["customer", "-created_at"])]
+
+    def __str__(self):
+        return f"{self.reference} ({self.slot_count} slots)"
+
+    def save(self, *args, **kwargs):
+        if not self.reference:
+            for _attempt in range(5):
+                candidate = f"ORD-{secrets.token_hex(4).upper()}"
+                if not BookingOrder.objects.filter(reference=candidate).exists():
+                    self.reference = candidate
+                    break
+        super().save(*args, **kwargs)
+
+    @property
+    def live_bookings(self):
+        """Slots that still count: a cancelled one is history, not part of the order."""
+        return [b for b in self.bookings.all()
+                if b.status not in (BookingStatus.CANCELLED, BookingStatus.NO_SHOW)]
+
+    @property
+    def slot_count(self) -> int:
+        return len(self.live_bookings)
+
+    @property
+    def total_amount(self):
+        """Summed from the bookings, never stored. One source of truth per slot."""
+        return sum((Decimal(str(b.total_amount or 0)) for b in self.live_bookings),
+                   Decimal("0"))
+
+    @property
+    def total_duration_minutes(self) -> int:
+        return sum(b.duration_minutes or 0 for b in self.live_bookings)
 
 
 class Booking(models.Model):
@@ -254,6 +358,10 @@ class Booking(models.Model):
     calculated_at = models.DateTimeField(null=True, blank=True)
     # Snapshot of pricing rules applied at computation time (for traceability).
     applied_rules = models.JSONField(default=list, blank=True)
+    # Peak / off-peak as classified on the business hours WHEN THIS WAS PRICED.
+    # A snapshot, like `applied_rules` beside it: schedules get re-classified,
+    # and a report about last quarter must describe the hours as they were.
+    period_type = models.CharField(max_length=10, blank=True, db_index=True)
     # Redeemed promo code (optional) + the discount it produced.
     promo_code = models.ForeignKey(
         "promotions.PromoCode", on_delete=models.SET_NULL,
@@ -290,6 +398,19 @@ class Booking(models.Model):
         "self",
         on_delete=models.SET_NULL,
         related_name="recurrences",
+        null=True, blank=True,
+    )
+
+    # --- Multi-slot checkout -------------------------------------------------
+    # The order this slot was bought in, when the customer picked several at
+    # once. Null for an ordinary single-slot booking, which is most of them.
+    # Distinct from `parent_booking`, which means "a repeat of": a weekly
+    # series and a three-slot checkout are different things and must stay
+    # tellable apart in reports and cancellation.
+    order = models.ForeignKey(
+        "BookingOrder",
+        on_delete=models.SET_NULL,
+        related_name="bookings",
         null=True, blank=True,
     )
 
@@ -336,8 +457,13 @@ class Booking(models.Model):
             # facility-less types are unaffected.
             models.UniqueConstraint(
                 fields=["facility", "scheduled_date", "scheduled_time"],
+                # Spelled out because an index cannot import a Python set.
+                # `test_workflow_integrity` asserts this list and
+                # SLOT_BLOCKING_STATUSES stay identical, so the two cannot
+                # drift apart unnoticed.
                 condition=Q(status__in=[
                     "booked", "confirmed", "assigned", "arrived", "in_progress",
+                    "completed", "closed",
                 ]),
                 name="unique_live_booking_per_facility_slot",
             ),
@@ -361,24 +487,58 @@ class Booking(models.Model):
     # Validation
     # ------------------------------------------------------------------ #
     def clean(self):
-        # Exactly one bookable target: a facility type or a facility category.
-        targets = (bool(self.facility_type_id), bool(self.facility_category_id))
-        if sum(targets) != 1:
-            raise ValidationError(
-                "A booking must reference exactly one of facility type or facility category."
-            )
-        is_walk_in = self.booking_type == BookingType.WALK_IN
-        # Customer required unless this is a walk-in (which snapshots the name).
-        if not is_walk_in and not self.customer_id:
-            raise ValidationError("Select a customer, or mark the booking as walk-in.")
-        # A pinned facility must belong to the booking's club.
+        # A draft is excused the COMPLETENESS rules and nothing else.
+        #
+        # It is an admin's unfinished form, so "I have not decided yet" is its
+        # normal state rather than a broken record. Nothing downstream can be
+        # surprised by a half-filled draft: it holds no court, carries no
+        # money, and `services.finish_draft` runs every one of these again
+        # before it is allowed to become a real booking.
+        #
+        # Consistency rules still apply below, because a draft that says
+        # something contradictory is wrong whenever it was written.
+        complete = self.status != BookingStatus.DRAFT
+
+        if complete:
+            # Exactly one bookable target: a facility type or a category.
+            targets = (bool(self.facility_type_id), bool(self.facility_category_id))
+            if sum(targets) != 1:
+                raise ValidationError(
+                    "A booking must reference exactly one of facility type or "
+                    "facility category."
+                )
+            # Customer required unless walk-in (which snapshots the name).
+            if self.booking_type != BookingType.WALK_IN and not self.customer_id:
+                raise ValidationError(
+                    "Select a customer, or mark the booking as walk-in.")
+
+        # A pinned facility must belong to the booking's club. True of a draft
+        # too: naming a court at the wrong club is a mistake, not an omission.
         if self.facility_id and self.club_id and self.facility.club_id != self.club_id:
             raise ValidationError("The selected facility does not belong to this club.")
 
     # ------------------------------------------------------------------ #
     # Pricing
     # ------------------------------------------------------------------ #
-    def compute_pricing(self, addons=None, covered_override=None):
+    def _slot_period(self):
+        """How this booking's time is classified on the business hours.
+
+        Resolved through the one schedule engine, so a facility that
+        overrides its club's hours also overrides their classification.
+        Returns None when there is no schedule to read, which leaves every
+        pricing rule applying exactly as it did before.
+        """
+        if not (self.scheduled_date and self.scheduled_time):
+            return None
+        from apps.bookings.services import _resolve_schedule, slot_period
+
+        day = _resolve_schedule(self.scheduled_date, club=self.club,
+                                facility=self.facility)
+        start = self.scheduled_time.hour * 60 + self.scheduled_time.minute
+        return slot_period(day, start, start + (self.duration_minutes or 0))
+
+    def compute_pricing(self, addons=None, covered_override=None,
+                        promo_discount_override=None):
         """Recompute the price snapshot from the current catalogue selection.
 
         `covered_override` (a cov-shaped dict, or {} for "nothing covered") forces
@@ -432,7 +592,14 @@ class Booking(models.Model):
             from apps.payments.services import coverage_for_booking
             cov = coverage_for_booking(self, addon_objs=addon_objs)
         if cov:
-            if cov.get("covered_facility_type"):
+            # `covered_service_item` is what coverage_for_booking returns and
+            # what the Redeem Subscription override builds. These three reads
+            # asked for `covered_facility_type`, a name nothing has ever
+            # produced. Here `.get` made it falsy, so a membership covering a
+            # COURT silently left the booking at full price; in
+            # `_coverage_snapshot` below the same name was subscripted, so a
+            # membership covering an ADD-ON raised KeyError instead.
+            if cov.get("covered_service_item"):
                 base = Decimal("0.00")
                 discount = Decimal("0.00")
             covered_addon_ids = set(cov.get("covered_addon_ids") or set())
@@ -453,6 +620,11 @@ class Booking(models.Model):
         else:
             rule_category_ids = []
 
+        # Peak/off-peak, resolved once from the business hours this slot falls
+        # in, then both priced against and snapshotted for reporting.
+        period = self._slot_period()
+        self.period_type = period or ""
+
         # Apply dynamic pricing rules on top of the catalogue subtotal.
         result = calculate_price(
             catalogue_subtotal,
@@ -465,6 +637,9 @@ class Booking(models.Model):
             booking_date=self.scheduled_date,
             booking_time=self.scheduled_time,
             quantity=1,
+            # Only rules that name a period ever see it, so classifying a
+            # shift changes nothing until somebody prices it.
+            period=period,
         )
         rule_discount = Decimal(str(result["total_discount"]))
         rule_surcharge = Decimal(str(result["total_surcharge"]))
@@ -481,7 +656,14 @@ class Booking(models.Model):
         # against the UNPAID portion. A promo added against a later add-on balance
         # must never re-discount services that were already invoiced and paid.
         promo_discount = Decimal("0.00")
-        if self.promo_code_id:
+        if promo_discount_override is not None:
+            # A multi-slot order redeems one promo ONCE and hands each slot its
+            # allocated share. Recomputing per slot here would consume a
+            # redemption per slot, apply `max_discount_amount` per slot, and
+            # test `min_order_amount` against one slot instead of the order.
+            promo_discount = min(Decimal(str(promo_discount_override)),
+                                 adjusted_subtotal)
+        elif self.promo_code_id:
             from apps.promotions.services import compute_discount
             promo_base = adjusted_subtotal
             if self.pk:
@@ -592,11 +774,11 @@ class Booking(models.Model):
         catalogue prices captured BEFORE coverage zeroed them. None when no coverage
         applied. Read-only data — it drives the payment-status reason + booking-time
         display, and never feeds back into pricing."""
-        if not cov or not (cov.get("covered_facility_type") or cov.get("covered_addon_ids")):
+        if not cov or not (cov.get("covered_service_item") or cov.get("covered_addon_ids")):
             return None
         membership = cov["membership"]
         lines, covered_amount = [], Decimal("0.00")
-        if cov["covered_facility_type"] and self.facility_type_id:
+        if cov["covered_service_item"] and self.facility_type_id:
             price = q(pre_coverage_base)
             lines.append({"kind": "facility_type", "label": self.facility_type.name,
                           "actual_price": str(price)})
@@ -714,9 +896,45 @@ class BookingPolicy(models.Model):
         related_name="booking_policy",
         help_text="Leave empty for the organization-wide default.",
     )
+    facility = models.OneToOneField(
+        "facilities.Facility", on_delete=models.CASCADE, null=True, blank=True,
+        related_name="booking_policy",
+        help_text="A policy for one physical unit. Leave empty for a club or "
+                  "organization policy.",
+    )
     is_default = models.BooleanField(
         default=False,
         help_text="The organization-wide policy. Exactly one row may set this.",
+    )
+
+    # --- Multiple slots in one booking --------------------------------------
+    # These four are NULLABLE, and null means "inherit from the level above".
+    #
+    # That differs from the older fields on this model, which replace their
+    # parent wholesale, and the difference is deliberate: a court that wants to
+    # cap itself at two slots should not have to restate the club's lead time,
+    # advance window and cancellation cutoff just to say so. The older fields
+    # keep their existing behaviour untouched; only these new ones merge.
+    allow_multiple_slots = models.BooleanField(
+        null=True, blank=True,
+        help_text="Let a customer put several time slots in one booking. "
+                  "Empty inherits.",
+    )
+    allow_multiple_dates = models.BooleanField(
+        null=True, blank=True,
+        help_text="Let those slots fall on different dates. Empty inherits.",
+    )
+    require_consecutive_slots = models.BooleanField(
+        null=True, blank=True,
+        help_text="Selected slots must run back to back. Empty inherits.",
+    )
+    min_slots_per_booking = models.PositiveSmallIntegerField(
+        null=True, blank=True,
+        help_text="Fewest slots a multi-slot booking may contain. Empty inherits.",
+    )
+    max_slots_per_booking = models.PositiveSmallIntegerField(
+        null=True, blank=True,
+        help_text="Most slots one booking may contain. Empty inherits.",
     )
 
     # --- When a booking may be made -----------------------------------------
@@ -767,16 +985,29 @@ class BookingPolicy(models.Model):
         ]
 
     def __str__(self):
-        return f"Booking policy - {self.club.name if self.club_id else 'organization default'}"
+        return f"Booking policy - {self.scope_label}"
+
+    @property
+    def scope_label(self) -> str:
+        if self.facility_id:
+            return self.facility.name
+        if self.club_id:
+            return self.club.name
+        return "Organization default"
 
     def clean(self):
         super().clean()
-        if self.is_default and self.club_id:
+        # A row names exactly one scope. Two would make "which policy applies"
+        # ambiguous, and none would make the row unreachable.
+        scopes = [bool(self.is_default), bool(self.club_id), bool(self.facility_id)]
+        if sum(scopes) > 1:
+            raise ValidationError(_(
+                "A booking policy belongs to one scope: the organization, a club, "
+                "or a facility."))
+        if not any(scopes):
             raise ValidationError(
-                {"club": _("The organization default policy cannot belong to a club.")})
-        if not self.is_default and not self.club_id:
-            raise ValidationError(
-                {"club": _("Choose a club, or mark this as the organization default.")})
+                {"club": _("Choose a club or a facility, or mark this as the "
+                           "organization default.")})
 
     # ------------------------------------------------------------------ #
     # Window helpers - one place that answers "is this bookable now?"
@@ -854,3 +1085,183 @@ def _log_booking_created(sender, instance, created, **kwargs):
         changed_by=instance.created_by,
         note="Booking created",
     )
+
+
+class HoldStatus(models.TextChoices):
+    """Where a reservation is in its own life, which is not the booking's.
+
+    Kept apart from `BookingStatus` on purpose. A booking is a commercial
+    record; a hold is a temporary claim on a court. Folding the two together
+    is what produces statuses like "pending forever" that block a slot with
+    nothing behind them.
+    """
+
+    ACTIVE = "active", _("Active")
+    CONVERTED = "converted", _("Converted")     # became a confirmed booking
+    RELEASED = "released", _("Released")        # given up deliberately
+    EXPIRED = "expired", _("Expired")           # ran out of time
+    CANCELLED = "cancelled", _("Cancelled")
+
+
+#: Only an ACTIVE hold keeps other people off a court. Everything else is
+#: history, exactly as cancelled bookings are.
+LIVE_HOLD_STATUSES = {HoldStatus.ACTIVE}
+
+
+class BookingHold(models.Model):
+    """A time-limited claim on one or more slots while a customer pays.
+
+    A booking is Confirmed only when it has been paid for, so something else
+    has to keep the court in the meantime. That used to be the booking row
+    itself, created unpaid and blocking its slot with no deadline; a customer
+    who closed the tab held a Saturday evening court until somebody noticed.
+
+    The hold owns the deadline and the booking owns the commerce. When payment
+    completes the hold CONVERTS and the confirmed booking takes over holding
+    the slot permanently; when the clock runs out the hold EXPIRES and the
+    court is free again, with the abandoned booking left as history.
+
+    Guests have no account, so a hold is addressed by a bearer token stored
+    only as a digest, the same treatment split payment links get. That is what
+    lets a refresh, a second tab or the back button find the same reservation
+    instead of starting a new one.
+    """
+
+    reference = models.CharField(
+        max_length=14, unique=True, editable=False, db_index=True,
+        help_text="Human-friendly reservation code, e.g. HLD-2A4F9C.",
+    )
+    # A digest, never the token. A leaked backup cannot be replayed.
+    token_hash = models.CharField(max_length=64, unique=True, db_index=True)
+
+    # Nullable: a guest checkout holds a court before we know who they are.
+    customer = models.ForeignKey(
+        "customers.Customer", on_delete=models.CASCADE,
+        related_name="booking_holds", null=True, blank=True,
+    )
+    club = models.ForeignKey(
+        "clubs.Club", on_delete=models.CASCADE, related_name="booking_holds",
+    )
+    facility_type = models.ForeignKey(
+        "facilities.FacilityType", on_delete=models.CASCADE,
+        related_name="booking_holds", null=True, blank=True,
+    )
+    source = models.CharField(
+        max_length=20, choices=BookingSource.choices, default=BookingSource.WEBSITE,
+    )
+    created_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.SET_NULL,
+        related_name="created_booking_holds", null=True, blank=True,
+    )
+
+    # What it turned into, once it did. Either, never both.
+    booking = models.ForeignKey(
+        "Booking", on_delete=models.SET_NULL, related_name="holds",
+        null=True, blank=True,
+    )
+    order = models.ForeignKey(
+        "BookingOrder", on_delete=models.SET_NULL, related_name="holds",
+        null=True, blank=True,
+    )
+
+    status = models.CharField(
+        max_length=12, choices=HoldStatus.choices,
+        default=HoldStatus.ACTIVE, db_index=True,
+    )
+    expires_at = models.DateTimeField(db_index=True)
+    # The ceiling. `expires_at` may be pushed out when the first real payment
+    # arrives, but never past this, so repeated small payments cannot keep a
+    # court locked indefinitely.
+    max_expires_at = models.DateTimeField()
+    # Set the once the unpaid window becomes the part-paid window, so the
+    # extension happens exactly once however many friends pay.
+    extended_at = models.DateTimeField(null=True, blank=True)
+
+    created_at = models.DateTimeField(auto_now_add=True, db_index=True)
+    updated_at = models.DateTimeField(auto_now=True)
+    ended_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        ordering = ("-created_at",)
+        indexes = [
+            # The expiry sweep asks exactly this question.
+            models.Index(fields=["status", "expires_at"]),
+        ]
+        constraints = [
+            models.CheckConstraint(
+                check=Q(booking__isnull=True) | Q(order__isnull=True),
+                name="hold_converts_to_one_of_booking_or_order",
+            ),
+        ]
+
+    def __str__(self):
+        return f"{self.reference} ({self.status})"
+
+    def save(self, *args, **kwargs):
+        if not self.reference:
+            for _attempt in range(5):
+                candidate = f"HLD-{secrets.token_hex(3).upper()}"
+                if not BookingHold.objects.filter(reference=candidate).exists():
+                    self.reference = candidate
+                    break
+        super().save(*args, **kwargs)
+
+    @property
+    def is_live(self) -> bool:
+        """Active AND still within its deadline.
+
+        Both halves matter: a sweep that has not run yet leaves rows ACTIVE
+        past their expiry, and those must not hold a court. Every read path
+        asks this rather than the status alone.
+        """
+        return (self.status == HoldStatus.ACTIVE
+                and self.expires_at > timezone.now())
+
+    @property
+    def seconds_remaining(self) -> int:
+        """What a countdown should show. Never negative."""
+        if self.status != HoldStatus.ACTIVE:
+            return 0
+        return max(0, int((self.expires_at - timezone.now()).total_seconds()))
+
+
+class BookingHoldSlot(models.Model):
+    """One court, on one date, for one interval, claimed by a hold.
+
+    A hold pins a REAL facility rather than just a type, because that is the
+    only way it can take part in the same "is this court free?" question a
+    booking answers. Anything vaguer would let the allocator hand the same
+    court to a booking while a hold was paying for it.
+    """
+
+    hold = models.ForeignKey(
+        BookingHold, on_delete=models.CASCADE, related_name="slots",
+    )
+    facility = models.ForeignKey(
+        "facilities.Facility", on_delete=models.CASCADE,
+        related_name="held_slots",
+    )
+    scheduled_date = models.DateField(db_index=True)
+    scheduled_time = models.TimeField()
+    end_time = models.TimeField()
+
+    class Meta:
+        ordering = ("scheduled_date", "scheduled_time")
+        indexes = [models.Index(fields=["scheduled_date", "facility"])]
+        # No unique index here, deliberately.
+        #
+        # The obvious one would be (facility, date, start) WHERE the hold is
+        # active, but a constraint condition cannot reach through a relation,
+        # so it would mean copying the hold's status onto every slot row and
+        # keeping the copy in step. That buys little: it would catch a hold
+        # clashing with another HOLD, while the case that actually matters,
+        # a hold clashing with a BOOKING, spans two tables and no index can
+        # express it at all.
+        #
+        # Both cases are already prevented by the same thing: the club/day
+        # advisory lock taken in `reservations`, which is what makes "is this
+        # court free?" and "take it" one step. A denormalised column that can
+        # drift is a worse backstop than the lock it would be backing up.
+
+    def __str__(self):
+        return f"{self.facility_id} {self.scheduled_date} {self.scheduled_time}"

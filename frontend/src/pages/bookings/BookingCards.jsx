@@ -6,6 +6,7 @@ import { RowMenu } from '../../components/listview/index.js';
 import { NEXT_STATUSES } from '../../services/bookingsService.js';
 import { formatDate } from '../../services/timeformat.jsx';
 import { statusClass, statusLabel } from './bookingStatus.js';
+import { ActivityThumb } from './ActivityThumb.jsx';
 
 /**
  * Bookings as a board: one column per stage, a card per booking, and drag to
@@ -46,14 +47,6 @@ const COLUMNS = [
     breakdown: true,
   },
 ];
-
-/** "Padel Court A" -> "PD"; used for the square facility mark on a card. */
-function facilityMark(name) {
-  const words = (name || '').trim().split(/\s+/).filter(Boolean);
-  if (!words.length) return '--';
-  if (words.length === 1) return words[0].slice(0, 2).toUpperCase();
-  return (words[0][0] + words[1][0]).toUpperCase();
-}
 
 /** "Layla Ahmed" -> "LA". */
 function personMark(name) {
@@ -112,9 +105,11 @@ function BookingBoardCard({
       </header>
 
       <div className="bkb-card__facility">
-        <span className="bkb-card__mark" aria-hidden="true">
-          {facilityMark(row.facility_name || row.facility_type_name)}
-        </span>
+        <ActivityThumb
+          src={row.facility_type_image}
+          name={row.facility_type_name || row.facility_name}
+          size={30}
+        />
         <span className="bkb-card__names">
           <strong className="bkb-card__title">
             {row.facility_name || row.facility_type_name || t('title')}

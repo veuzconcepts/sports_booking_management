@@ -31,6 +31,7 @@ import { Money } from '../../services/currency.jsx';
 import { formatDate } from '../../services/timeformat.jsx';
 import { apiErrorMessage } from '../../utils/apiError';
 import { exportRowsToCsv } from '../../utils/exportCsv.js';
+import { ActivityThumb } from './ActivityThumb.jsx';
 
 const VIEWS = [
   { key: 'list', labelKey: 'views.list', Icon: List },
@@ -96,14 +97,18 @@ export default function BookingsListPage() {
   const { clubs, facilityTypes } = useFilterOptions();
 
   // Stable values, translated labels: the API keeps receiving 'confirmed'.
-  const statusOptions = useMemo(
-    () => bookingStatuses(t).map((o) => ({ value: o.value, label: t(`status.${o.value}`) })),
-    [t],
-  );
-  const sourceOptions = useMemo(
-    () => bookingSources(t).map((o) => ({ value: o.value, label: t(`source.${o.value}`) })),
-    [t],
-  );
+  //
+  // Both helpers already return `{ value, label }` with the label translated.
+  // Re-translating here built a SECOND key for the same thing, and the two
+  // disagreed: `bookings:source` is the column heading "Source", a plain
+  // string, so asking for a child of it gave back the key and the filter
+  // listed the key names instead of the sources. The labels belong to the
+  // helpers, which is where every other screen reads them from.
+  //
+  // The key guard could not catch it: the old call built its key from a
+  // template, and a scanner reading literals has nothing to check.
+  const statusOptions = useMemo(() => bookingStatuses(t), [t]);
+  const sourceOptions = useMemo(() => bookingSources(t), [t]);
   const canExport = hasPerm('reports.export');
 
   const openBooking = useCallback((row) => navigate(`/bookings/${row.id}`), [navigate]);
@@ -167,11 +172,21 @@ export default function BookingsListPage() {
       key: 'reference', header: t('reference'), sortKey: 'reference',
       minWidth: 150, alwaysVisible: true,
       render: (r) => (
-        <div>
-          <span className="link-btn" style={{ fontWeight: 600, fontFamily: 'var(--font-mono, monospace)' }}>
-            {r.reference}
-          </span>
-          <div className="muted" style={{ fontSize: 12 }}>{r.facility_type_name}</div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, minWidth: 0 }}>
+          {/* The activity at a glance. A listing of near-identical rows is
+              read far faster by picture than by name. */}
+          <ActivityThumb src={r.facility_type_image} name={r.facility_type_name} size={32} />
+          <div style={{ minWidth: 0 }}>
+            <span className="link-btn" style={{ fontWeight: 600, fontFamily: 'var(--font-mono, monospace)' }}>
+              {r.reference}
+            </span>
+            <div className="muted" style={{ fontSize: 12 }}>
+              {r.facility_type_name}
+              {/* One of several slots bought together. Without this the list
+                  reads as unrelated bookings that happen to share a customer. */}
+              {r.order_reference ? ` · ${r.order_reference}` : ''}
+            </div>
+          </div>
         </div>
       ),
     },

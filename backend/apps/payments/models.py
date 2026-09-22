@@ -6,6 +6,7 @@ immutable financial records. Memberships sell a recurring pass; invoices are
 VAT-compliant documents rendered to PDF (see `pdf.py`).
 """
 
+import hashlib
 import secrets
 from decimal import Decimal
 
@@ -346,6 +347,25 @@ class Payment(models.Model):
     gateway = models.CharField(max_length=40, default="mock")
     gateway_reference = models.CharField(max_length=120, blank=True)
     failure_reason = models.CharField(max_length=255, blank=True)
+    # The ONLY card data this system keeps. Brand and last four digits are what a
+    # receipt shows and what a customer recognises on a statement; the PAN and
+    # the CVV are never stored, never logged and never leave the gateway module.
+    card_brand = models.CharField(max_length=20, blank=True)
+    card_last4 = models.CharField(max_length=4, blank=True)
+
+    # Who actually handed the money over, when that is not the booking's own
+    # customer: a friend settling their share of a split.
+    #
+    # It has to live on the PAYMENT rather than only on the share, because a
+    # share that does not divide evenly into the slots it covers produces more
+    # than one payment, and `BookingPaymentShare.payment` can hold only the
+    # first. The rest were attributable solely by reading the Booking Log,
+    # which is not something a refund can be answered from, and "refunds follow
+    # the payer" is confirmed policy.
+    #
+    # A display name, never an identity: the Payment still belongs to the
+    # booking's customer, because the invoice is raised against the booking.
+    payer = models.CharField(max_length=120, blank=True)
 
     created_by = models.ForeignKey(
         settings.AUTH_USER_MODEL,
@@ -672,3 +692,208 @@ class CreditNote(models.Model):
         if not self.number:
             self.number = _next_doc_number(CreditNote, "CN")
         super().save(*args, **kwargs)
+
+
+# --------------------------------------------------------------------------- #
+# Split payment: one booking, one total, several payers
+# --------------------------------------------------------------------------- #
+class SplitStatus(models.TextChoices):
+    ACTIVE = "active", _("Awaiting payment")
+    COMPLETED = "completed", _("Fully paid")
+    CANCELLED = "cancelled", _("Cancelled")
+    EXPIRED = "expired", _("Expired")
+
+
+class ShareStatus(models.TextChoices):
+    PENDING = "pending", _("Pending")
+    PAID = "paid", _("Paid")
+    FAILED = "failed", _("Failed")
+    EXPIRED = "expired", _("Expired")
+    CANCELLED = "cancelled", _("Cancelled")
+
+
+# Shares that still expect money and therefore still count as allocated.
+OPEN_SHARE_STATUSES = (ShareStatus.PENDING, ShareStatus.FAILED)
+
+
+def hash_split_token(raw: str) -> str:
+    """One-way fingerprint of a shareable payment token.
+
+    Payment links are bearer credentials, so the database stores only a digest:
+    a leaked backup cannot be replayed as a working link. A plain SHA-256 is the
+    right tool here rather than a password hasher, because the token is 256 bits
+    of `secrets` randomness (nothing to brute-force) and link resolution has to
+    stay a single indexed lookup.
+    """
+    return hashlib.sha256((raw or "").encode("utf-8")).hexdigest()
+
+
+class BookingPaymentSplit(models.Model):
+    """An arrangement to settle ONE booking with several payments.
+
+    This is deliberately not a second booking total. `Booking.total_amount`
+    remains the only authoritative figure; a split merely allocates the amount
+    still outstanding on that booking between named participants. Every payment
+    it collects is an ordinary `Payment` row against the same booking, so the
+    ledger, invoices, reports and the refund path keep working without knowing
+    that a split exists.
+    """
+
+    # Exactly one of these is set. A split covers either a single booking or a
+    # whole multi-slot order; in both cases it allocates money that the
+    # BOOKINGS own, never a total of its own.
+    booking = models.ForeignKey(
+        "bookings.Booking", on_delete=models.CASCADE, related_name="payment_splits",
+        null=True, blank=True,
+    )
+    order = models.ForeignKey(
+        "bookings.BookingOrder", on_delete=models.CASCADE,
+        related_name="payment_splits", null=True, blank=True,
+    )
+    # The person who arranged the split: always the booking's own customer, kept
+    # as an explicit column so organizer-only actions can be scoped without
+    # re-deriving ownership through the booking on every request.
+    organizer = models.ForeignKey(
+        "customers.Customer", on_delete=models.PROTECT, related_name="payment_splits",
+    )
+    currency = models.CharField(max_length=3, default=get_default_currency)
+    # Snapshot of the booking's outstanding balance when the split was created.
+    # AUDIT AND DISPLAY ONLY: every payment revalidates against the booking's
+    # live outstanding balance, so this can never authorise an overpayment even
+    # if the booking is repriced after the arrangement was made.
+    amount_allocated = models.DecimalField(max_digits=13, decimal_places=3, default=0)
+    status = models.CharField(
+        max_length=12, choices=SplitStatus.choices,
+        default=SplitStatus.ACTIVE, db_index=True,
+    )
+    # Digest of the organizer's management link. Same bearer-token treatment as
+    # a share token: the raw value is returned once, at creation, and never again.
+    organizer_token_hash = models.CharField(max_length=64, unique=True, db_index=True)
+    expires_at = models.DateTimeField(db_index=True)
+
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+    completed_at = models.DateTimeField(null=True, blank=True)
+    cancelled_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        ordering = ("-created_at",)
+        constraints = [
+            # A booking collects through at most one live arrangement at a time,
+            # so two organizers can never allocate the same outstanding balance.
+            models.UniqueConstraint(
+                fields=["booking"],
+                condition=models.Q(status="active", booking__isnull=False),
+                name="unique_active_split_per_booking",
+            ),
+            models.UniqueConstraint(
+                fields=["order"],
+                condition=models.Q(status="active", order__isnull=False),
+                name="unique_active_split_per_order",
+            ),
+            # A split that claimed both would allocate the same money twice.
+            models.CheckConstraint(
+                check=(models.Q(booking__isnull=False, order__isnull=True)
+                       | models.Q(booking__isnull=True, order__isnull=False)),
+                name="split_targets_one_of_booking_or_order",
+            ),
+        ]
+        indexes = [models.Index(fields=["status", "expires_at"])]
+
+    def __str__(self):
+        target = (f"booking {self.booking_id}" if self.booking_id
+                  else f"order {self.order_id}")
+        return f"Split on {target} ({self.status})"
+
+    @property
+    def is_expired(self) -> bool:
+        return self.status == SplitStatus.ACTIVE and timezone.now() >= self.expires_at
+
+    @property
+    def paid_total(self) -> Decimal:
+        """Money this arrangement has actually collected."""
+        return sum(
+            (s.amount for s in self.shares.all() if s.status == ShareStatus.PAID),
+            Decimal("0"),
+        )
+
+    @property
+    def open_total(self) -> Decimal:
+        """Still allocated to participants who have not paid."""
+        return sum(
+            (s.amount for s in self.shares.all() if s.status in OPEN_SHARE_STATUSES),
+            Decimal("0"),
+        )
+
+
+class BookingPaymentShare(models.Model):
+    """One participant's portion of a split, and the link that pays it.
+
+    A share is what a payment link authorises. It carries its own amount, which
+    the backend assigns and the payer can never influence, and it can be settled
+    exactly once: the payment path locks the row and re-reads its status inside
+    the transaction, so two friends clicking at the same instant cannot both pay
+    the same share.
+    """
+
+    split = models.ForeignKey(
+        BookingPaymentSplit, on_delete=models.CASCADE, related_name="shares",
+    )
+    # Contact details are optional by design: an organizer may want a bare link
+    # to paste into a group chat rather than hand over a friend's phone number.
+    participant_name = models.CharField(max_length=120, blank=True)
+    participant_email = models.EmailField(blank=True)
+    participant_phone = models.CharField(max_length=32, blank=True)
+    # The organizer's own portion, so "You" reads distinctly in the progress list
+    # and so it is never mistaken for a friend's share when reassigning.
+    is_organizer = models.BooleanField(default=False)
+
+    amount = models.DecimalField(max_digits=13, decimal_places=3)
+    status = models.CharField(
+        max_length=12, choices=ShareStatus.choices,
+        default=ShareStatus.PENDING, db_index=True,
+    )
+    # Digest of the shareable token. Unique so a link resolves in one indexed
+    # lookup, and nullable because a cancelled or settled share has its token
+    # destroyed rather than merely marked unusable.
+    token_hash = models.CharField(
+        max_length=64, unique=True, db_index=True, null=True, blank=True,
+    )
+    payment = models.OneToOneField(
+        Payment, on_delete=models.SET_NULL, related_name="split_share",
+        null=True, blank=True,
+    )
+    paid_at = models.DateTimeField(null=True, blank=True)
+    # Ordering within the split, so the list reads the way it was entered.
+    position = models.PositiveSmallIntegerField(default=0)
+    # Last failure shown back to the payer: a machine code, never a card detail.
+    last_failure_code = models.CharField(max_length=40, blank=True)
+    # Rate limiting for "send reminder", so a customer cannot spam a friend.
+    reminder_count = models.PositiveSmallIntegerField(default=0)
+    last_reminder_at = models.DateTimeField(null=True, blank=True)
+
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ("position", "id")
+        indexes = [models.Index(fields=["split", "status"])]
+
+    def __str__(self):
+        return f"Share {self.amount} ({self.status})"
+
+    @property
+    def display_name(self) -> str:
+        if self.participant_name:
+            return self.participant_name
+        return "Organizer" if self.is_organizer else "Guest"
+
+    @property
+    def is_payable(self) -> bool:
+        """Whether this share may still be settled through its link."""
+        return (
+            self.status in OPEN_SHARE_STATUSES
+            and bool(self.token_hash)
+            and self.split.status == SplitStatus.ACTIVE
+            and not self.split.is_expired
+        )

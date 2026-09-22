@@ -12,8 +12,11 @@ import { NAMESPACES } from './index.js';
  *    in every language, because English is the fallback for all of them.
  * 2. A `t(...)` call outside any scope where `t` exists compiles fine and then
  *    throws ReferenceError the first time that code path runs.
+ * 3. A callback parameter named `t` SHADOWS the translation function, so a
+ *    `t('...')` inside it calls whatever the list holds. That compiles, passes
+ *    a build, and then blanks the page the moment the list is non-empty.
  *
- * Both are the kind of mistake a bulk edit makes and a reviewer misses.
+ * All three are the kind of mistake a bulk edit makes and a reviewer misses.
  */
 
 const SRC = path.resolve(__dirname, '..');
@@ -78,5 +81,23 @@ describe('translation keys', () => {
       }
     });
     expect(missing, `unresolved keys:\n${missing.join('\n')}`).toEqual([]);
+  });
+
+  it('never shadows the translation function with a callback parameter', () => {
+    // `tiers.map((t) => ... t('common:actions.edit') ...)` blanked the loyalty
+    // settings page: the row object was called as a function. It compiled, it
+    // built, and it failed only once the list actually had something in it.
+    const offenders = [];
+    const SHADOW = /\.(?:map|filter|forEach|find|findIndex|some|every|flatMap|sort|reduce)\(\s*\(?\s*t\s*[,)=]/g;
+    files.forEach(({ path: file, source }) => {
+      if (!/useTranslation|const\s*\{\s*t\s*\}/.test(source)) return;
+      for (const match of source.matchAll(SHADOW)) {
+        const line = source.slice(0, match.index).split('\n').length;
+        offenders.push(`${file}:${line}`);
+      }
+    });
+    expect(offenders,
+      `callback parameter named "t" shadows the translator:\n${offenders.join('\n')}`)
+      .toEqual([]);
   });
 });
