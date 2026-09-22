@@ -59,20 +59,20 @@ maxmemory-policy volatile-ttl
 sudo systemctl enable --now redis-server
 ```
 
-## 5. Backend (Django) — as the `clubbooking` user
+## 5. Backend (Django), as the `clubbooking` user
 
 ```bash
 cd /opt/clubbooking
 python3.12 -m venv venv
 ./venv/bin/pip install -r backend/requirements.txt
-cp backend/.env.example backend/.env      # then edit — see section 8
+cp backend/.env.example backend/.env      # then edit, see section 8
 cd backend
 ../venv/bin/python manage.py migrate
 ../venv/bin/python manage.py collectstatic --noinput
 ../venv/bin/python manage.py createsuperuser
 ```
 
-## 6. Frontends — build in place
+## 6. Frontends, built in place
 
 ```bash
 # Admin SPA (static). Set VITE_GOOGLE_MAPS_API_KEY in frontend/.env first.
@@ -91,7 +91,7 @@ sudo systemctl enable --now clubbooking-web clubbooking-worker clubbooking-beat 
 sudo systemctl status clubbooking-web         # verify each is active
 ```
 
-## 8. Production `.env` (backend/.env) — the must-set values
+## 8. Production `.env` (backend/.env): the must-set values
 
 ```ini
 DJANGO_DEBUG=False
@@ -103,7 +103,7 @@ DB_NAME=booking_management
 DB_USER=clubbooking
 DB_PASSWORD=STRONG_PW
 DB_HOST=127.0.0.1
-BEHIND_TLS_PROXY=True
+BEHIND_TLS_PROXY=True     # MANDATORY behind nginx: see the note below
 NUM_PROXIES=1
 CSRF_TRUSTED_ORIGINS=https://admin.example.com
 USE_REDIS_CACHE=True
@@ -114,6 +114,26 @@ EMAIL_BACKEND=django.core.mail.backends.smtp.EmailBackend   # + host/user/pass/p
 DEFAULT_FROM_EMAIL=no-reply@example.com
 # Optional max-isolation session model (needs the Redis policy in section 4):
 # USE_OPAQUE_SESSIONS=True
+```
+
+`BEHIND_TLS_PROXY=True` does two things, and the second is easy to miss.
+It lets Django trust nginx's `X-Forwarded-Proto`, and it turns Django's OWN
+http-to-https redirect OFF, because nginx already does that in its `listen 80`
+blocks and exactly one layer should.
+
+Leaving Django to redirect as well breaks the public website. It renders
+server side and calls `http://127.0.0.1:8000/api/v1/...` directly, which
+carries no `X-Forwarded-Proto`, so Django answers with a 301 to
+`https://127.0.0.1:8000/` and the SSR runtime then attempts TLS against a
+plain HTTP port. Five fetches per page, every one wasted, every failure
+swallowed: the site goes slow AND loses its branding, catalogue, clubs and
+campaigns, while the admin stays fast because it reaches Django through nginx.
+
+Check it with:
+
+```bash
+curl -s -o /dev/null -w '%{http_code}
+'   http://127.0.0.1:8000/api/v1/website/public/branding/     # want 200, not 301
 ```
 
 Set `web/.env.production` (or the `Environment=` lines in `clubbooking-website.service`)

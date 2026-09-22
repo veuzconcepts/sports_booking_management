@@ -540,9 +540,32 @@ if not DEBUG:
     SECURE_HSTS_SECONDS = 60 * 60 * 24 * 365  # 1 year
     SECURE_HSTS_INCLUDE_SUBDOMAINS = True
     SECURE_HSTS_PRELOAD = True
-    SECURE_SSL_REDIRECT = True
     SESSION_COOKIE_SECURE = True
     CSRF_COOKIE_SECURE = True
+
     # Trust the X-Forwarded-Proto header from a TLS-terminating proxy/load balancer.
-    if config("BEHIND_TLS_PROXY", default=False, cast=bool):
+    _BEHIND_TLS_PROXY = config("BEHIND_TLS_PROXY", default=False, cast=bool)
+    if _BEHIND_TLS_PROXY:
         SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https")
+        # W008 warns that SECURE_SSL_REDIRECT is off, and names the proxy doing
+        # the redirect as the alternative it will accept. That is this setup,
+        # so the warning is noise here, and noise is not harmless: `DEBUG=True`
+        # survived in production precisely because its warning sat among sixty
+        # others nobody read to the end of.
+        SILENCED_SYSTEM_CHECKS = ["security.W008"]
+
+    # Exactly ONE layer redirects http to https, and it is the one terminating
+    # TLS. Behind a proxy that is nginx, in its own `listen 80` blocks.
+    #
+    # Django redirecting as well protects nothing here, because it binds to
+    # loopback: every request either came through the proxy, and is already
+    # secure by the header above, or came from a process on this machine. What
+    # it DID do was break the second kind. The website renders server side and
+    # calls `http://127.0.0.1:8000/api/v1/...` directly, which carries no
+    # X-Forwarded-Proto, so Django answered each of those calls with a 301 to
+    # `https://127.0.0.1:8000/` and the SSR runtime then attempted TLS against
+    # a plain HTTP port. Five fetches per page, each one wasted, each failure
+    # swallowed: the public site went slow AND lost its branding, catalogue,
+    # clubs and campaigns, while the admin stayed fast because it reaches
+    # Django through nginx.
+    SECURE_SSL_REDIRECT = not _BEHIND_TLS_PROXY
