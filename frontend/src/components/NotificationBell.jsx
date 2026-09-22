@@ -5,6 +5,22 @@ import { useTranslation } from 'react-i18next';
 
 import { notificationsApi } from '../services/notificationsService.js';
 
+/**
+ * Only ever navigate WITHIN this application.
+ *
+ * The one place a notification link is set is the server, as `/bookings/<id>`,
+ * and the field is `read_only` on the API. This keeps it safe if either of
+ * those ever changes: React Router treats a protocol-relative `//host`, and a
+ * leading backslash, as somewhere else entirely, so an off-site value in that
+ * column would become an open redirect that a member of staff has every reason
+ * to click.
+ *
+ * One slash, then anything that is not another slash or a backslash.
+ */
+export function isInternalPath(link) {
+  return typeof link === 'string' && /^\/(?![/\\])/.test(link);
+}
+
 // In-app notification bell: unread badge + a dropdown feed of the signed-in user's
 // notifications (e.g. a refund awaiting their approval). Polls the unread count.
 export function NotificationBell() {
@@ -43,6 +59,16 @@ export function NotificationBell() {
     filter === 'all' ? true : filter === 'unread' ? !n.read_at : !!n.read_at
   ));
 
+  /**
+   * Only ever navigate WITHIN this application.
+   *
+   * The only place a notification link is set is the server, as
+   * `/bookings/<id>`, and the field is read-only on the API. This keeps it
+   * that way if either of those ever changes: React Router treats a leading
+   * backslash, and a protocol-relative `//host`, as somewhere else entirely,
+   * so an off-site link in that column would become an open redirect that a
+   * member of staff has every reason to click.
+   */
   function openItem(n) {
     if (!n.read_at) {
       notificationsApi.markRead(n.id).catch(() => {});
@@ -50,7 +76,7 @@ export function NotificationBell() {
       setUnread((u) => Math.max(0, u - 1));
     }
     setOpen(false);
-    if (n.link) navigate(n.link);
+    if (isInternalPath(n.link)) navigate(n.link);
   }
 
   function markAll() {
