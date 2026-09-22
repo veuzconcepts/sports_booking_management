@@ -946,6 +946,50 @@ a.bw__store:hover { transform: translateY(-2px); background: #000; }
    day running low, and a message only when the whole month is empty. */
 .bw__day.is-limited { position: relative; }
 
+/* How many courts are left, on the two days where that changes a decision.
+   Three free is an ordinary day: decorating it would spend the customer's
+   attention on nothing and leave none for the day that matters.
+
+   TWO tiers, told apart by weight rather than by shouting. "2 left" is a quiet
+   note in the same green the day already uses; "1 left" is amber and the cell
+   takes a ring, which is what makes it findable while scanning a month rather
+   than only once you are looking at it. */
+.bw__day.is-scarce { position: relative; }
+
+.bw__day-left {
+  position: absolute;
+  inset-block-end: 2px;
+  inset-inline-start: 50%;
+  transform: translateX(-50%);
+  font-size: 9px;
+  font-weight: 700;
+  line-height: 1;
+  letter-spacing: -0.01em;
+  white-space: nowrap;
+  color: var(--offer-ink);
+}
+
+[dir="rtl"] .bw__day-left { transform: translateX(50%); }
+
+/* The last court. The ring is drawn inside the circle so the grid does not
+   shift, and it is added for a last court even when an OFFER has taken the
+   label, so the most urgent cell of the month reads as both without two
+   badges fighting over a 40px circle. */
+.bw__day.is-last {
+  box-shadow: inset 0 0 0 2px var(--warn-ink);
+}
+
+.bw__day.is-last .bw__day-left { color: var(--warn-ink); }
+
+/* On the filled states the cell supplies the contrast, so the label follows
+   the text colour rather than keeping a hue that would disappear into it. */
+.bw__day.is-open:hover .bw__day-left,
+.bw__day.is-active .bw__day-left { color: inherit; }
+
+/* Today already wears a ring. A last court outranks it: "this is today" is
+   information the customer already has, and "one court left" is not. */
+.bw__day.is-today.is-last { box-shadow: inset 0 0 0 2px var(--warn-ink); }
+
 .bw__day-dot {
   position: absolute;
   inset-block-end: 6px;
@@ -965,7 +1009,10 @@ a.bw__store:hover { transform: translateY(-2px); background: #000; }
    for it appears in `.bw__cal-why` on hover, focus or tap. */
 .bw__day.is-holiday {
   position: relative;
-  color: var(--amber-600, #b45309);
+  /* `--warn-ink`, not `--amber-600`: that alias resolves to the LIME accent,
+     so the mark came out the same colour family as an available day, which is
+     the one thing a closed date must not look like. */
+  color: var(--warn-ink);
   cursor: help;
   /* The strike is what separates "the club chose to close" from "this date is
      simply not on offer". It is drawn in the cell rather than added as text,
@@ -989,7 +1036,28 @@ a.bw__store:hover { transform: translateY(-2px); background: #000; }
   inline-size: 5px;
   block-size: 5px;
   border-radius: 50%;
-  background: var(--amber, #d97706);
+  background: var(--warn-ink);
+}
+
+/* Sold out: the club is open and every court has gone. Kept legible rather
+   than faded to the grey of a date out of range, because a customer who can
+   see it was on offer will try the day either side; one that looks like dead
+   space gets skipped. A BAR rather than a dot, so the two closed states are
+   told apart by shape as well as colour. */
+.bw__day.is-full {
+  position: relative;
+  color: var(--muted);
+  cursor: help;
+}
+
+.bw__day.is-full:hover,
+.bw__day.is-full:focus-visible { background: var(--surface-2); color: var(--ink); }
+
+.bw__day-mark--full {
+  inline-size: 11px;
+  block-size: 2.5px;
+  border-radius: 2px;
+  background: var(--err-ink);
 }
 
 /* Why a date is out, under the grid rather than floating over it. A tooltip

@@ -118,3 +118,25 @@
   color: var(--color-text-muted);
   word-break: break-word;
 }
+
+/* Who arranged the split, as a mark on their NAME rather than in place of it.
+   The panel used to print "Organizer" where the name belongs, which told staff
+   nothing and read like a second, anonymous participant. */
+.split-panel__who {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.split-panel__org {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  inline-size: 18px;
+  block-size: 18px;
+  border-radius: 50%;
+  background: var(--color-warning-50, var(--color-surface-2));
+  color: var(--color-warning-700, var(--color-text-muted));
+  cursor: help;
+}

@@ -774,7 +774,13 @@ class BookingViewSet(GroupedListMixin, viewsets.ModelViewSet):
                     "paid": str(split.paid_total),
                     "shares": [{
                         "id": sh.id,
-                        "name": sh.display_name,
+                        # The organizer IS the booking's customer, so their
+                        # name is known even when the share was created without
+                        # one. "Organizer" as a name tells staff nothing and
+                        # reads like a second, anonymous participant.
+                        "name": (sh.display_name if sh.participant_name
+                                 else (split.organizer.full_name if sh.is_organizer
+                                       else sh.display_name)),
                         "is_organizer": sh.is_organizer,
                         "amount": str(sh.amount),
                         "status": sh.status,
@@ -841,8 +847,13 @@ class BookingViewSet(GroupedListMixin, viewsets.ModelViewSet):
 
         log_event(request, "split_share_link_reissued",
                   {"reference": booking.reference, "share": share.id})
+        # The deadline comes with it. A link with no stated expiry is one staff
+        # will send on tomorrow, and the arrangement, not the token, is what
+        # runs out: reissuing does not extend it, because a link that outlived
+        # the reservation would keep collecting for a court already resold.
         return Response({"share": share.id, "name": share.display_name,
-                         "amount": str(share.amount), "url": url})
+                         "amount": str(share.amount), "url": url,
+                         "expires_at": share.split.expires_at})
 
     @action(detail=True, methods=["post"])
     def cancel(self, request, pk=None):

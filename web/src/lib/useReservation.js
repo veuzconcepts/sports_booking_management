@@ -51,6 +51,46 @@ function writeStored(value) {
 }
 
 /**
+ * Has this exact selection already run out in this tab?
+ *
+ * Exported so the wizard can decide WHERE to open after a reload. A customer
+ * whose reservation expired and who then refreshes used to land back on the
+ * payment step, looking at a dead countdown and a Pay button that would be
+ * refused, with nothing asking the server again. The honest place to put them
+ * is the step the expiry message already tells them to go to.
+ *
+ * This does not weaken the rule it sits beside. The deadline still means
+ * something: refreshing grants nobody another ten minutes on the spot, it
+ * returns them to choosing, which is the same explicit act "Pick times again"
+ * asks for and has always allowed.
+ */
+export function selectionFinished(club, facilityType, slots) {
+  const stored = readStored();
+  if (!stored?.finished) return false;
+  return stored.signature === signatureOf(club, facilityType, slots);
+}
+
+/**
+ * Forget an expired selection, so choosing again claims a fresh window.
+ *
+ * The mark is cleared by LEAVING the checkout, which is the explicit act the
+ * expiry message asks for. A reload never leaves anything: the page has no
+ * memory of having been on the payment step, so nothing cleared the mark and
+ * the customer was sent to the picker only to be bounced straight back to a
+ * dead countdown. Opening the picker after a reload IS that act, so it clears
+ * the mark the same way.
+ *
+ * Only ever clears a FINISHED entry. A live reservation keeps its token here,
+ * and throwing that away would put a court the customer is still paying for
+ * back on sale.
+ */
+export function clearFinishedSelection() {
+  if (!readStored()?.finished) return false;
+  writeStored(null);
+  return true;
+}
+
+/**
  * Should leaving this render give the courts back?
  *
  * Only on a real transition out of the checkout. Being inactive is not the

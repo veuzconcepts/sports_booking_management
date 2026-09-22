@@ -1,3 +1,4 @@
+import { Crown } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 
 import { StatusBadge } from '../../components/StatusBadge.jsx';
@@ -94,7 +95,21 @@ export function SplitPaymentPanel({ splits, currency, onIssueLink, issuingShare 
               {split.shares.map((share) => (
                 <tr key={share.id}>
                   <td>
-                    {share.is_organizer ? t('split.organizer') : (share.name || t('split.guest'))}
+                    {/* The NAME, always. Printing "Organizer" in place of it
+                        told staff nothing and read like a second, anonymous
+                        participant sitting above the real people. Who arranged
+                        the split is a mark on their name, not a replacement
+                        for it. */}
+                    <span className="split-panel__who">
+                      {share.name || t('split.guest')}
+                      {share.is_organizer && (
+                        <span className="split-panel__org" role="img"
+                          title={t('split.organizerHint')}
+                          aria-label={t('split.organizerHint')}>
+                          <Crown size={11} aria-hidden="true" />
+                        </span>
+                      )}
+                    </span>
                     {/* Only present when the reader holds
                         `payments.view_payer_contacts`. The backend omits the
                         keys entirely rather than blanking them, so an absent

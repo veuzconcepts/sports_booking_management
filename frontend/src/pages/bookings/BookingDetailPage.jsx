@@ -87,6 +87,7 @@ export default function BookingDetailPage() {
   const [linkFor, setLinkFor] = useState(null);
   const [issuingShare, setIssuingShare] = useState(null);
   const [issuedLink, setIssuedLink] = useState(null);
+  const [linkCopied, setLinkCopied] = useState(false);
   // The bill wizard was opened BY a refused confirmation, so its success
   // message should say the booking is confirmed rather than merely invoiced.
   const [paymentToConfirm, setPaymentToConfirm] = useState(false);
@@ -146,12 +147,28 @@ export default function BookingDetailPage() {
         copied = false;
       }
       setLinkFor(null);
+      setLinkCopied(copied);
       setIssuedLink({ ...issued, copied });
       loadFinance();
     } catch (e) {
       toast.error(apiErrorMessage(e, t('split.issueLinkFailed')));
     } finally {
       setIssuingShare(null);
+    }
+  }
+
+  /** Put the issued link on the clipboard, and say whether it worked. */
+  async function copyIssuedLink() {
+    if (!issuedLink?.url) return;
+    try {
+      await navigator.clipboard.writeText(issuedLink.url);
+      setLinkCopied(true);
+    } catch {
+      // Some browsers refuse without a gesture they recognise, and any
+      // insecure origin refuses outright. The URL is on screen either way,
+      // so say so rather than claiming a copy that did not happen.
+      setLinkCopied(false);
+      toast.error(t('split.copyFailed'));
     }
   }
 
@@ -717,7 +734,29 @@ export default function BookingDetailPage() {
         <div className="col" style={{ flex: '1.4 1 420px' }}>
           {isStaff && !terminal && (
             <div className="card">
-              <div className="card-header"><h3 className="card-title">{t('actionsHeading')}</h3></div>
+              {/* The money, beside the buttons that act on it. Reception
+                  deciding whether to confirm, assign or cancel needs to know
+                  what has been paid, and that lived three cards further down
+                  in the Details column. The outstanding figure comes with it
+                  where there is one, because "partially paid" on its own does
+                  not say how much to ask for. */}
+              <div className="card-header" style={{
+                display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap',
+              }}>
+                <h3 className="card-title" style={{ margin: 0 }}>{t('actionsHeading')}</h3>
+                <span style={{
+                  marginInlineStart: 'auto', display: 'inline-flex',
+                  alignItems: 'center', gap: 8, flexWrap: 'wrap',
+                }}>
+                  <StatusBadge status={booking.payment_status} />
+                  {Number(booking.outstanding) > 0 && (
+                    <span className="muted" style={{ fontSize: 12.5, whiteSpace: 'nowrap' }}>
+                      {t('outstandingAmount')}{' '}
+                      <strong><Money amount={booking.outstanding} code={booking.currency} /></strong>
+                    </span>
+                  )}
+                </span>
+              </div>
               <div className="card-body" style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
                 {/* Assigned goes through the Assign dialog; Completed goes through
                     the Completion & Payment wizard - neither is a raw status jump,
@@ -911,8 +950,19 @@ export default function BookingDetailPage() {
         title={t('split.issuedLinkTitle')}
         size="sm"
         footer={
-          <button className="btn btn-primary" type="button"
-            onClick={() => setIssuedLink(null)}>{t('common:actions.close')}</button>
+          <>
+            {/* An explicit button, not only the automatic copy. The automatic
+                one fails silently on an insecure origin and in browsers that
+                want a gesture they recognise, and a link that exists but was
+                never copied is a link nobody can send: the old one has already
+                stopped working by then. */}
+            <button className="btn btn-secondary" type="button"
+              onClick={() => copyIssuedLink()}>
+              {linkCopied ? t('split.linkCopied') : t('split.copyLink')}
+            </button>
+            <button className="btn btn-primary" type="button"
+              onClick={() => setIssuedLink(null)}>{t('common:actions.close')}</button>
+          </>
         }
       >
         <p style={{ marginTop: 0, fontSize: 13.5 }}>
@@ -927,6 +977,14 @@ export default function BookingDetailPage() {
         }}>
           {issuedLink?.url}
         </p>
+        {/* How long it is good for. A link with no stated deadline is one
+            somebody sends on tomorrow. Reissuing does not extend it: the
+            arrangement runs out, not the token. */}
+        {issuedLink?.expires_at && (
+          <p className="muted" style={{ fontSize: 12.5, margin: '10px 0 0' }}>
+            {t('split.linkExpires', { when: formatDateTime(issuedLink.expires_at) })}
+          </p>
+        )}
       </Modal>
 
       {/* Issuing a link invalidates the one the customer already has, which is

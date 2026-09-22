@@ -523,12 +523,16 @@ export function SplitPanel({ split, setSplit, total, currency, disabled,
                 <>
                   {/* An inline input rather than a separate form: the organizer
                       may name a friend or leave it blank for a link they hand
-                      over themselves, and neither should feel like extra work. */}
+                      over themselves, and neither should feel like extra work.
+                      It still has to LOOK like a field. The placeholder used to
+                      read "Friend 2" in solid ink with no border until hover,
+                      so it was taken for a heading, and on a phone, where there
+                      is no hover, there was nothing to discover at all. */}
                   <input
                     className="ck__person-name"
                     value={row.name}
                     disabled={disabled}
-                    placeholder={t('split.friendPlaceholder', { number: index + 1 })}
+                    placeholder={t('split.namePlaceholder')}
                     aria-label={t('split.nameFor', { number: index + 1 })}
                     onChange={split.mode === 'custom'
                       ? setCustom(index, 'name') : setFriend(index - 1, 'name')}
@@ -536,6 +540,9 @@ export function SplitPanel({ split, setSplit, total, currency, disabled,
                   {contactsOpen.has(index) || row.contact ? (
                     <input
                       className="ck__person-contact"
+                      type="email"
+                      inputMode="email"
+                      autoComplete="off"
                       value={row.contact || ''}
                       disabled={disabled}
                       placeholder={t('split.contactPlaceholder')}
@@ -631,16 +638,16 @@ export function splitRequest(split) {
 }
 
 /**
- * One contact box accepts either an email or a phone number.
+ * One optional email for the participant, and nothing else.
  *
- * Demanding both for a link the organizer is going to paste into a group chat
- * would be collecting somebody else's details for no reason.
+ * It used to take an email OR a mobile and guess which from an "@". The guess
+ * was the problem: a typo with no "@" was quietly filed as a phone number, and
+ * the organizer never found out why their friend got nothing. The backend
+ * still has a `phone` column, so it is sent empty rather than dropped.
  */
 function contactFields(value) {
-  const contact = String(value || '').trim();
-  if (!contact) return { email: '', phone: '' };
-  return contact.includes('@') ? { email: contact, phone: '' }
-    : { email: '', phone: contact };
+  const email = String(value || '').trim();
+  return { email, phone: '' };
 }
 
 /** The card section of a submission. Sent once, kept nowhere. */

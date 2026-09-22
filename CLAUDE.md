@@ -217,7 +217,45 @@ Only the exception's `name` is exposed. Its `notes` are written for staff and
 never leave the server.
 
 The calendar marks such a date and explains it on hover, on keyboard focus and
-on tap. A date with something to explain is therefore `aria-disabled` with a
+on tap, and it distinguishes the reasons rather than rendering one grey square
+for all of them. Three different facts used to look identical: every court has
+gone, the club chose to close, and the date is not on offer at all. Sold out
+carries a BAR, a holiday carries a DOT, so they are told apart by shape as well
+as colour for anyone who cannot rely on hue, and a sold-out date stays legible
+instead of fading to the grey of a date out of range, because a customer who
+can see a day sold out will try the one either side.
+
+Closed dates take `--warn-ink`, never `--amber-600`: that alias resolves to the
+LIME accent in this theme, so the mark came out the same colour family as an
+available day, which is the one thing a closed date must not look like.
+
+A calendar that opens on an unbookable date moves the selection to the first
+bookable one in the month, so nobody is shown a day of "Fully booked" and left
+to hunt. It runs once per club, activity and month, so it never fights a
+customer who has deliberately chosen a date.
+
+## Scarcity is shown on two days and no others
+
+One court left and two courts left change what a customer does; three do not.
+A day with plenty carries nothing, because decorating it spends attention on
+nothing and leaves none for the day that matters.
+
+Two tiers, separated by weight rather than by shouting. "2 left" is a quiet
+note in the colour the day already uses. "1 left" is amber AND the cell takes
+an inset ring, which is what makes it findable while scanning a month rather
+than only once you are looking straight at it. The ring is inset so the grid
+does not shift, and it outranks today's ring: "this is today" is information
+the customer already has.
+
+**A day never carries two badges.** The cell is a 40px circle. Where an OFFER
+already has the words, the count label is suppressed and the last court is
+marked by the ring alone, so the most urgent day of the month reads as both
+without two labels fighting for the same space. The label follows the text
+colour on the chosen day and on hover, where the cell is filled and a fixed
+hue would disappear into it.
+
+The figure is `slot_count` from the backend. Nothing here decides availability;
+it only reports what the availability engine already said. A date with something to explain is therefore `aria-disabled` with a
 guarded click rather than natively `disabled`: a `disabled` button cannot be
 focused or tapped, so on a phone, where there is no hover at all, the
 explanation could never be reached. A date with nothing to explain, one in the
@@ -443,6 +481,32 @@ held. Outside DEBUG, `split._site_base` refuses to create the split before any
 row is written, which the checkout reports and which leaves the booking payable
 the ordinary way. `manage.py check --deploy` reports the same thing earlier
 (`payments.E001`).
+
+**The organizer is NAMED, and marked.** The split panel printed "Organizer"
+where the name belongs, which told staff nothing and read like a second,
+anonymous participant sitting above the real people. Who arranged the split is
+a crown on their name with a tooltip, never a replacement for it. The finance
+endpoint falls back to the split's organizer customer when the share itself
+carries no participant name, because that person IS the booking's customer and
+their name is always known.
+
+**The payment state sits beside the actions.** Reception deciding whether to
+confirm, assign or cancel needs to know what has been paid, and that lived
+three cards down the page. The outstanding figure comes with the badge wherever
+there is one, because "partially paid" on its own does not say how much to ask
+for.
+
+**A payment link lasts as long as the CLUB says.** `split_hold_minutes`,
+resolved through `resolve_booking_policy` and already clamped there to
+`hold_max_minutes`, decides the deadline in `create_split`. It used to read
+`SPLIT_PAYMENT_MINUTES` from the environment while the checkout showed the
+customer the configured figure from the same policy, so a club that set thirty
+minutes told its customers thirty and expired the links in sixty: the setting
+was real everywhere except where it counted.
+
+Reissuing a link does NOT extend the deadline. The arrangement runs out, not
+the token, and a link that outlived the reservation would keep collecting for
+a court already released and resold.
 
 **Staff ISSUE a payment link, they cannot read the existing one.** Raw tokens
 are stored only as digests, so the link a customer was given cannot be looked
@@ -917,6 +981,37 @@ with nothing to click. Paying in full then confirms the booking on its own
 through `confirm_if_settled`. Staff meeting a rule with no way forward is what
 made this read as a bug.
 
+## Part paid is not paid
+
+A website checkout that has collected half the money is not a booking the club
+has committed a court to, and confirming it hides an outstanding balance behind
+a status that says everything is settled. `services.online_payment_incomplete`
+refuses it; the payment wizard opens instead, and paying the balance confirms
+the booking on its own.
+
+This is the one place where the confirmation gate and the expiry sweep stopped
+reading a single predicate, and the reason is worth keeping. Cancelling a
+part-paid booking would take a court from somebody who has handed over real
+money, so `awaiting_online_payment`, which the sweep reads, stays as narrow as
+it was. Refusing to confirm takes nothing away, so the gate is allowed to be
+wider.
+
+What replaces the shared predicate is CONTAINMENT, asserted directly in
+`test_confirmation_gate.py`: anything the sweep would release, the gate also
+refuses. A booking can therefore never be Confirmed at the moment its court is
+about to be handed to somebody else, which is the only thing the shared
+predicate was protecting.
+
+`awaiting_online_payment` now carries its own `source == WEBSITE` check. That
+lived only in the sweep's queryset, so the predicate answered True for an admin
+booking the sweep would never touch. Nothing was broken by it, because the one
+caller pre-filtered, but it made the rule impossible to reason about alone and
+any second caller would have inherited a bug.
+
+The gate reads the outstanding BALANCE, not `payment_status`. The label is
+derived from the ledger, so money is the authoritative figure; a booking marked
+PAID with no payment behind it is a state no real path produces.
+
 ## Money settles the arrangement, however it arrives
 
 `settle_booking_payment` is the one place any payment is recorded, and it knew
@@ -1027,6 +1122,20 @@ An expired reservation is sticky per selection. A refresh must not silently
 start a new window, or the deadline means nothing to anybody willing to press
 F5. The mark clears when the customer leaves the checkout, which is the
 explicit act the "Pick times again" message asks for.
+
+A reload after expiry therefore opens the PICKER, not the payment step
+(`selectionFinished` -> clamp to `STEP_WHEN` -> `clearFinishedSelection`).
+Landing there is that explicit act. Restoring to the payment step left the
+customer at a dead countdown beside a Pay button that would be refused, with
+nothing on the page asking the server again. This grants nobody another ten
+minutes on the spot: they still have to choose and press Continue, exactly as
+the button has always required. A LIVE reservation is untouched by a reload and
+keeps its own deadline.
+
+**A refusal clears the selection; an expiry keeps it.** Times that were refused
+are times somebody else has taken, so keeping them selected sends the customer
+back to read the same message again. Times that merely ran out may well still
+be free, so they are kept and choosing again is one press.
 
 **A lapsed reservation does not block the payment.** If the slot is still
 free, the customer finishes and gets the booking. A reservation protects the

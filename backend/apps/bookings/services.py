@@ -1065,21 +1065,28 @@ PAYMENT_WINDOW_MINUTES = getattr(settings, "BOOKING_PAYMENT_WINDOW_MINUTES", 15)
 
 
 def awaiting_online_payment(booking) -> bool:
-    """Is this booking still waiting for money the customer promised online?
+    """Would `expire_unpaid_bookings` release this booking's court?
 
-    One definition, used by two rules that have to agree. `expire_unpaid_bookings`
-    releases the court when this stays true past the window; the confirmation gate
-    refuses to call the booking Confirmed while it is true. If they ever disagreed
-    a booking could be confirmed at the same moment its slot was being handed to
-    somebody else.
+    The whole condition, not part of it. The source check used to live only in
+    the sweep's queryset, so the predicate answered True for an ADMIN booking
+    the sweep would never have touched. Nothing was broken by that, because the
+    only caller pre-filtered; it just made the rule impossible to reason about
+    on its own, and any second caller would have inherited a bug.
 
-    Deliberately narrow, and false whenever we are not sure:
+    Deliberately narrow, and false whenever we are not sure, because being
+    wrong here CANCELS somebody's booking and puts their court back on sale:
 
+    * only a website checkout. Staff committing a court in person is a
+      decision, and a clock must not undo it;
     * a blank payment method means we never recorded an intent, so there is
       nothing to wait for;
     * cash is pay-at-venue: the money is due at the door, not now;
-    * anything already part paid, covered or settled is somebody's real booking.
+    * anything already part paid, covered or settled is somebody's real
+      booking. `online_payment_incomplete` is the WIDER rule that refuses to
+      confirm those, and refusing to confirm takes nothing away.
     """
+    if booking.source != BookingSource.WEBSITE:
+        return False
     if booking.payment_status != PaymentStatus.PENDING:
         return False
     method = booking.payment_method or ""
@@ -1087,6 +1094,37 @@ def awaiting_online_payment(booking) -> bool:
         return False
     return booking_amount_paid(booking) <= 0
 
+
+
+def online_payment_incomplete(booking) -> bool:
+    """Is this a website checkout that chose to pay online and still owes money?
+
+    A SUPERSET of `awaiting_online_payment`, and deliberately a separate
+    function, because the two rules that read them do different things and must
+    be allowed to differ.
+
+    `expire_unpaid_bookings` CANCELS a booking and puts its court back on sale.
+    That is destructive and irreversible for the customer, so it stays as
+    narrow as it is: nothing collected, no split arrangement, untouched by
+    staff. A part-paid booking is somebody who has handed over real money, and
+    a clock must never take their court away.
+
+    Refusing to CONFIRM costs nobody anything: the booking sits where it is
+    until the balance is taken, which is one click away through the payment
+    wizard. So this one is allowed to be wider, and a booking that is half paid
+    for is not a booking the club has committed a court to.
+
+    The property that matters is the containment, and it is tested: anything
+    the sweep would release, this also refuses. A booking can therefore never
+    be Confirmed at the moment the sweep is about to cancel it, which is the
+    disagreement the single shared predicate existed to prevent.
+    """
+    if booking.source != BookingSource.WEBSITE:
+        return False
+    method = booking.payment_method or ""
+    if not method or method == PaymentMethod.CASH:
+        return False
+    return booking_outstanding(booking) > 0
 
 
 def expire_unpaid_bookings(*, now=None) -> int:
@@ -1584,18 +1622,25 @@ def _validate_confirmation_gate(booking, target):
     same moment `expire_unpaid_bookings` is about to release its slot, so the
     two rules read the same predicate.
 
-    Only that one case is refused. Pay-at-venue, admin and walk-in bookings,
-    part-paid bookings, covered and zero-value bookings, and anything whose
-    payment method was never recorded all confirm exactly as before: staff
-    committing a court in person is a decision, not an oversight.
+    Part paid is not paid. A website checkout that has collected half the money
+    is not a booking the club has committed a court to, and confirming it hides
+    an outstanding balance behind a status that says everything is settled.
+    The payment wizard opens instead, which is one click, and paying the
+    balance confirms the booking on its own.
+
+    Pay-at-venue, admin and walk-in bookings, covered and zero-value bookings,
+    and anything whose payment method was never recorded all confirm exactly as
+    before: staff committing a court in person is a decision, not an oversight.
     """
     if target != BookingStatus.CONFIRMED:
         return
     if booking.source != BookingSource.WEBSITE:
         return
-    if awaiting_online_payment(booking):
+    if online_payment_incomplete(booking):
+        from apps.settings_app.currency import format_currency
+        owed = format_currency(booking_outstanding(booking), booking.currency)
         raise BookingPaymentRequired(
-            "This booking is still awaiting its online payment. Take the "
+            f"This booking still owes {owed} of its online payment. Take the "
             "payment to confirm it.")
 
 

@@ -753,3 +753,70 @@ class TestEveryPaymentKeepsItsPayer:
         assert response.status_code == 200, response.data
         payments = response.data["payments"]
         assert [p["payer"] for p in payments] == ["Ahmed"]
+
+
+class TestTheLinkLastsAsLongAsTheClubSays:
+    """`split_hold_minutes` was shown to the customer and ignored when the
+    deadline was set.
+
+    The checkout read the CONFIGURED figure through `checkout_payment_options`,
+    while `create_split` set the deadline from `SPLIT_PAYMENT_MINUTES` in the
+    environment. A club that set thirty minutes told its customers thirty and
+    then kept the links alive for sixty: the setting was real everywhere
+    except where it counted.
+    """
+
+    @staticmethod
+    def _set_club_minutes(club, minutes):
+        club.split_hold_minutes = minutes
+        club.hold_max_minutes = max(minutes, club.hold_max_minutes or minutes)
+        club.save(update_fields=["split_hold_minutes", "hold_max_minutes"])
+
+    def test_the_deadline_follows_the_club_setting(self, order, venue, settings):
+        from django.utils import timezone
+
+        settings.SPLIT_PAYMENT_MINUTES = 60
+        self._set_club_minutes(venue["club"], 25)
+        booking_order, bookings = order
+
+        before = timezone.now()
+        split, _links = three_ways(booking_order, bookings)
+        minutes = round((split.expires_at - before).total_seconds() / 60)
+        assert 24 <= minutes <= 26, f"the links last {minutes} minutes, not 25"
+
+    def test_the_environment_default_no_longer_wins(self, order, venue, settings):
+        from django.utils import timezone
+
+        settings.SPLIT_PAYMENT_MINUTES = 60
+        self._set_club_minutes(venue["club"], 25)
+        booking_order, bookings = order
+
+        before = timezone.now()
+        split, _links = three_ways(booking_order, bookings)
+        minutes = round((split.expires_at - before).total_seconds() / 60)
+        assert minutes != 60, "the environment default was used instead of the club"
+
+    def test_the_customer_is_told_the_same_figure_that_is_enforced(self, venue):
+        """The two must agree, because disagreeing is the whole bug."""
+        from apps.payments.gateway import checkout_payment_options
+        from apps.payments.split import _configured_minutes
+
+        self._set_club_minutes(venue["club"], 25)
+        shown = int(checkout_payment_options(venue["club"])["split_minutes"])
+        assert shown == _configured_minutes(venue["club"]) == 25
+
+    def test_it_is_still_clamped_to_the_reservation_lifetime(self, order, venue, settings):
+        """A link that outlives the hold would keep collecting for a court that
+        has already been released and resold."""
+        from django.utils import timezone
+
+        club = venue["club"]
+        club.hold_max_minutes = 20
+        club.split_hold_minutes = 600
+        club.save(update_fields=["hold_max_minutes", "split_hold_minutes"])
+        booking_order, bookings = order
+
+        before = timezone.now()
+        split, _links = three_ways(booking_order, bookings)
+        minutes = round((split.expires_at - before).total_seconds() / 60)
+        assert minutes <= 20, f"the links outlive the reservation by {minutes - 20} minutes"

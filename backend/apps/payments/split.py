@@ -336,7 +336,7 @@ def create_split(target, participants, *, request=None, expires_in_minutes=None)
     cleaned = _clean_participants(participants, currency)
     _assert_allocation_matches(cleaned, outstanding, currency)
 
-    minutes = int(expires_in_minutes or getattr(settings, "SPLIT_PAYMENT_MINUTES", 60))
+    minutes = int(expires_in_minutes or _configured_minutes(bookings[0].club))
     raw_organizer, organizer_digest = _new_token()
     split = BookingPaymentSplit.objects.create(
         organizer=target.customer,
@@ -371,6 +371,31 @@ def create_split(target, participants, *, request=None, expires_in_minutes=None)
         meta={"shares": len(cleaned), "allocated": str(split.amount_allocated),
               "expires_at": split.expires_at.isoformat()})
     return split, links
+
+
+def _configured_minutes(club) -> int:
+    """How long the club says its payment links last.
+
+    `split_hold_minutes` on the Organization, overridable per club, resolved
+    through `resolve_booking_policy` like every other booking setting, and
+    already clamped there to `hold_max_minutes` so a link can never outlive the
+    reservation it is collecting for.
+
+    This used to read `SPLIT_PAYMENT_MINUTES` from the environment, while the
+    checkout showed the customer the CONFIGURED figure from the same policy.
+    So a club that set two hours told its customers two hours and then expired
+    the links in one: the setting was real everywhere except where it counted.
+
+    Falls back to the environment default only if the policy cannot be read at
+    all, because a split with no deadline would hold a court for ever.
+    """
+    from apps.settings_app.schedule import resolve_booking_policy
+
+    fallback = int(getattr(settings, "SPLIT_PAYMENT_MINUTES", 60))
+    try:
+        return int(resolve_booking_policy(club)["split_hold_minutes"]) or fallback
+    except Exception:            # pragma: no cover - a split must still work
+        return fallback
 
 
 def _clean_participants(participants, currency):

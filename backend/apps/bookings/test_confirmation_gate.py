@@ -70,7 +70,7 @@ def make_booking(venue, **overrides):
 class TestTheOneCaseThatIsRefused:
     def test_an_unpaid_online_website_checkout_cannot_be_confirmed(self, venue):
         booking = make_booking(venue)
-        with pytest.raises(ValueError, match="awaiting its online payment"):
+        with pytest.raises(ValueError, match="online payment"):
             transition_booking(booking, BookingStatus.CONFIRMED)
 
     def test_the_refusal_leaves_the_booking_where_it_was(self, venue):
@@ -89,10 +89,16 @@ class TestTheOneCaseThatIsRefused:
             transition_booking(booking, BookingStatus.CONFIRMED)
 
     def test_paying_makes_it_confirmable(self, venue):
+        """Real money, not a label. The gate reads the outstanding balance,
+        which is the authoritative figure; a `payment_status` of PAID with no
+        payment behind it is a state no real path can produce."""
+        from apps.bookings.services import check_confirmable, settle_booking_payment
+
         booking = make_booking(venue)
-        booking.payment_status = PaymentStatus.PAID
-        booking.save(update_fields=["payment_status"])
-        transition_booking(booking, BookingStatus.CONFIRMED)
+        settle_booking_payment(booking, method="card")
+        booking.refresh_from_db()
+
+        check_confirmable(booking)          # raises if it would be refused
         assert booking.status == BookingStatus.CONFIRMED
 
 
@@ -115,13 +121,11 @@ class TestWhatMustStillConfirm:
         transition_booking(booking, BookingStatus.CONFIRMED)
         assert booking.status == BookingStatus.CONFIRMED
 
-    def test_a_part_paid_booking(self, venue):
-        booking = make_booking(venue, payment_status=PaymentStatus.PARTIALLY_PAID)
-        transition_booking(booking, BookingStatus.CONFIRMED)
-        assert booking.status == BookingStatus.CONFIRMED
-
     def test_a_booking_covered_by_a_membership(self, venue):
-        booking = make_booking(venue, payment_status=PaymentStatus.COVERED)
+        """Covered means the payable is nothing, which is why the status
+        exists. `total_amount` is what makes that true."""
+        booking = make_booking(venue, payment_status=PaymentStatus.COVERED,
+                               total_amount=Decimal("0.000"))
         transition_booking(booking, BookingStatus.CONFIRMED)
         assert booking.status == BookingStatus.CONFIRMED
 
@@ -142,8 +146,15 @@ class TestWhatMustStillConfirm:
 class TestTheReleaseRuleAgrees:
     """The gate and the expiry sweep must never disagree about one booking.
 
-    If they did, a booking could be Confirmed at the same moment its court was
-    being handed to somebody else.
+    They used to be the same question, read from one predicate. They are not
+    any more: refusing to CONFIRM a part-paid booking costs nobody anything,
+    while CANCELLING one would take a court from somebody who has handed over
+    real money, so the sweep stayed narrow and the gate got wider.
+
+    What must still hold is the CONTAINMENT. Anything the sweep would release,
+    the gate also refuses, so a booking can never be Confirmed at the moment
+    its court is about to be handed to somebody else. That is the property the
+    shared predicate was protecting, and it is now asserted directly.
     """
 
     @pytest.mark.parametrize("overrides", [
@@ -152,9 +163,10 @@ class TestTheReleaseRuleAgrees:
         {"payment_method": ""},
         {"payment_status": PaymentStatus.PARTIALLY_PAID},
         {"payment_status": PaymentStatus.PAID},
-        {"payment_status": PaymentStatus.COVERED},
+        {"payment_status": PaymentStatus.COVERED, "total_amount": Decimal("0.000")},
+        {"source": BookingSource.ADMIN},
     ])
-    def test_refusing_to_confirm_and_being_releasable_are_the_same_question(
+    def test_anything_the_sweep_would_release_cannot_be_confirmed(
             self, venue, overrides):
         booking = make_booking(venue, **overrides)
         releasable = awaiting_online_payment(booking)
@@ -165,8 +177,10 @@ class TestTheReleaseRuleAgrees:
         except ValueError:
             refused = True
 
-        assert refused == releasable, (
-            f"{overrides}: confirm-refused={refused} releasable={releasable}")
+        if releasable:
+            assert refused, (
+                f"{overrides}: the sweep would cancel this booking, but it "
+                "could still be confirmed")
 
 
 class TestAssigningDoesNotConfirmPastTheGate:
@@ -190,7 +204,11 @@ class TestAssigningDoesNotConfirmPastTheGate:
         assert booking.status == BookingStatus.BOOKED
 
     def test_assign_still_works_once_the_booking_is_paid(self, venue, auth_api, worker):
-        booking = make_booking(venue, payment_status=PaymentStatus.PAID)
+        from apps.bookings.services import settle_booking_payment
+
+        booking = make_booking(venue)
+        settle_booking_payment(booking, method="card")
+        booking.refresh_from_db()
         response = auth_api.post(
             f"/api/v1/bookings/{booking.id}/assign/",
             {"assigned_to": worker.id}, format="json")
@@ -258,5 +276,125 @@ class TestTheRefusalOffersAWayForward:
         booking = make_booking(venue)
         settle_booking_payment(booking, method="card")
 
+        booking.refresh_from_db()
+        assert booking.status == BookingStatus.CONFIRMED
+
+
+class TestPartPaidIsNotPaid:
+    """A website checkout that has collected half the money is not a booking
+    the club has committed a court to.
+
+    Confirming it hid an outstanding balance behind a status that says
+    everything is settled: the screenshot that started this showed a booking
+    marked Confirmed with three of four split shares still pending.
+    """
+
+    def test_a_half_paid_online_booking_cannot_be_confirmed(self, venue):
+        from apps.bookings.services import BookingPaymentRequired, settle_booking_payment
+
+        booking = make_booking(venue)
+        settle_booking_payment(booking, method="card", amount=Decimal("40.000"))
+        booking.refresh_from_db()
+        assert booking.status == BookingStatus.BOOKED
+
+        with pytest.raises(BookingPaymentRequired) as exc:
+            transition_booking(booking, BookingStatus.CONFIRMED)
+        assert exc.value.code == "payment_required"
+
+    def test_the_refusal_names_what_is_left(self, venue):
+        """"Still awaiting its online payment" is untrue of a booking that has
+        paid most of it, and tells reception nothing about how much to take."""
+        from apps.bookings.services import BookingPaymentRequired, settle_booking_payment
+
+        booking = make_booking(venue)
+        settle_booking_payment(booking, method="card", amount=Decimal("40.000"))
+        booking.refresh_from_db()
+
+        with pytest.raises(BookingPaymentRequired) as exc:
+            transition_booking(booking, BookingStatus.CONFIRMED)
+        assert "60" in str(exc.value)
+
+    def test_taking_the_rest_confirms_it(self, venue):
+        from apps.bookings.services import settle_booking_payment
+
+        booking = make_booking(venue)
+        settle_booking_payment(booking, method="card", amount=Decimal("40.000"))
+        booking.refresh_from_db()
+        settle_booking_payment(booking, method="card")
+
+        booking.refresh_from_db()
+        assert booking.status == BookingStatus.CONFIRMED
+
+    def test_a_part_paid_booking_is_still_never_cancelled_by_the_clock(self, venue):
+        """The other half of the rule, and the reason the two predicates are
+        allowed to differ. Refusing to confirm costs nobody anything; releasing
+        a court somebody has paid real money towards is irreversible."""
+        from django.utils import timezone
+        from datetime import timedelta
+
+        from apps.bookings.services import expire_unpaid_bookings, settle_booking_payment
+
+        booking = make_booking(venue)
+        settle_booking_payment(booking, method="card", amount=Decimal("40.000"))
+        Booking.objects.filter(pk=booking.pk).update(
+            created_at=timezone.now() - timedelta(days=2))
+
+        expire_unpaid_bookings()
+        booking.refresh_from_db()
+        assert booking.status == BookingStatus.BOOKED
+
+    def test_the_gate_refuses_everything_the_sweep_would_release(self, venue):
+        """The containment that lets the two rules differ safely.
+
+        A booking must never be Confirmed at the moment the sweep is about to
+        cancel it. That was guaranteed by both reading ONE predicate; now it is
+        guaranteed by this being a superset, so it is asserted rather than
+        assumed.
+        """
+        from apps.bookings.services import (
+            awaiting_online_payment, online_payment_incomplete, settle_booking_payment,
+        )
+
+        # A slot each: the `(facility, date, time)` uniqueness guarantee is
+        # real, and five bookings on one court at 19:00 is a double booking.
+        def at(hour, **overrides):
+            return make_booking(venue, scheduled_time=time(hour, 0),
+                                end_time=time(hour + 1, 0), **overrides)
+
+        cases = [
+            at(9),                                          # nothing paid
+            at(10, payment_method=PaymentMethod.CASH),      # pay at venue
+            at(11, payment_method=""),                      # never recorded
+            at(12, source=BookingSource.ADMIN),             # taken at the desk
+        ]
+        part_paid = at(13)
+        settle_booking_payment(part_paid, method="card", amount=Decimal("40.000"))
+        part_paid.refresh_from_db()
+        cases.append(part_paid)
+
+        for booking in cases:
+            if awaiting_online_payment(booking):
+                assert online_payment_incomplete(booking), (
+                    f"{booking.reference} would be released by the sweep but "
+                    "could still be confirmed")
+
+    def test_pay_at_venue_still_confirms_with_nothing_collected(self, venue):
+        """Reception committing a court for a regular who pays on arrival. The
+        widening must not have cost that."""
+        booking = make_booking(venue, payment_method=PaymentMethod.CASH)
+        transition_booking(booking, BookingStatus.CONFIRMED)
+        booking.refresh_from_db()
+        assert booking.status == BookingStatus.CONFIRMED
+
+    def test_an_admin_booking_still_confirms_unpaid(self, venue):
+        booking = make_booking(venue, source=BookingSource.ADMIN)
+        transition_booking(booking, BookingStatus.CONFIRMED)
+        booking.refresh_from_db()
+        assert booking.status == BookingStatus.CONFIRMED
+
+    def test_a_booking_with_no_payment_method_still_confirms(self, venue):
+        """Not knowing is not a reason to refuse somebody's court."""
+        booking = make_booking(venue, payment_method="")
+        transition_booking(booking, BookingStatus.CONFIRMED)
         booking.refresh_from_db()
         assert booking.status == BookingStatus.CONFIRMED

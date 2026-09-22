@@ -619,8 +619,14 @@
   font-weight: 600;
 }
 
-.ck__person-name::placeholder { color: var(--ink); opacity: 0.85; }
-.ck__person-name:hover { border-bottom-color: var(--line); }
+/* A real placeholder, in placeholder colour. Solid ink at 0.85 read as the
+   row's heading, which is exactly how an editable field comes to look like a
+   label nobody tries to type in. */
+.ck__person-name::placeholder { color: var(--muted); opacity: 1; font-weight: 500; }
+/* Visible always, not only on hover: a phone has no hover, so the affordance
+   has to be there before anything is touched. */
+.ck__person-name { border-bottom-color: var(--line); }
+.ck__person-name:hover { border-bottom-color: var(--ink); }
 
 .ck__person-name:focus-visible {
   outline: none;
@@ -648,19 +654,28 @@
 
 .ck__person-add:hover { color: var(--brand-deep); }
 
+/* The email sits directly under the name and behaves as one pair of fields, so
+   it takes the same underline treatment. A bordered box beneath a bare
+   underline read as two different kinds of control stacked on each other. */
 .ck__person-contact {
   width: 100%;
   margin-top: 3px;
-  padding: 5px 8px;
-  border: 1px solid var(--line);
-  border-radius: 8px;
-  background: var(--surface);
+  padding: 0;
+  border: 0;
+  border-bottom: 1px dashed var(--line);
+  background: transparent;
   color: var(--ink);
   font: inherit;
   font-size: 12.5px;
 }
 
-.ck__person-contact::placeholder { color: var(--placeholder); }
+.ck__person-contact::placeholder { color: var(--muted); opacity: 1; }
+.ck__person-contact:hover { border-bottom-color: var(--ink); }
+
+.ck__person-contact:focus-visible {
+  outline: none;
+  border-bottom-color: var(--brand-soft);
+}
 
 .ck__person-amt {
   display: inline-flex;
@@ -1185,7 +1200,12 @@
 
 .sp__facts { list-style: none; margin: 0 0 18px; padding: 0; display: grid; gap: 12px; }
 
-.sp__facts li {
+/* DIRECT children only. As a descendant selector this also caught every row
+   of the nested `.sp__times` list, so each time became a two column grid whose
+   first column is the 34px icon well. The date landed in those 34 pixels and
+   `overflow-wrap: anywhere` below let it shrink to fit, which is how
+   "Tuesday 29 September" came to be printed one chunk per line. */
+.sp__facts > li {
   display: grid;
   grid-template-columns: 34px minmax(0, 1fr);
   gap: 10px;
@@ -1405,7 +1425,21 @@ bdi,
 
 /* Every slot a share covers, on the friend's payment page. */
 .sp__times { list-style: none; margin: 2px 0 0; padding: 0; display: grid; gap: 3px; }
-.sp__times li { font-size: 13px; }
+
+/* Date and time on one line while they fit, wrapping to two when they do not,
+   which is what a narrow phone needs. `baseline` so the smaller time sits on
+   the same line as the date rather than floating above it. */
+.sp__times li {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 2px 8px;
+  font-size: 13px;
+}
+
+/* The date is a whole thing. Breaking it mid-word is never the right answer
+   here: if it does not fit it wraps to its own line. */
+.sp__times strong { overflow-wrap: normal; }
 
 /* Placeholder for a price the backend has not returned yet. Mirrors the
    booking page rule so both steps wait identically. */

@@ -237,17 +237,66 @@ check('an equal split sends a headcount, never amounts', () => {
   return assert(body.people === 4, 'the headcount was lost');
 });
 
-check('one contact box routes to email or to phone', () => {
+check('the contact box sends an email and nothing else', () => {
+  // It used to take an email OR a mobile and guess which from an "@". The
+  // guess was the problem: a typo with no "@" was quietly filed as a phone
+  // number and the friend never got their link, with nothing to show why.
+  // The field asks for an email now, so `phone` goes out empty rather than
+  // filled with whatever failed to look like an address.
   const body = splitRequest({
     ...blankSplit(), on: true, people: 3,
     friends: [
       { name: 'Ali', contact: 'ali@club.sa' },
-      { name: 'Omar', contact: '+966500000002' },
+      { name: 'Omar', contact: 'not-an-address' },
     ],
   });
-  assert(body.friends[0].email === 'ali@club.sa' && !body.friends[0].phone, 'email misrouted');
-  return assert(body.friends[1].phone === '+966500000002' && !body.friends[1].email,
-    'phone misrouted');
+  assert(body.friends[0].email === 'ali@club.sa' && !body.friends[0].phone,
+    'the email was not sent as an email');
+  return assert(body.friends[1].phone === '' && body.friends[1].email === 'not-an-address',
+    'a value that is not an address was filed as a phone number again');
+});
+
+check('the split fields ask plainly, without "optional" in the way', () => {
+  // Everything in this panel is optional; saying so on each field was noise,
+  // and the name in particular read as a heading rather than something to
+  // type in.
+  const { en, ar } = RESOURCES;
+  for (const [code, r] of [['en', en], ['ar', ar]]) {
+    assert(!/optional/i.test(r.split.namePlaceholder),
+      `${code}: the name field still says optional`);
+    assert(!/optional|اختياري/i.test(r.split.contactPlaceholder),
+      `${code}: the email field still says optional`);
+  }
+  return assert(!/mobile|phone/i.test(en.split.contactPlaceholder),
+    'the email field still offers a mobile number');
+});
+
+check('the name and email fields look like one pair', () => {
+  // A bordered box beneath a bare underline read as two different kinds of
+  // control stacked on each other.
+  const css = readFileSync('src/styles/payment.css', 'utf8');
+  const block = css.slice(css.indexOf('.ck__person-contact {'));
+  const decl = block.slice(0, block.indexOf('}'));
+  assert(/border-bottom:\s*1px dashed/.test(decl),
+    'the email field does not take the name field underline');
+  return assert(!/border-radius/.test(decl),
+    'the email field is still a rounded box');
+});
+
+check('a refused reservation clears the times it refused', () => {
+  // "Pick times again" kept the selection, so pressing Continue sent the
+  // customer straight back to the same refusal. Those times are the ones
+  // somebody else has taken. An EXPIRY keeps them, because they may well
+  // still be free.
+  const wizardSrc = readFileSync('src/components/BookingWizard.jsx', 'utf8');
+  assert(wizardSrc.includes('onPickAgain({ reset: true })'),
+    'the refusal banner does not ask for a clean slate');
+  assert(wizardSrc.includes("opts?.reset === true) setSlots([])"),
+    'the wizard ignores the request to clear');
+  // The expiry banner must NOT ask for it.
+  const expired = wizardSrc.slice(wizardSrc.indexOf("t('hold.expired')"));
+  return assert(!expired.slice(0, 400).includes('reset: true'),
+    'an expired reservation also throws the selection away');
 });
 
 check('the card payload carries only what was typed', () => {
@@ -693,6 +742,89 @@ check('a date the backend refuses can never become the selection', () => {
     'the click is not guarded, so a tap could select an unbookable date');
   return assert(calendarSource.includes("t('wizard.when.unavailable')"),
     'a disabled date carries no accessible reason');
+});
+
+check('the payer page lays out its times, and does not stack a date', () => {
+  // `.sp__facts li` as a DESCENDANT selector also caught every row of the
+  // nested times list, so each time became a two column grid whose first
+  // column is the 34px icon well. The date landed in those 34 pixels and
+  // `overflow-wrap: anywhere` let it shrink to fit, which printed
+  // "Tuesday 29 September" one chunk per line down the page.
+  const css = readFileSync('src/styles/payment.css', 'utf8');
+  assert(css.includes('.sp__facts > li {'),
+    'the icon grid is a descendant selector again, so nested lists inherit it');
+  assert(!/\.sp__facts li \{/.test(css),
+    'the old descendant rule is back');
+  const times = css.slice(css.indexOf('.sp__times li {'));
+  const decls = times.slice(0, times.indexOf('}'));
+  return assert(/flex-wrap:\s*wrap/.test(decls),
+    'a date and its time cannot wrap onto two lines on a phone');
+});
+
+check('scarcity is shown on the two days where it changes a decision', () => {
+  // Three courts free is an ordinary day. Decorating it would spend the
+  // customer's attention on nothing and leave none for the day that matters.
+  assert(calendarSource.includes('state.count <= 2'), 'no scarcity tier at all');
+  assert(calendarSource.includes('state.count === 1'), 'the last court is not singled out');
+  const css = readFileSync('src/styles/booking.css', 'utf8');
+  assert(css.includes('.bw__day-left'), 'the count has no label');
+  return assert(css.includes('.bw__day.is-last'), 'the last court has no treatment');
+});
+
+check('a day never carries two badges', () => {
+  // The cell is a 40px circle. An offer keeps the words it already had, and a
+  // last court is marked by the RING instead, so the most urgent day of the
+  // month reads as both without two labels fighting for the same space.
+  assert(calendarSource.includes('!offer && scarce'),
+    'the count label is not suppressed when an offer already has the words');
+  const css = readFileSync('src/styles/booking.css', 'utf8');
+  const ring = css.slice(css.indexOf('.bw__day.is-last {'));
+  return assert(/box-shadow:\s*inset/.test(ring.slice(0, ring.indexOf('}'))),
+    'the ring is drawn outside the circle, so the grid shifts');
+});
+
+check('the scarcity label stays readable on a filled cell', () => {
+  // The chosen day and the hover state fill the circle, and a fixed hue would
+  // disappear into it.
+  const css = readFileSync('src/styles/booking.css', 'utf8');
+  return assert(css.includes('.bw__day.is-active .bw__day-left'),
+    'the label keeps its own colour on the chosen day');
+});
+
+check('a sold out date is told apart from a shut one and a dead one', () => {
+  // Three different facts that all used to render as the same grey square:
+  // every court has gone, the club chose to close, and the date is not on
+  // offer at all. A customer who can see a day sold out will try the one
+  // either side; one that looks like dead space gets skipped.
+  const css = readFileSync('src/styles/booking.css', 'utf8');
+  assert(calendarSource.includes("state.reason === 'fully_booked'"),
+    'the sold-out reason is never read');
+  assert(calendarSource.includes('is-full'), 'a sold-out date carries no mark');
+  assert(css.includes('.bw__day-mark--full'), 'the sold-out mark is unstyled');
+  // Told apart by SHAPE as well as colour, for anyone who cannot rely on hue.
+  const full = css.slice(css.indexOf('.bw__day-mark--full'));
+  return assert(/border-radius:\s*2px/.test(full.slice(0, full.indexOf('}'))),
+    'the sold-out mark is another round dot, indistinguishable by shape');
+});
+
+check('a closed date is not marked in the colour of an open one', () => {
+  // `--amber-600` resolves to the LIME accent in this theme, so the holiday
+  // mark came out the same colour family as an available day, which is the
+  // one thing a closed date must not look like.
+  const css = readFileSync('src/styles/booking.css', 'utf8');
+  const block = css.slice(css.indexOf('.bw__day.is-holiday {'));
+  // Declarations only. The comment above this rule names the alias it stopped
+  // using, and a naive search matched its own explanation.
+  const decls = block.slice(0, block.indexOf('}')).replace(/\/\*[\s\S]*?\*\//g, '');
+  assert(!/--amber/.test(decls), 'the holiday still uses the lime alias');
+  return assert(decls.includes('--warn-ink'),
+    'the holiday has no warning colour of its own');
+});
+
+check('a calendar that opens on an unbookable date moves to a bookable one', () => {
+  // Otherwise the customer is shown a day of "Fully booked" and left to hunt.
+  return assert(calendarSource.includes('const firstOpen = Object.keys(days).sort().find'),
+    'nothing moves the selection off an unbookable date');
 });
 
 check('a date closed for a holiday says so rather than greying out', () => {
@@ -1194,6 +1326,42 @@ check('leaving the checkout clears the expiry mark', () => {
     'leaving only clears storage when a token is left, so an expired mark sticks for ever');
 });
 
+
+check('an expired reservation sends a refresh back to the picker', () => {
+  // The customer used to land on the payment step looking at a dead countdown
+  // and a Pay button that would be refused, with nothing on the page asking
+  // the server again. The expiry message tells them to choose again; a reload
+  // should put them where that happens.
+  const hook = readFileSync('src/lib/useReservation.js', 'utf8');
+  const wizardSrc = readFileSync('src/components/BookingWizard.jsx', 'utf8');
+  assert(hook.includes('export function selectionFinished'),
+    'the wizard cannot ask whether this selection already ran out');
+  assert(wizardSrc.includes('selectionFinished('), 'the restore never asks');
+  return assert(wizardSrc.includes('maxReach = Math.min(maxReach, STEP_WHEN)'),
+    'an expired selection can still restore straight to the payment step');
+});
+
+check('landing on the picker clears the expired mark', () => {
+  // Otherwise the customer is moved to the picker and bounced straight back to
+  // the dead countdown the moment they press Continue, which is worse than not
+  // moving them at all.
+  const hook = readFileSync('src/lib/useReservation.js', 'utf8');
+  const wizardSrc = readFileSync('src/components/BookingWizard.jsx', 'utf8');
+  assert(hook.includes('export function clearFinishedSelection'),
+    'nothing can clear the mark outside the hook');
+  assert(hook.includes("if (!readStored()?.finished) return false"),
+    'clearing is not restricted to a FINISHED entry, so a live token could be lost');
+  return assert(wizardSrc.includes('clearFinishedSelection()'),
+    'the picker never clears it, so choosing again is refused');
+});
+
+check('a live reservation is never restarted by a reload', () => {
+  // The rule this sits beside: pressing F5 must not grant another ten minutes,
+  // or the deadline means nothing to anybody willing to press it.
+  const hook = readFileSync('src/lib/useReservation.js', 'utf8');
+  return assert(hook.includes('stored?.signature === signature && stored.finished'),
+    'the sticky guard has gone, so a refresh could silently start a new window');
+});
 
 check('a slot somebody is mid-checkout on is withdrawn, not called booked', () => {
   // "Fully booked" was a lie: nobody had booked it, somebody was paying for

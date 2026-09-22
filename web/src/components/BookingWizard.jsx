@@ -6,7 +6,9 @@ import { I18n } from '../i18n/client.jsx';
 import { intlLocale, weekdayStyle } from '../i18n/index.js';
 import PhoneField from './PhoneField.jsx';
 import { phoneCountryFor } from '../utils/countries.js';
-import { formatCountdown, useReservation } from '../lib/useReservation.js';
+import {
+  clearFinishedSelection, formatCountdown, selectionFinished, useReservation,
+} from '../lib/useReservation.js';
 import {
   CardForm,
   CheckIcon,
@@ -322,6 +324,25 @@ function Wizard({ categories = [], facilityTypes = [], clubs = [], currency = ''
     if (br) maxReach = 1;
     if (br && svc) maxReach = 3;
     if (br && svc && restoredSlot) maxReach = 4;
+    // A reservation that already ran out for THIS selection does not get the
+    // payment step back on a refresh. The countdown there is dead, the Pay
+    // button would be refused, and nothing on the page asks the server again:
+    // the customer is looking at a wall. Open where the expiry message sends
+    // them instead, with their times still selected so choosing again is one
+    // press rather than starting over.
+    //
+    // The deadline still means something. This grants nobody another ten
+    // minutes on the spot; it returns them to choosing, which is the same
+    // explicit act "Pick times again" asks for and has always allowed.
+    const ranOut = restoredSlot
+      && selectionFinished(br, svc, restoredSlots.length ? restoredSlots : [restoredSlot]);
+    // Opening the picker is the act that clears it. Without this the customer
+    // is sent here and then bounced straight back to the dead countdown the
+    // moment they press Continue, which is worse than not moving them at all.
+    if (ranOut) {
+      maxReach = Math.min(maxReach, STEP_WHEN);
+      clearFinishedSelection();
+    }
     setStep(Math.min(Number(sp.get('step')) || 0, maxReach));
     setRestored(true);
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -447,7 +468,13 @@ function Wizard({ categories = [], facilityTypes = [], clubs = [], currency = ''
             reservation={reservation}
             details={details} setDetails={setDetails} pay={pay} setPay={setPay}
             done={bookingDone} setDone={setBookingDone} onReset={reset}
-            onEditBooking={() => go(STEP_WHEN)}
+            onEditBooking={(opts) => {
+              // `reset` comes only from the refusal banner. The Edit link in
+              // the summary passes a click event, whose `.reset` is undefined,
+              // so it keeps the selection as it always has.
+              if (opts?.reset === true) setSlots([]);
+              go(STEP_WHEN);
+            }}
           />
         )}
       </div>
@@ -1305,20 +1332,35 @@ export function Schedule({ facilityType, category, club, currency, initialDate =
             const off = state.off;
             const active = iso === date;
             const isToday = iso === todayIso;
-            // A handful of slots left is worth a quiet mark; a full day is not
-            // worth decorating, and every day carrying a badge would be noise.
-            const limited = !off && state.count > 0 && state.count <= 2;
+            // Two tiers, and nothing beyond them. A day with three courts free
+            // is an ordinary day; decorating it would spend the customer's
+            // attention on nothing and leave none for the day that matters.
+            const scarce = !off && state.count > 0 && state.count <= 2;
+            const lastOne = !off && state.count === 1;
             const offer = state.offer;
             // A discount confined to part of the day says only that an offer
             // exists; claiming "-20%" for the whole date would be a lie.
             const offerText = offer
               ? (offer.time_limited ? t('wizard.when.offer') : offer.label)
               : '';
+            // ONE label per cell, never two. An offer keeps the words it
+            // already had; the ring below still marks a last court, so the
+            // most urgent cell of all reads as both without stacking badges
+            // into a 40px circle.
+            const scarceText = !offer && scarce
+              ? t('wizard.when.leftCount', { n: state.count })
+              : '';
             // Why this date is out, in the customer's language. The club's own
             // name for the date wins when it gave one, because "National Day"
             // tells them more than "Closed" ever will.
             const whyOff = off ? reasonText(state, t) : '';
             const holiday = off && state.reason === 'holiday';
+            // Sold out is not the same as shut, and neither is the same as a
+            // date simply out of range. A fully booked day used to look
+            // exactly like a past one, so the customer could not tell "every
+            // court has gone" from "not on offer" and had no reason to try a
+            // neighbouring date.
+            const full = off && state.reason === 'fully_booked';
             // A date that can EXPLAIN itself stays focusable and tappable so it
             // can be asked. `disabled` would make it unreachable by keyboard
             // and inert to a tap, which on a phone means the explanation could
@@ -1331,9 +1373,9 @@ export function Schedule({ facilityType, category, club, currency, initialDate =
                 title={offer ? offer.name : (whyOff || undefined)}
                 aria-label={longDate(iso, locale)
                   + (off ? `, ${whyOff || t('wizard.when.unavailable')}` : '')
-                  + (!off && limited ? `, ${t('wizard.when.slotsLeft', { count: state.count })}` : '')
+                  + (!off && scarce ? `, ${t('wizard.when.slotsLeft', { count: state.count })}` : '')
                   + (offer ? `, ${offer.name}` : '')}
-                className={`bw__day${active ? ' is-active' : off ? ' is-off' : ' is-open'}${isToday && !active && !off ? ' is-today' : ''}${limited ? ' is-limited' : ''}${offer ? ' has-offer' : ''}${holiday ? ' is-holiday' : ''}`}
+                className={`bw__day${active ? ' is-active' : off ? ' is-off' : ' is-open'}${isToday && !active && !off ? ' is-today' : ''}${scarce ? ' is-limited' : ''}${offer ? ' has-offer' : ''}${holiday ? ' is-holiday' : ''}${full ? ' is-full' : ''}${lastOne ? ' is-last' : ''}${scarceText ? ' is-scarce' : ''}`}
                 onMouseEnter={askable ? () => setDayNote({ iso, text: whyOff }) : undefined}
                 onMouseLeave={askable ? () => setDayNote(null) : undefined}
                 onFocus={askable ? () => setDayNote({ iso, text: whyOff }) : undefined}
@@ -1346,8 +1388,11 @@ export function Schedule({ facilityType, category, club, currency, initialDate =
                 }}>
                 {d.getDate()}
                 {offer && <span className="bw__day-offer"><bdi>{offerText}</bdi></span>}
-                {limited && !offer && <span className="bw__day-dot" aria-hidden="true" />}
+                {scarceText && (
+                  <span className="bw__day-left" aria-hidden="true"><bdi>{scarceText}</bdi></span>
+                )}
                 {holiday && <span className="bw__day-mark" aria-hidden="true" />}
+                {full && <span className="bw__day-mark bw__day-mark--full" aria-hidden="true" />}
               </button>
             );
           })}
@@ -1532,7 +1577,13 @@ export function HoldBanner({ reservation, onPickAgain }) {
     return (
       <div className="ck__hold ck__hold--over" role="alert">
         <span className="ck__hold-tx">{error}</span>
-        <button type="button" className="ck__hold-btn" onClick={onPickAgain}>
+        {/* A REFUSAL clears the selection; an expiry below does not. The times
+            that were refused are the times somebody else has taken, so keeping
+            them selected sends the customer back here to read the same message
+            again. An expired reservation is different: those times may well
+            still be free, so they are kept and choosing again is one press. */}
+        <button type="button" className="ck__hold-btn"
+          onClick={() => onPickAgain({ reset: true })}>
           {t('hold.pickAgain')}
         </button>
       </div>

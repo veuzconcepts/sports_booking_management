@@ -68,10 +68,21 @@ describe('split payment panel', () => {
     expect(screen.getAllByText(/100\.00/)).toHaveLength(4);
   });
 
-  it('shows the organizer as the organizer, not by name', () => {
-    render(<SplitPaymentPanel splits={[SPLIT]} currency="SAR" />);
-    expect(screen.getByText('split.organizer')).toBeInTheDocument();
-    expect(screen.queryByText('Mohammed')).toBeNull();
+  it('names the organizer and marks them, rather than replacing their name', () => {
+    // "Organizer" printed where the name belongs told staff nothing and read
+    // like a second, anonymous participant sitting above the real people. Who
+    // arranged the split is a mark ON their name.
+    const { container } = render(<SplitPaymentPanel splits={[SPLIT]} currency="SAR" />);
+    expect(screen.getByText('Mohammed')).toBeInTheDocument();
+    expect(screen.queryByText('split.organizer')).toBeNull();
+    expect(container.querySelectorAll('.split-panel__org')).toHaveLength(1);
+  });
+
+  it('explains the mark rather than leaving an unlabelled icon', () => {
+    const { container } = render(<SplitPaymentPanel splits={[SPLIT]} currency="SAR" />);
+    const mark = container.querySelector('.split-panel__org');
+    expect(mark.getAttribute('title')).toBeTruthy();
+    expect(mark.getAttribute('aria-label')).toBeTruthy();
   });
 
   it('distinguishes paid shares from pending ones', () => {
